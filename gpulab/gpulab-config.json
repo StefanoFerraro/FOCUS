@@ -1,0 +1,22 @@
+{
+    "jobDefinition": {
+        "name": "$CONFIG-$AGENT-$DOMAIN",
+        "clusterId": $CLUSTER_ID,
+        "description": "$EXPERIMENT_NAME",
+        "dockerImage": "$DOCKER_IMAGE",
+        "jobType": "BATCH",
+        "command": "$COMMAND",
+        "resources": {
+            "minCudaVersion": 10,
+            "gpus": $GPUS,
+            "systemMemory": $MEMORY,
+            "cpuCores": $CPUS
+        },
+        "jobDataLocations": [
+            {
+                "mountPoint": "/project_ghent"
+            }
+        ],
+        "portMappings": []
+    }
+}
