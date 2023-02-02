@@ -14,7 +14,7 @@
         },
         "jobDataLocations": [
             {
-                "mountPoint": "/project_ghent"
+                "mountPoint": "$MOUNT_POINT"
             }
         ],
         "portMappings": []
