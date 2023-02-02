@@ -489,6 +489,9 @@ class PandaRoboSuite:
         success = 0.0
         for _ in range(self._action_repeat):
             state, rew, done, info = self._env.step(action)
+            import code
+
+            code.interact(local=locals())
             success += float(done)
             reward += float(rew)
         success = min(success, 1.0)
@@ -498,11 +501,13 @@ class PandaRoboSuite:
             "is_first": False,
             "is_last": False,  # will be handled by timelimit wrapper
             "is_terminal": False,  # will be handled by per_episode function
-            "observation": self._env.sim.render(
-                *self._size, mode="offscreen", camera_name=self._camera
-            )
-            .transpose(2, 0, 1)
-            .copy(),
+            "observation": np.flip(
+                self._env.sim.render(
+                    *self._size, mode="offscreen", camera_name=self._camera
+                )
+                .transpose(2, 0, 1)
+                .copy()
+            ),
             "state": state,
             "action": action,
             "success": success,
@@ -534,11 +539,13 @@ class PandaRoboSuite:
             "is_first": True,
             "is_last": False,
             "is_terminal": False,
-            "observation": self._env.sim.render(
-                *self._size, mode="offscreen", camera_name=self._camera
-            )
-            .transpose(2, 0, 1)
-            .copy(),
+            "observation": np.flip(
+                self._env.sim.render(
+                    *self._size, mode="offscreen", camera_name=self._camera
+                )
+                .transpose(2, 0, 1)
+                .copy()
+            ),
             "state": state,
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,

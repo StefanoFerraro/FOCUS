@@ -16,8 +16,8 @@ export DOMAIN="panda"
 
 export COMMAND="bash -c \\\" \
         wandb login $WANDB_KEY && \
-        cd /tmp/ && \
-        cd  /project_ghent/sferraro/choreographer && \
+        git config --global --add safe.directory /project_ghent/sferraro/choreographer && \
+        cd /project_ghent/sferraro/choreographer && \
         git pull origin robosuite && \
         python3 dreamer_pretrain.py configs=$CONFIG agent=$AGENT domain=$DOMAIN \
         \\\""
