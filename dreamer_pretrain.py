@@ -92,6 +92,7 @@ class Workspace:
         # create replay buffer
         data_specs = (
             self.train_env.observation_spec(),
+            self.train_env.proprio_spec(),
             self.train_env.action_spec(),
             specs.Array((1,), np.float32, "reward"),
             specs.Array((1,), np.float32, "discount"),
@@ -113,6 +114,7 @@ class Workspace:
             cfg.batch_size,  #
             cfg.replay_buffer_num_workers,
         )
+
         self._replay_iter = None
 
         # Globals
@@ -383,6 +385,7 @@ def main(cfg):
     root_dir = Path.cwd()
     cfg.use_wandb = False
     cfg.project_name = "local"
+
     workspace = W(cfg)
     workspace.root_dir = root_dir
     snapshot = workspace.root_dir / "last_snapshot.pt"

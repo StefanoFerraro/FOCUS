@@ -84,7 +84,7 @@ class ICMDreamerAgent(DreamerAgent):
     def update(self, data, step):
         metrics = {}
         B, T, _ = data['action'].shape
-
+ 
         if self.reward_free:
             T = T-1
             temp_data = self.wm.preprocess(data)

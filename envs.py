@@ -13,7 +13,9 @@ import gym
 import pickle
 
 import robosuite as suite
-from robosuite.wrappers import GymWrapper
+from robosuite.wrappers import Wrapper
+from gym.core import Env
+from gym import spaces
 
 
 class ExtendedTimeStep(NamedTuple):
@@ -416,31 +418,121 @@ class NormalizeAction:
         return self._env.step({**action, self._key: orig})
 
 
-class PandaRoboSuite:
-    def __init__(
-        self,
-        task="Lift",
-        seed=None,
-        action_repeat=1,
-        size=(64, 64),
-        camera=None,
-    ):
-        os.environ["MUJOCO_GL"] = "egl"
+class PandaGymWrapper(Wrapper, Env):
+    def __init__(self, env, keys=None):
+        # Run super method
+        super().__init__(env=env)
+        # Create name for gym
+        robots = "".join(
+            [type(robot.robot_model).__name__ for robot in self.env.robots]
+        )
+        self.name = robots + "_" + type(self.env).__name__
 
-        self._env = GymWrapper(
+        # Get reward range
+        self.reward_range = (0, self.env.reward_scale)
+
+        # if keys is None:
+        #     keys = []
+        #     # Add object obs if requested
+        #     if self.env.use_object_obs:
+        #         keys += ["object-state"]
+        #     # Add image obs if requested
+        #     if self.env.use_camera_obs:
+        #         keys += [
+        #             f"{cam_name}_image" for cam_name in self.env.camera_names
+        #         ]
+        #     # Iterate over all robots to add to state
+        #     for idx in range(len(self.env.robots)):
+        #         keys += ["robot{}_proprio-state".format(idx)]
+        self.keys = keys
+
+        # Gym specific attributes
+        self.env.spec = None
+        self.metadata = None
+
+        # set up observation and action spaces
+        obs = self.env.reset()
+
+        # filter state based on keys
+        obs = {key: obs[key] for key in self.keys}
+
+        self.modality_dims = {key: obs[key].shape for key in self.keys}
+        flat_ob = self._flatten_obs(obs)
+        self.obs_dim = flat_ob.size
+        high = np.inf * np.ones(self.obs_dim)
+        low = -high
+        self.observation_space = spaces.Box(low=low, high=high)
+        low, high = self.env.action_spec
+        self.action_space = spaces.Box(low=low, high=high)
+
+    def seed(self, seed=None):
+        """
+        Utility function to set numpy seed
+        Args:
+            seed (None or int): If specified, numpy seed to set
+        Raises:
+            TypeError: [Seed must be integer]
+        """
+        # Seed the generator
+        if seed is not None:
+            try:
+                np.random.seed(seed)
+            except:
+                TypeError("Seed must be an integer type!")
+
+    def _flatten_obs(self, obs_dict, verbose=False):
+        """
+        Filters keys of interest out and concatenate the information.
+        Args:
+            obs_dict (OrderedDict): ordered dictionary of observations
+            verbose (bool): Whether to print out to console as observation keys are processed
+        Returns:
+            np.array: observations flattened into a 1d array
+        """
+        ob_lst = []
+        for key in self.keys:
+            if key in obs_dict:
+                if verbose:
+                    print("adding key: {}".format(key))
+                ob_lst.append(np.array(obs_dict[key]).flatten())
+        return np.concatenate(ob_lst)
+
+
+class PandaRoboSuite:
+    def __init__(self, task="Lift", seed=None, action_repeat=1, size=(64, 64)):
+        os.environ["MUJOCO_GL"] = "egl"
+        self._camera = "robot0_eye_in_hand"
+
+        self._proprio_keys = ["robot0_proprio-state"]
+
+        self._obs_keys = [
+            self._camera + "_image",
+            self._camera + "_depth",
+        ]
+
+        self._object_keys = ["object-state"]
+        self._env = PandaGymWrapper(
             suite.make(
                 task,
                 robots="Panda",  # use Sawyer robot
-                use_camera_obs=True,  # do not use pixel observations
-                has_offscreen_renderer=True,  # not needed since not using pixel obs
-                has_renderer=True,  # make sure we can render to the screen
-                reward_shaping=True,  # use dense rewards
+                has_renderer=False,  # on-screen renderer
+                has_offscreen_renderer=True,  # off-screen rendering needed for image obs
+                use_object_obs=True,  # provide object observations to agent
+                use_camera_obs=True,  # provide image observations to agent
+                camera_names=self._camera,
+                camera_depths=True,
+                camera_segmentations="instance",
+                camera_heights=size[0],  # image height
+                camera_widths=size[1],  # image width
+                horizon=250,  # each episode terminates after 200 steps
+                reward_shaping=True,
                 control_freq=20,  # control should happen fast enough so that simulation looks smooth
-            )
+            ),
+            keys=self._proprio_keys + self._obs_keys,
         )
+
         self._size = size
         self._action_repeat = action_repeat
-        self._camera = camera
         self._seed = seed
         self._task = task
 
@@ -448,6 +540,16 @@ class PandaRoboSuite:
         v = self.obs_space["observation"]
         return specs.BoundedArray(
             name="observation",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def proprio_spec(self,):
+        v = self.obs_space["proprio"]
+        return specs.BoundedArray(
+            name="proprio",
             shape=v.shape,
             dtype=v.dtype,
             minimum=v.low,
@@ -467,7 +569,13 @@ class PandaRoboSuite:
     def obs_space(self):
         spaces = {
             "observation": gym.spaces.Box(
-                0, 255, (3,) + self._size, dtype=np.uint8
+                0, 255, (4,) + self._size, dtype=np.float32
+            ),
+            "proprio": gym.spaces.Box(
+                -np.inf,
+                np.inf,
+                self._env.modality_dims["robot0_proprio-state"],
+                dtype=np.float32,
             ),
             "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
             "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
@@ -483,32 +591,55 @@ class PandaRoboSuite:
         action = self._env.action_space
         return {"action": action}
 
+    def _proprio_obs(self, state):
+        proprio = []
+
+        for key in self._proprio_keys:
+            proprio += list(state[key])
+
+        return proprio
+
+    def _state_extraction(self, env_state):
+        proprio = self._proprio_obs(env_state)
+
+        rgbd = np.concatenate(
+            (
+                env_state[self._camera + "_image"],
+                env_state[self._camera + "_depth"],
+            ),
+            axis=2,
+        )[::-1]
+        seg = env_state[self._camera + "_segmentation_instance"][::-1]
+
+        state = {}
+        for key in self._proprio_keys or self._obs_keys:
+            state[key] = env_state[key]
+
+        return proprio, rgbd, seg, state
+
     def step(self, action):
         # assert np.isfinite(action["action"]).all(), action["action"]
+        # TODO: check state match with observation
         reward = 0.0
         success = 0.0
         for _ in range(self._action_repeat):
-            state, rew, done, info = self._env.step(action)
-            import code
-
-            code.interact(local=locals())
+            env_state, rew, done, info = self._env.step(action)
             success += float(done)
             reward += float(rew)
         success = min(success, 1.0)
         assert success in [0.0, 1.0]
+
+        proprio, rgbd, seg, state = self._state_extraction(env_state)
+
         obs = {
             "reward": reward,
             "is_first": False,
-            "is_last": False,  # will be handled by timelimit wrapper
+            "is_last": done,  # will be handled by timelimit wrapper
             "is_terminal": False,  # will be handled by per_episode function
-            "observation": np.flip(
-                self._env.sim.render(
-                    *self._size, mode="offscreen", camera_name=self._camera
-                )
-                .transpose(2, 0, 1)
-                .copy()
-            ),
-            "state": state,
+            "observation": rgbd.transpose(2, 0, 1),
+            "proprio": np.array(proprio).astype(np.float32),
+            "segmentation": seg,
+            "state": self._env._flatten_obs(state),
             "action": action,
             "success": success,
             "discount": 1,
@@ -525,28 +656,19 @@ class PandaRoboSuite:
         # return obs
 
     def reset(self):
-        state = self._env.reset()
-        # This ensures the first observation is correct in the renderer
-        # self._env.sim.render(
-        #     *self._size, mode="offscreen", camera_name=self._camera
-        # )
-        # for site in self._env._target_site_config:
-        #     self._env._set_pos_site(*site)
-        # self._env.sim._render_context_offscreen._set_mujoco_buffers()
+        env_state = self._env.reset()
+
+        proprio, rgbd, seg, state = self._state_extraction(env_state)
 
         obs = {
             "reward": 0.0,
             "is_first": True,
             "is_last": False,
             "is_terminal": False,
-            "observation": np.flip(
-                self._env.sim.render(
-                    *self._size, mode="offscreen", camera_name=self._camera
-                )
-                .transpose(2, 0, 1)
-                .copy()
-            ),
-            "state": state,
+            "observation": rgbd.transpose(2, 0, 1),
+            "proprio": np.array(proprio).astype(np.float32),
+            "segmentation": seg,
+            "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
             "discount": 1,
@@ -608,7 +730,7 @@ def _make_panda(
     obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
 ):
     env = PandaRoboSuite("Lift", seed, action_repeat, (img_size, img_size))
-    return TimeLimit(env, 250)
+    return env
 
 
 def _make_jaco(
