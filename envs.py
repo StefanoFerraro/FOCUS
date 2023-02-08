@@ -536,10 +536,20 @@ class PandaRoboSuite:
         self._seed = seed
         self._task = task
 
-    def observation_spec(self,):
-        v = self.obs_space["observation"]
+    def rgb_spec(self,):
+        v = self.obs_space["rgb"]
         return specs.BoundedArray(
-            name="observation",
+            name="rgb",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def depth_spec(self,):
+        v = self.obs_space["depth"]
+        return specs.BoundedArray(
+            name="depth",
             shape=v.shape,
             dtype=v.dtype,
             minimum=v.low,
@@ -550,6 +560,16 @@ class PandaRoboSuite:
         v = self.obs_space["proprio"]
         return specs.BoundedArray(
             name="proprio",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def segmentation_spec(self,):
+        v = self.obs_space["segmentation"]
+        return specs.BoundedArray(
+            name="segmentation",
             shape=v.shape,
             dtype=v.dtype,
             minimum=v.low,
@@ -568,14 +588,18 @@ class PandaRoboSuite:
     @property
     def obs_space(self):
         spaces = {
-            "observation": gym.spaces.Box(
-                0, 255, (4,) + self._size, dtype=np.float32
+            "rgb": gym.spaces.Box(0, 255, (3,) + self._size, dtype=np.uint8),
+            "depth": gym.spaces.Box(
+                -np.inf, np.inf, (1,) + self._size, dtype=np.float32,
             ),
             "proprio": gym.spaces.Box(
                 -np.inf,
                 np.inf,
                 self._env.modality_dims["robot0_proprio-state"],
                 dtype=np.float32,
+            ),
+            "segmentation": gym.spaces.Box(
+                -np.inf, np.inf, (1,) + self._size, dtype=np.int32,
             ),
             "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
             "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
@@ -602,20 +626,16 @@ class PandaRoboSuite:
     def _state_extraction(self, env_state):
         proprio = self._proprio_obs(env_state)
 
-        rgbd = np.concatenate(
-            (
-                env_state[self._camera + "_image"],
-                env_state[self._camera + "_depth"],
-            ),
-            axis=2,
-        )[::-1]
+        rgb = env_state[self._camera + "_image"][::-1]
+        depth = env_state[self._camera + "_depth"][::-1]
+
         seg = env_state[self._camera + "_segmentation_instance"][::-1]
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
             state[key] = env_state[key]
 
-        return proprio, rgbd, seg, state
+        return proprio, rgb, depth, seg, state
 
     def step(self, action):
         # assert np.isfinite(action["action"]).all(), action["action"]
@@ -629,60 +649,46 @@ class PandaRoboSuite:
         success = min(success, 1.0)
         assert success in [0.0, 1.0]
 
-        proprio, rgbd, seg, state = self._state_extraction(env_state)
+        proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
         obs = {
             "reward": reward,
             "is_first": False,
             "is_last": done,  # will be handled by timelimit wrapper
             "is_terminal": False,  # will be handled by per_episode function
-            "observation": rgbd.transpose(2, 0, 1),
+            "rgb": rgb.transpose(2, 0, 1),
+            "depth": depth.transpose(2, 0, 1),
             "proprio": np.array(proprio).astype(np.float32),
-            "segmentation": seg,
+            "segmentation": seg.transpose(2, 0, 1),
             "state": self._env._flatten_obs(state),
             "action": action,
             "success": success,
             "discount": 1,
         }
-        return (
-            dm_env.TimeStep(
-                step_type=dm_env.StepType.MID,
-                reward=obs["reward"],
-                discount=1,
-                observation=obs["observation"],
-            ),
-            obs,
-        )
-        # return obs
+
+        return obs
 
     def reset(self):
         env_state = self._env.reset()
 
-        proprio, rgbd, seg, state = self._state_extraction(env_state)
+        proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
         obs = {
             "reward": 0.0,
             "is_first": True,
             "is_last": False,
             "is_terminal": False,
-            "observation": rgbd.transpose(2, 0, 1),
+            "rgb": rgb.transpose(2, 0, 1),
+            "depth": depth.transpose(2, 0, 1),
             "proprio": np.array(proprio).astype(np.float32),
-            "segmentation": seg,
+            "segmentation": seg.transpose(2, 0, 1),
             "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
             "discount": 1,
         }
-        return (
-            dm_env.TimeStep(
-                step_type=dm_env.StepType.FIRST,
-                reward=None,
-                discount=None,
-                observation=obs["observation"],
-            ),
-            obs,
-        )
-        # return obs
+
+        return obs
 
     # def reset_with_task_id(self, task_id):
     # if self._camera == "corner2":

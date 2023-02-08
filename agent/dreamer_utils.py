@@ -456,12 +456,13 @@ class Encoder(Module):
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
-        self._input_channels = self.shapes["observation"][0]
+
+        # self._input_channels = self.shapes["rgb"][0]
         if len(self.cnn_keys) > 0:
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
-                    prev_depth = self._input_channels
+                    prev_depth = 4
                 else:
                     prev_depth = 2 ** (i - 1) * self._cnn_depth
                 depth = 2 ** i * self._cnn_depth
@@ -499,7 +500,8 @@ class Encoder(Module):
         return output.reshape(batch_dims + output.shape[1:])
 
     def _cnn(self, data):
-        x = torch.cat(list(data.values()), -1)
+
+        x = torch.cat(list(data.values()), 1)
         x = self._conv_model(x)
         return x.reshape(tuple(x.shape[:-3]) + (-1,))
 

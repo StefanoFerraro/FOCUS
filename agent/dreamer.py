@@ -89,6 +89,7 @@ class DreamerAgent(Module):
     def report(self, data):
         report = {}
         data = self.wm.preprocess(data)
+
         for key in self.wm.heads["decoder"].cnn_keys:
             name = key.replace("/", "_")
             report[f"openl_{name}"] = self.wm.video_pred(data, key)
@@ -310,6 +311,7 @@ class WorldModel(Module):
         self.device = config.device
         self.tfstep = tfstep
         self.encoder = common.Encoder(shapes, **config.encoder)
+
         # Computing embed dim
         with torch.no_grad():
             zeros = {k: torch.zeros((1,) + v) for k, v in shapes.items()}
@@ -484,7 +486,54 @@ class WorldModel(Module):
         obs["discount"] *= self.cfg.discount
         return obs
 
+    def segmentation_visualization(
+        self, seg, palette=None,
+    ):
+        gen = torch.Generator(device=seg.device)
+
+        if palette is None:
+            # Get random state before set seed,
+            # and restore random state later.
+            # It will prevent loss of randomness, as the palette
+            # may be different in each iteration if not specified.
+            # See: https://github.com/open-mmlab/mmdetection/issues/5844
+            state = gen.get_state()
+            gen.manual_seed(42)
+
+            # random palette
+            palette = torch.randint(
+                0,
+                255,
+                (int(torch.max(seg).item()) + 1, 3),
+                dtype=torch.uint8,
+                generator=gen,
+                device=seg.device,
+            )
+
+            gen.set_state(state)
+
+        # palette = np.array(palette)
+        # assert palette.shape[0] == inttorch.max(seg).item() + 1
+        # assert palette.shape[1] == 3
+        # assert len(palette.shape) == 2
+
+        seg_perm = seg.permute(0, 1, 3, 4, 2)
+
+        color_seg = torch.zeros(
+            (*seg_perm.shape[:4], 3), dtype=torch.uint8, device=seg.device,
+        )
+
+        for label, color in enumerate(palette):
+            color_seg[(seg_perm == label)[..., -1], :] = color
+
+        # convert to BGR
+        # color_seg = color_seg[..., ::-1]
+
+        return color_seg.permute(0, 1, 4, 2, 3)
+
     def video_pred(self, data, key, nvid=8):
+        # TODO process segm
+
         decoder = self.heads["decoder"]  # B, T, C, H, W
         truth = data[key][:nvid] + 0.5
         embed = self.encoder(data)
@@ -532,8 +581,13 @@ class WorldModel(Module):
                 torch.cat([recon[:, :5] + 0.5, skill_recon + 0.5], 1), 0, 1
             )
 
+        if key == "segmentation":
+            truth = self.segmentation_visualization(truth - 0.5)
+            model = self.segmentation_visualization(model)
+            error = torch.cat((error, error, error), 2)
+
         video = torch.cat([truth, model, error], 3)
-        B, T, C, H, W = video.shape
+        # B, T, C, H, W = video.shape
         return video
 
 
@@ -698,4 +752,3 @@ class ActorCritic(Module):
                 ):
                     d.data = mix * s.data + (1 - mix) * d.data
             self._updates += 1
-

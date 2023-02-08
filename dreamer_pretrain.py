@@ -43,6 +43,35 @@ def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
     )
 
 
+def segmentation_visualization(
+    self, seg, palette=None,
+):
+    if palette is None:
+        # Get random state before set seed,
+        # and restore random state later.
+        # It will prevent loss of randomness, as the palette
+        # may be different in each iteration if not specified.
+        # See: https://github.com/open-mmlab/mmdetection/issues/5844
+        state = np.random.get_state()
+        np.random.seed(42)
+        # random palette
+        palette = np.random.randint(0, 255, size=(max(seg), 3))
+        np.random.set_state(state)
+
+    palette = np.array(palette)
+    assert palette.shape[0] == max(seg)
+    assert palette.shape[1] == 3
+    assert len(palette.shape) == 2
+
+    color_seg = np.zeros((seg.shape[1], seg.shape[2], 3), dtype=np.uint8)
+    for label, color in enumerate(palette):
+        color_seg[seg == label, :] = color
+    # convert to BGR
+    color_seg = color_seg[..., ::-1]
+
+    return seg
+
+
 class Workspace:
     def __init__(self, cfg, savedir=None, workdir=None):
         self.workdir = Path.cwd() if workdir is None else workdir
@@ -87,12 +116,15 @@ class Workspace:
             cfg,
             cfg.agent,
         )
+
         # get meta specs
         meta_specs = self.agent.get_meta_specs()
         # create replay buffer
         data_specs = (
-            self.train_env.observation_spec(),
+            self.train_env.rgb_spec(),
+            self.train_env.depth_spec(),
             self.train_env.proprio_spec(),
+            self.train_env.segmentation_spec(),
             self.train_env.action_spec(),
             specs.Array((1,), np.float32, "reward"),
             specs.Array((1,), np.float32, "discount"),
@@ -201,6 +233,7 @@ class Workspace:
         agent_state = None
         meta = self.agent.init_meta()
         data = dreamer_obs
+
         self.replay_storage.add(data, meta)
         metrics = None
         while train_until_step(self.global_step):
@@ -227,10 +260,8 @@ class Workspace:
                 self.save_last_model()
 
                 # reset env
-                try:
-                    _, dreamer_obs = self.train_env.reset()
-                except:
-                    dreamer_obs = self.train_env.reset()
+                dreamer_obs = self.train_env.reset()
+
                 agent_state = None  # Resetting agent's latent state
                 meta = self.agent.init_meta()
                 data = dreamer_obs
@@ -279,10 +310,8 @@ class Workspace:
                     self.logger.log_video(videos, self.global_frame)
 
             # take env step
-            try:
-                _, dreamer_obs = self.train_env.step(action)
-            except:
-                dreamer_obs = self.train_env.step(action)
+
+            dreamer_obs = self.train_env.step(action)
 
             episode_reward += dreamer_obs["reward"]
             data = dreamer_obs
