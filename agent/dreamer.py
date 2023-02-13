@@ -377,6 +377,11 @@ class WorldModel(Module):
             out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
+                import code
+
+                code.interact(local=locals())
+                if key == "segmentation":
+                    data[key] = data[key].permute(0, 1, 3, 4, 2)
                 like = dist.log_prob(data[key])
                 likes[key] = like
                 losses[key] = -like.mean()
@@ -474,8 +479,10 @@ class WorldModel(Module):
         for key, value in obs.items():
             if key.startswith("log_"):
                 continue
-            if value.dtype in [np.uint8, torch.uint8]:
+            if value.dtype in [np.uint8, torch.uint8] and key == "rgb":
                 value = value / 255.0 - 0.5
+            if key == "segmentation":
+                value = value * 1.0
             obs[key] = value
         obs["reward"] = {
             "identity": nn.Identity(),

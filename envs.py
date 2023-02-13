@@ -1,6 +1,7 @@
 from collections import OrderedDict, deque
 from typing import Any, NamedTuple
 import os
+import cv2
 
 import dm_env
 import numpy as np
@@ -499,7 +500,9 @@ class PandaGymWrapper(Wrapper, Env):
 
 
 class PandaRoboSuite:
-    def __init__(self, task="Lift", seed=None, action_repeat=1, size=(64, 64)):
+    def __init__(
+        self, task="Stack", seed=None, action_repeat=1, size=(64, 64)
+    ):
         os.environ["MUJOCO_GL"] = "egl"
         self._camera = "robot0_eye_in_hand"
 
@@ -509,7 +512,12 @@ class PandaRoboSuite:
             self._camera + "_image",
             self._camera + "_depth",
         ]
-
+        self.segmentation_instances = [
+            "cubeA",
+            "cubeB",
+            "Panda0",
+            "PandaGripper0",
+        ]
         self._object_keys = ["object-state"]
         self._env = PandaGymWrapper(
             suite.make(
@@ -521,7 +529,7 @@ class PandaRoboSuite:
                 use_camera_obs=True,  # provide image observations to agent
                 camera_names=self._camera,
                 camera_depths=True,
-                camera_segmentations="instance",
+                camera_segmentations="element",
                 camera_heights=size[0],  # image height
                 camera_widths=size[1],  # image width
                 horizon=250,  # each episode terminates after 200 steps
@@ -535,6 +543,25 @@ class PandaRoboSuite:
         self._action_repeat = action_repeat
         self._seed = seed
         self._task = task
+
+    def segmentation_channel_split(self, seg):
+
+        instances_to_ids = self._env.model.instances_to_ids
+        seg_map = np.zeros(
+            (len(self.segmentation_instances) + 1, seg.shape[1], seg.shape[2]),
+            dtype=np.uint8,
+        )
+
+        for i, instance in enumerate(self.segmentation_instances):
+            for id in instances_to_ids[instance]["geom"]:
+                seg_map[i][seg[0] == id] = 1
+            if instance == "Panda0":  # median filtering for panda segmentation
+                seg_map[i] = cv2.medianBlur(seg_map[i], 3)
+
+        background_mask = np.all(seg_map == 0, axis=0)
+        seg_map[-1][background_mask] = 1  # last layer is background layer
+
+        return seg_map
 
     def rgb_spec(self,):
         v = self.obs_space["rgb"]
@@ -599,7 +626,10 @@ class PandaRoboSuite:
                 dtype=np.float32,
             ),
             "segmentation": gym.spaces.Box(
-                -np.inf, np.inf, (1,) + self._size, dtype=np.int32,
+                0,
+                1,
+                (len(self.segmentation_instances) + 1,) + self._size,
+                dtype=np.uint8,
             ),
             "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
             "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
@@ -629,7 +659,7 @@ class PandaRoboSuite:
         rgb = env_state[self._camera + "_image"][::-1]
         depth = env_state[self._camera + "_depth"][::-1]
 
-        seg = env_state[self._camera + "_segmentation_instance"][::-1]
+        seg = env_state[self._camera + "_segmentation_element"][::-1]
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
@@ -659,7 +689,9 @@ class PandaRoboSuite:
             "rgb": rgb.transpose(2, 0, 1),
             "depth": depth.transpose(2, 0, 1),
             "proprio": np.array(proprio).astype(np.float32),
-            "segmentation": seg.transpose(2, 0, 1),
+            "segmentation": self.segmentation_channel_split(
+                seg.transpose(2, 0, 1)
+            ),
             "state": self._env._flatten_obs(state),
             "action": action,
             "success": success,
@@ -681,7 +713,9 @@ class PandaRoboSuite:
             "rgb": rgb.transpose(2, 0, 1),
             "depth": depth.transpose(2, 0, 1),
             "proprio": np.array(proprio).astype(np.float32),
-            "segmentation": seg.transpose(2, 0, 1),
+            "segmentation": self.segmentation_channel_split(
+                seg.transpose(2, 0, 1)
+            ),
             "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
@@ -735,7 +769,7 @@ class PandaRoboSuite:
 def _make_panda(
     obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
 ):
-    env = PandaRoboSuite("Lift", seed, action_repeat, (img_size, img_size))
+    env = PandaRoboSuite("Stack", seed, action_repeat, (img_size, img_size))
     return env
 
 

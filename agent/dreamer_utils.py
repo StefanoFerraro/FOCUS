@@ -539,7 +539,11 @@ class Decoder(Module):
         ]
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
-        self._act = act()
+        act = getattr(nn, str(act))
+        if act == "nn.Softmax":
+            self._act = act(dim=2)
+        else:
+            self._act = act()
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -573,7 +577,9 @@ class Decoder(Module):
                 )
                 self._conv_model.append(NormLayer(norm, depth))
                 self._conv_model.append(self._act)
+
             self._conv_model = nn.Sequential(*self._conv_model)
+
         if len(self.mlp_keys) > 0:
             self._mlp_model = []
             for i, width in enumerate(self._mlp_layers):
@@ -597,15 +603,23 @@ class Decoder(Module):
         return outputs
 
     def _cnn(self, features):
+
         x = self._conv_in(features)
         x = x.reshape([-1, 32 * self._cnn_depth, 1, 1,])
         x = self._conv_model(x)
         x = x.reshape(list(features.shape[:-1]) + list(x.shape[1:]))
         means = torch.split(x, list(self.channels.values()), 2)
-        dists = {
-            key: D.Independent(D.Normal(mean, 1), 3)
-            for (key, shape), mean in zip(self.channels.items(), means)
-        }
+
+        dists = {}
+        for (key, shape), mean in zip(self.channels.items(), means):
+            if key == "rgb":
+                dists[key] = D.Independent(D.Normal(mean, 1), 3)
+            elif key == "segmentation":
+                mean = mean.permute(0, 1, 3, 4, 2)
+                import code
+                code.interact(local=locals())
+                dists[key] = D.Independent(OneHotDist(mean), 3)
+
         return dists
 
     def _mlp(self, features):
