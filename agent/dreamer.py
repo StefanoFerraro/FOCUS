@@ -377,12 +377,13 @@ class WorldModel(Module):
             out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
-                import code
-
-                code.interact(local=locals())
                 if key == "segmentation":
-                    data[key] = data[key].permute(0, 1, 3, 4, 2)
-                like = dist.log_prob(data[key])
+                    seg = data[key].permute(
+                        0, 1, 3, 4, 2
+                    )  # in case of onehot distribution segmentation layer needs to the last dimension
+                    like = dist.log_prob(seg)
+                else:
+                    like = dist.log_prob(data[key])
                 likes[key] = like
                 losses[key] = -like.mean()
         model_loss = sum(
@@ -511,7 +512,7 @@ class WorldModel(Module):
             palette = torch.randint(
                 0,
                 255,
-                (int(torch.max(seg).item()) + 1, 3),
+                (seg.shape[2], 3),  # segmentation channels are in dim 2
                 dtype=torch.uint8,
                 generator=gen,
                 device=seg.device,
@@ -531,10 +532,7 @@ class WorldModel(Module):
         )
 
         for label, color in enumerate(palette):
-            color_seg[(seg_perm == label)[..., -1], :] = color
-
-        # convert to BGR
-        # color_seg = color_seg[..., ::-1]
+            color_seg[(seg_perm == 1)[..., label]] = color
 
         return color_seg.permute(0, 1, 4, 2, 3)
 
@@ -556,7 +554,10 @@ class WorldModel(Module):
         model = torch.clip(
             torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
         )
-        error = (model - truth + 1) / 2
+
+        if key == "segmentation":
+            model = model.permute(0, 1, 4, 2, 3)
+        error = ((model - truth + 1) / 2).mean(axis=2).unsqueeze(dim=2)
 
         if getattr(self, "recon_skills", False):
             prior_feat = self.rssm.get_feat(prior)
@@ -591,7 +592,7 @@ class WorldModel(Module):
         if key == "segmentation":
             truth = self.segmentation_visualization(truth - 0.5)
             model = self.segmentation_visualization(model)
-            error = torch.cat((error, error, error), 2)
+        error = torch.cat((error, error, error), 2)
 
         video = torch.cat([truth, model, error], 3)
         # B, T, C, H, W = video.shape

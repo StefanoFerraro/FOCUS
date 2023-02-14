@@ -555,8 +555,20 @@ class PandaRoboSuite:
         for i, instance in enumerate(self.segmentation_instances):
             for id in instances_to_ids[instance]["geom"]:
                 seg_map[i][seg[0] == id] = 1
-            if instance == "Panda0":  # median filtering for panda segmentation
-                seg_map[i] = cv2.medianBlur(seg_map[i], 3)
+
+        panda_idx = self.segmentation_instances.index("Panda0")
+        non_panda_idx = [
+            x
+            for x in range(len(self.segmentation_instances))
+            if x != panda_idx
+        ]
+        panda_median_layer = cv2.medianBlur(
+            seg_map[panda_idx], 3
+        )  # median filtering for panda segmentation
+
+        # check that in panda layer there is no overlap with other encodings
+        panda_mask = np.all(seg_map[non_panda_idx] == 0, axis=0)
+        seg_map[panda_idx][panda_mask] = panda_median_layer[panda_mask]
 
         background_mask = np.all(seg_map == 0, axis=0)
         seg_map[-1][background_mask] = 1  # last layer is background layer

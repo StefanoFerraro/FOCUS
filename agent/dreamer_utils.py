@@ -616,9 +616,8 @@ class Decoder(Module):
                 dists[key] = D.Independent(D.Normal(mean, 1), 3)
             elif key == "segmentation":
                 mean = mean.permute(0, 1, 3, 4, 2)
-                import code
-                code.interact(local=locals())
-                dists[key] = D.Independent(OneHotDist(mean), 3)
+                # @pietro: this needs to be 2, cause the OneHot dimension is not counted
+                dists[key] = D.Independent(OneHotDist(mean), 2)
 
         return dists
 

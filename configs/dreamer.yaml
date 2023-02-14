@@ -23,11 +23,11 @@ slow_baseline: True
 
 clip_rewards: identity
 
-batch_size: 50 
-batch_length: 50 
+batch_size: 32 
+batch_length: 32 
 imag_horizon: 15
 eval_state_mean: False
 
-precision: 16
-train_every_actions: 10
+precision: 32
+train_every_actions: 32
 # 
