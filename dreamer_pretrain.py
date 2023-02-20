@@ -256,6 +256,10 @@ class Workspace:
                         log("episode", self.global_episode)
                         log("buffer_size", len(self.replay_storage))
                         log("step", self.global_step)
+                # import code
+
+                # code.interact(local=locals())
+
                 # save last model
                 self.save_last_model()
 

@@ -23,8 +23,8 @@ slow_baseline: True
 
 clip_rewards: identity
 
-batch_size: 32 
-batch_length: 32 
+batch_size: 32
+batch_length: 32
 imag_horizon: 15
 eval_state_mean: False
 

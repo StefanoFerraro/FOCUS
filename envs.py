@@ -504,7 +504,7 @@ class PandaRoboSuite:
         self, task="Stack", seed=None, action_repeat=1, size=(64, 64)
     ):
         os.environ["MUJOCO_GL"] = "egl"
-        self._camera = "robot0_eye_in_hand"
+        self._camera = "agentview"
 
         self._proprio_keys = ["robot0_proprio-state"]
 
@@ -513,8 +513,7 @@ class PandaRoboSuite:
             self._camera + "_depth",
         ]
         self.segmentation_instances = [
-            "cubeA",
-            "cubeB",
+            "cube",
             "Panda0",
             "PandaGripper0",
         ]
@@ -781,7 +780,7 @@ class PandaRoboSuite:
 def _make_panda(
     obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
 ):
-    env = PandaRoboSuite("Stack", seed, action_repeat, (img_size, img_size))
+    env = PandaRoboSuite("Lift", seed, action_repeat, (img_size, img_size))
     return env
 
 
