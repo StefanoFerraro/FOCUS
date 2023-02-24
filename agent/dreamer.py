@@ -335,6 +335,14 @@ class WorldModel(Module):
         self.heads["decoder"] = common.Decoder(
             shapes, **config.decoder, embed_dim=inp_size
         )
+        self.heads["objec_decoder"] = common.ObjDecoder(
+            shapes, **config.object_decoder, embed_dim=inp_size
+        )
+
+        import code
+
+        code.interact(local=locals())
+
         self.heads["reward"] = common.MLP(inp_size, (1,), **config.reward_head)
         if config.pred_discount:
             self.heads["discount"] = common.MLP(
@@ -371,6 +379,11 @@ class WorldModel(Module):
         likes = {}
         losses = {"kl": kl_loss}
         feat = self.rssm.get_feat(post)
+
+        import code
+
+        code.interact(local=locals())
+
         for name, head in self.heads.items():
             grad_head = name in self.grad_heads
             inp = feat if grad_head else stop_gradient(feat)

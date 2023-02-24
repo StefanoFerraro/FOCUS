@@ -511,6 +511,16 @@ class Encoder(Module):
         return x
 
 
+class Interpolate(nn.Module):
+    def __init__(self, size, mode):
+        nn.Module.__init__(self)
+        self.size = size
+        self.mode = mode
+
+    def forward(self, x):
+        return F.interpolate(x, size=self.size, mode=self.mode)
+
+
 class Decoder(Module):
     def __init__(
         self,
@@ -539,11 +549,8 @@ class Decoder(Module):
         ]
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
-        act = getattr(nn, str(act))
-        if act == "nn.Softmax":
-            self._act = act(dim=2)
-        else:
-            self._act = act()
+
+        self._act = act()
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -559,6 +566,7 @@ class Decoder(Module):
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
                     prev_depth = 32 * self._cnn_depth
+                    self.layer_size = 1
                 else:
                     prev_depth = (
                         2 ** (len(self._cnn_kernels) - (i - 1) - 2)
@@ -572,11 +580,22 @@ class Decoder(Module):
                         nn.Identity(),
                         "none",
                     )
+
+                # Code snippet for bilinear interpolation, removes checkboard artifacts, need better parametrization
+                # self.layer_size = (self.layer_size - 1) * 2 + (kernel - 1) + 1
+                # self._conv_model.append(
+                #     Interpolate((self.layer_size, self.layer_size), "bilinear")
+                # )
+                # self._conv_model.append(
+                #     nn.Conv2d(prev_depth, depth, kernel_size=5, padding=2)
+                # )
+
                 self._conv_model.append(
                     nn.ConvTranspose2d(prev_depth, depth, kernel, stride=2)
                 )
+
                 self._conv_model.append(NormLayer(norm, depth))
-                self._conv_model.append(self._act)
+                self._conv_model.append(act)
 
             self._conv_model = nn.Sequential(*self._conv_model)
 
@@ -589,10 +608,14 @@ class Decoder(Module):
                     prev_width = self._mlp_layers[i - 1]
                 self._mlp_model.append(nn.Linear(prev_width, width))
                 self._mlp_model.append(NormLayer(norm, width))
-                self._mlp_model.append(self._act)
+                self._mlp_model.append(act)
             self._mlp_model = nn.Sequential(*self._mlp_model)
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(width, shape))
+
+        import code
+
+        code.interact(local=locals())
 
     def forward(self, features):
         outputs = {}
@@ -603,7 +626,6 @@ class Decoder(Module):
         return outputs
 
     def _cnn(self, features):
-
         x = self._conv_in(features)
         x = x.reshape([-1, 32 * self._cnn_depth, 1, 1,])
         x = self._conv_model(x)
@@ -618,6 +640,86 @@ class Decoder(Module):
                 mean = mean.permute(0, 1, 3, 4, 2)
                 # @pietro: this needs to be 2, cause the OneHot dimension is not counted
                 dists[key] = D.Independent(OneHotDist(mean), 2)
+
+        return dists
+
+    def _mlp(self, features):
+        shapes = {k: self._shapes[k] for k in self.mlp_keys}
+        x = features
+        x = self._mlp_model(x)
+        dists = {}
+        for key, shape in shapes.items():
+            dists[key] = getattr(self, f"dense_{key}")(x)
+        return dists
+
+
+class ObjDecoder(Decoder):
+    def __init__(
+        self,
+        shapes,
+        cnn_keys=r".*",
+        mlp_keys=r".*",
+        act=nn.ELU,
+        norm="none",
+        cnn_depth=48,
+        cnn_kernels=(4, 4, 4, 4),
+        mlp_layers=[400, 400, 400, 400],
+        embed_dim=1024,
+        instances_dim=10,
+        device="cuda"
+    ):
+        super().__init__(
+            shapes,
+            cnn_keys,
+            mlp_keys,
+            act,
+            norm,
+            cnn_depth,
+            cnn_kernels,
+            mlp_layers,
+            embed_dim,
+        )
+        self.instances_dim = instances_dim
+        self.obj_onehot = torch.eye(instances_dim, device=device).repeat(32,32,1)
+
+        if len(self.cnn_keys) > 0:
+            self._object_extractor = nn.Sequential(
+                    nn.Linear(embed_dim + instances_dim, 512)
+                )
+            self._conv_in = nn.Sequential(
+                    nn.Linear(512, 32 * self._cnn_depth)
+                )
+    def forward(self, features, channels_masks):
+        outputs = {}
+        if self.cnn_keys:
+            outputs.update(self._cnn(features, channels_masks))
+        if self.mlp_keys:
+            outputs.update(self._mlp(features))
+        return outputs
+
+    def _cnn(self, features, channels_masks):
+
+        for i in range(self.instances_dim):
+            # concatenate one hot encoding of instance to the full embedding
+            obj_feat = self.obj_onehot[...,i]
+            features = torch.cat((features, obj_feat), dim=-1)
+            x = self._object_extractor(features)
+            x = self._conv_in(x)
+            x = x.reshape([-1, 32 * self._cnn_depth, 1, 1,])
+            x = self._conv_model(x)
+            x = x.reshape(list(features.shape[:-1]) + list(x.shape[1:]))
+            means = torch.split(x, list(self.channels.values()), 2)
+
+            #TODO: concatenate distributions in a dictionary and use them for the loss composition 
+            dists = {}
+            for (key, shape), mean in zip(self.channels.items(), means):
+                # mean = mean * channels_masks[]
+                if key == "rgb":
+                    dists[key] = D.Independent(D.Normal(mean, 1), 3)
+                elif key == "segmentation":
+                    mean = mean.permute(0, 1, 3, 4, 2)
+                    # @pietro: this needs to be 2, cause the OneHot dimension is not counted
+                    dists[key] = D.Independent(OneHotDist(mean), 2)
 
         return dists
 

@@ -574,6 +574,28 @@ class PandaRoboSuite:
 
         return seg_map
 
+    @staticmethod
+    def image_segmentation(image, seg):
+        """
+        Segmentation of image based on segmentation mask, works both with rgb and depth images.
+        seg: (dim1, dim2, channels)
+        image: (dim1, dim2, 1/3)
+        
+        Return:
+        seg_image: (dim1, dim2, 1/3, channels)
+        """
+
+        seg_chs, _, _ = seg.shape
+        image_chs, _, _ = image.shape
+
+        seg_mask = np.repeat(np.expand_dims(seg, axis=1), image_chs, 1)
+        seg_image = np.zeros((seg_chs, *image.shape), dtype=image.dtype)
+
+        for ch in range(seg_chs):
+            seg_image[ch] = image * seg_mask[ch]
+
+        return seg_image
+
     def rgb_spec(self,):
         v = self.obs_space["rgb"]
         return specs.BoundedArray(
@@ -614,6 +636,26 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
+    def seg_rgb(self,):
+        v = self.obs_space["seg_rgb"]
+        return specs.BoundedArray(
+            name="seg_rgb",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def seg_depth(self,):
+        v = self.obs_space["seg_depth"]
+        return specs.BoundedArray(
+            name="seg_depth",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
     def action_spec(self,):
         return specs.BoundedArray(
             name="action",
@@ -642,6 +684,18 @@ class PandaRoboSuite:
                 (len(self.segmentation_instances) + 1,) + self._size,
                 dtype=np.uint8,
             ),
+            "seg_rgb": gym.spaces.Box(
+                0,
+                255,
+                (len(self.segmentation_instances) + 1, 3,) + self._size,
+                dtype=np.uint8,
+            ),
+            "seg_depth": gym.spaces.Box(
+                -np.inf,
+                np.inf,
+                (len(self.segmentation_instances) + 1, 1,) + self._size,
+                dtype=np.float32,
+            ),
             "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
             "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
             "is_last": gym.spaces.Box(0, 1, (), dtype=bool),
@@ -667,10 +721,12 @@ class PandaRoboSuite:
     def _state_extraction(self, env_state):
         proprio = self._proprio_obs(env_state)
 
-        rgb = env_state[self._camera + "_image"][::-1]
-        depth = env_state[self._camera + "_depth"][::-1]
+        rgb = env_state[self._camera + "_image"][::-1].transpose(2, 0, 1)
+        depth = env_state[self._camera + "_depth"][::-1].transpose(2, 0, 1)
 
-        seg = env_state[self._camera + "_segmentation_element"][::-1]
+        seg = env_state[self._camera + "_segmentation_element"][
+            ::-1
+        ].transpose(2, 0, 1)
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
@@ -692,17 +748,22 @@ class PandaRoboSuite:
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
+        seg = self.segmentation_channel_split(seg)
+
+        seg_rgb = self.image_segmentation(rgb, seg)
+        seg_depth = self.image_segmentation(depth, seg)
+
         obs = {
             "reward": reward,
             "is_first": False,
             "is_last": done,  # will be handled by timelimit wrapper
             "is_terminal": False,  # will be handled by per_episode function
-            "rgb": rgb.transpose(2, 0, 1),
-            "depth": depth.transpose(2, 0, 1),
+            "rgb": rgb,
+            "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
-            "segmentation": self.segmentation_channel_split(
-                seg.transpose(2, 0, 1)
-            ),
+            "segmentation": seg,
+            "seg_rgb": seg_rgb,
+            "seg_depth": seg_depth,
             "state": self._env._flatten_obs(state),
             "action": action,
             "success": success,
@@ -715,18 +776,22 @@ class PandaRoboSuite:
         env_state = self._env.reset()
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
+        seg = self.segmentation_channel_split(seg)
+
+        seg_rgb = self.image_segmentation(rgb, seg)
+        seg_depth = self.image_segmentation(depth, seg)
 
         obs = {
             "reward": 0.0,
             "is_first": True,
             "is_last": False,
             "is_terminal": False,
-            "rgb": rgb.transpose(2, 0, 1),
-            "depth": depth.transpose(2, 0, 1),
+            "rgb": rgb,
+            "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
-            "segmentation": self.segmentation_channel_split(
-                seg.transpose(2, 0, 1)
-            ),
+            "segmentation": seg,
+            "seg_rgb": seg_rgb,
+            "seg_depth": seg_depth,
             "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
