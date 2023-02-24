@@ -636,7 +636,7 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def seg_rgb(self,):
+    def seg_rgb_spec(self,):
         v = self.obs_space["seg_rgb"]
         return specs.BoundedArray(
             name="seg_rgb",
@@ -646,7 +646,7 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def seg_depth(self,):
+    def seg_depth_spec(self,):
         v = self.obs_space["seg_depth"]
         return specs.BoundedArray(
             name="seg_depth",

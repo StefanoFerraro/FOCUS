@@ -125,6 +125,8 @@ class Workspace:
             self.train_env.depth_spec(),
             self.train_env.proprio_spec(),
             self.train_env.segmentation_spec(),
+            self.train_env.seg_rgb_spec(),
+            self.train_env.seg_depth_spec(),
             self.train_env.action_spec(),
             specs.Array((1,), np.float32, "reward"),
             specs.Array((1,), np.float32, "discount"),

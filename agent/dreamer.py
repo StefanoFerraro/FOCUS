@@ -335,13 +335,9 @@ class WorldModel(Module):
         self.heads["decoder"] = common.Decoder(
             shapes, **config.decoder, embed_dim=inp_size
         )
-        self.heads["objec_decoder"] = common.ObjDecoder(
+        self.heads["object_decoder"] = common.ObjDecoder(
             shapes, **config.object_decoder, embed_dim=inp_size
         )
-
-        import code
-
-        code.interact(local=locals())
 
         self.heads["reward"] = common.MLP(inp_size, (1,), **config.reward_head)
         if config.pred_discount:
@@ -380,14 +376,13 @@ class WorldModel(Module):
         losses = {"kl": kl_loss}
         feat = self.rssm.get_feat(post)
 
-        import code
-
-        code.interact(local=locals())
-
         for name, head in self.heads.items():
             grad_head = name in self.grad_heads
             inp = feat if grad_head else stop_gradient(feat)
-            out = head(inp)
+            if name == "object_decoder":
+                out = head(inp, data["segmentation"])
+            else:
+                out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
                 if key == "segmentation":

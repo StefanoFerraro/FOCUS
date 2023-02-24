@@ -540,7 +540,7 @@ class Decoder(Module):
         self.cnn_keys = [
             k
             for k, v in shapes.items()
-            if re.match(cnn_keys, k) and len(v) == 3
+            if re.match(cnn_keys, k)  # and len(v) == 3
         ]
         self.mlp_keys = [
             k
@@ -613,10 +613,6 @@ class Decoder(Module):
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(width, shape))
 
-        import code
-
-        code.interact(local=locals())
-
     def forward(self, features):
         outputs = {}
         if self.cnn_keys:
@@ -666,7 +662,7 @@ class ObjDecoder(Decoder):
         mlp_layers=[400, 400, 400, 400],
         embed_dim=1024,
         instances_dim=10,
-        device="cuda"
+        device="cuda",
     ):
         super().__init__(
             shapes,
@@ -680,15 +676,16 @@ class ObjDecoder(Decoder):
             embed_dim,
         )
         self.instances_dim = instances_dim
-        self.obj_onehot = torch.eye(instances_dim, device=device).repeat(32,32,1)
+        self.obj_onehot = torch.eye(instances_dim, device=device).repeat(
+            32, 32, 1, 1
+        )
 
         if len(self.cnn_keys) > 0:
             self._object_extractor = nn.Sequential(
-                    nn.Linear(embed_dim + instances_dim, 512)
-                )
-            self._conv_in = nn.Sequential(
-                    nn.Linear(512, 32 * self._cnn_depth)
-                )
+                nn.Linear(embed_dim + instances_dim, 512)
+            )
+            self._conv_in = nn.Sequential(nn.Linear(512, 32 * self._cnn_depth))
+
     def forward(self, features, channels_masks):
         outputs = {}
         if self.cnn_keys:
@@ -698,10 +695,13 @@ class ObjDecoder(Decoder):
         return outputs
 
     def _cnn(self, features, channels_masks):
+        import code
 
         for i in range(self.instances_dim):
             # concatenate one hot encoding of instance to the full embedding
-            obj_feat = self.obj_onehot[...,i]
+            obj_feat = self.obj_onehot[..., i]
+            code.interact(local=locals())
+
             features = torch.cat((features, obj_feat), dim=-1)
             x = self._object_extractor(features)
             x = self._conv_in(x)
@@ -710,18 +710,14 @@ class ObjDecoder(Decoder):
             x = x.reshape(list(features.shape[:-1]) + list(x.shape[1:]))
             means = torch.split(x, list(self.channels.values()), 2)
 
-            #TODO: concatenate distributions in a dictionary and use them for the loss composition 
+            # TODO: concatenate distributions in a dictionary and use them for the loss composition
             dists = {}
-            for (key, shape), mean in zip(self.channels.items(), means):
-                # mean = mean * channels_masks[]
-                if key == "rgb":
-                    dists[key] = D.Independent(D.Normal(mean, 1), 3)
-                elif key == "segmentation":
-                    mean = mean.permute(0, 1, 3, 4, 2)
-                    # @pietro: this needs to be 2, cause the OneHot dimension is not counted
-                    dists[key] = D.Independent(OneHotDist(mean), 2)
 
-        return dists
+            # for _, mean in zip(self.channels.items(), means):
+            # mean = mean * channels_masks[]
+            # dists[] = D.Independent(D.Normal(mean, 1), 3)
+
+        # return dists
 
     def _mlp(self, features):
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
