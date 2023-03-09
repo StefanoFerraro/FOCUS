@@ -1,37 +1,11 @@
-# robot:
-#   name: "ur5e"
-#   xml_path: "models/robots/universal_robots_ur5e/ur5e.xml"
-#   control_type: "joint_position"
-#   control_freq: 500
-#   control_params:
-#       kp: 1
-#       damping_ratio: 2
-#   initial_qpos: [0,0,0,0,0,0]
-#   joint_indexes: [0,1,2,3,4,5]
-#   eef_index: 5
-#   gripper_indexes: []
-dir: ../..
-robot:
-  name: "panda"
-  xml_path: "models/robots/franka_emika_panda/panda.xml"
-  control_type: "joint_position"
-  control_freq: 500
-  control_params:
-      kp: 500
-      damping_ratio: 0.1
-  initial_qpos: [0,0,0,0,0,0,0,0,0]
-  joint_indexes: [0,1,2,3,4,5,6]
-  eef_index: 6
-  gripper_index: 7
-setup:
-  environment:
-    name: "table"
-    xml_path: "models/environments/table/table.xml"
-    mount_pos: [-0.2,0,0.8]
-    mount_quat: [1,0,0,0]
-  renderer:
-    fps: 30
-    resolution: [480, 640]
-    render_visual_mesh: True
-    render_gpu_device_id: -1
-objects: None
+task: "Stack"
+horizon: 250
+renderer:
+  fps: 30
+  size: [64, 64]
+  cameras: ["frontview", "agentview", "eye_in_hand"]
+  depths: True
+  segmentation_level: "class" # None, class, instance or element
+reward_shaping: true
+objects: ["cubeA", "cubeB"]
+

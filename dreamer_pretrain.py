@@ -22,7 +22,11 @@ from dreamer_replay import ReplayBuffer, make_replay_loader
 
 torch.backends.cudnn.benchmark = True
 
-from dmc_benchmark import PRIMAL_TASKS
+from dmc_benchmark import PRIMAL_TASKS, PANDA_TASKS_OBJ
+
+import warnings
+
+warnings.filterwarnings("ignore")
 
 
 def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
@@ -44,11 +48,12 @@ def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
 
 
 def segmentation_visualization(
-    self, seg, palette=None,
+    self,
+    seg,
+    palette=None,
 ):
     if palette is None:
-        # Get random state before set seed,
-        # and restore random state later.
+        # Get random state before set seed, and restore random state later.
         # It will prevent loss of randomness, as the palette
         # may be different in each iteration if not specified.
         # See: https://github.com/open-mmlab/mmdetection/issues/5844
@@ -109,7 +114,10 @@ class Workspace:
             img_size=img_size,
         )
 
-        # # create agent
+        # add objects to cfg
+        cfg.objects = PANDA_TASKS_OBJ[task.split("_")[1]]
+
+        # create agent
         self.agent = make_dreamer_agent(
             self.train_env.obs_space,
             self.train_env.action_spec(),
@@ -119,11 +127,13 @@ class Workspace:
 
         # get meta specs
         meta_specs = self.agent.get_meta_specs()
+
         # create replay buffer
         data_specs = (
             self.train_env.rgb_spec(),
             self.train_env.depth_spec(),
             self.train_env.proprio_spec(),
+            self.train_env.objects_pos_spec(),
             self.train_env.segmentation_spec(),
             self.train_env.seg_rgb_spec(),
             self.train_env.seg_depth_spec(),
@@ -145,7 +155,7 @@ class Workspace:
         # create replay buffer
         self.replay_loader = make_replay_loader(
             self.replay_storage,
-            cfg.batch_size,  #
+            cfg.batch_size,
             cfg.replay_buffer_num_workers,
         )
 
@@ -258,9 +268,6 @@ class Workspace:
                         log("episode", self.global_episode)
                         log("buffer_size", len(self.replay_storage))
                         log("step", self.global_step)
-                # import code
-
-                # code.interact(local=locals())
 
                 # save last model
                 self.save_last_model()
@@ -312,11 +319,12 @@ class Workspace:
                         metrics, self.global_frame, ty="train"
                     )
                 if self.global_step > 0 and should_log_recon(self.global_step):
-                    videos = self.agent.report(next(self.replay_iter))
+                    videos, text = self.agent.report(next(self.replay_iter))
+
                     self.logger.log_video(videos, self.global_frame)
+                    self.logger.log_text(text, self.global_frame)
 
             # take env step
-
             dreamer_obs = self.train_env.step(action)
 
             episode_reward += dreamer_obs["reward"]

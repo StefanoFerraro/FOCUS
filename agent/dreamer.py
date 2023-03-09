@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+from torch.nn.functional import normalize
 
 import utils
 import agent.dreamer_utils as common
@@ -79,6 +80,8 @@ class DreamerAgent(Module):
         reward_fn = lambda seq: self.wm.heads["reward"](
             seq["feat"]
         ).mean  # .mode()
+
+        # reward_fn = lambda seq: self.wm.heads["object_decoder"](seq["feat"], )[0]
         metrics.update(
             self._task_behavior.update(
                 self.wm, start, data["is_terminal"], reward_fn
@@ -88,12 +91,32 @@ class DreamerAgent(Module):
 
     def report(self, data):
         report = {}
+        text = {}
         data = self.wm.preprocess(data)
 
         for key in self.wm.heads["decoder"].cnn_keys:
             name = key.replace("/", "_")
-            report[f"openl_{name}"] = self.wm.video_pred(data, key)
-        return report
+            report[f"openl_{name}"] = self.wm.video_pred(data, key, "decoder")
+
+        for key in self.wm.heads["decoder"].mlp_keys:
+            name = key.replace("/", "_")
+            text[f"openl_{name}"] = self.wm.proprio_pred(
+                data, key, "decoder", nvid=1
+            )
+
+        for key in self.wm.heads["object_decoder"].cnn_keys:
+            name = key.replace("/", "_")
+            report[f"openl_{name}"] = self.wm.video_pred(
+                data, key, "object_decoder", nvid=1
+            )
+
+        for key in self.wm.heads["object_decoder"].mlp_keys:
+            name = key.replace("/", "_")
+            text[f"openl_{name}"] = self.wm.object_pos(
+                data, key, "object_decoder", nvid=1
+            )
+
+        return report, text
 
     def get_meta_specs(self):
         return tuple()
@@ -179,9 +202,9 @@ class DreamerAgent(Module):
     @torch.no_grad()
     def plan(self, obs, meta, step, eval_mode, state, t0=True):
         """
-    Plan next action using Dyna-MPC. 
-    We thank the authors of TD-MPC (https://github.com/nicklashansen/tdmpc), to provide a good reference for implementing our planning strategy.
-    """
+        Plan next action using Dyna-MPC.
+        We thank the authors of TD-MPC (https://github.com/nicklashansen/tdmpc), to provide a good reference for implementing our planning strategy.
+        """
 
         # Get Dreamer's state and features
         obs = {
@@ -384,16 +407,28 @@ class WorldModel(Module):
             else:
                 out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
+
             for key, dist in dists.items():
+                like = 0
                 if key == "segmentation":
                     seg = data[key].permute(
                         0, 1, 3, 4, 2
                     )  # in case of onehot distribution segmentation layer needs to the last dimension
                     like = dist.log_prob(seg)
+                elif key == "seg_rgb" or key == "seg_depth":
+                    for el in range(
+                        data[key].shape[2] - 1
+                    ):  # remove last channel which is the background
+                        like += dist[el].log_prob(data[key][:, :, el])
+                elif key == "objects_pos":
+                    for el in range(data[key].shape[2]):
+                        like += dist[el].log_prob(data[key][:, :, el])
                 else:
                     like = dist.log_prob(data[key])
+
                 likes[key] = like
                 losses[key] = -like.mean()
+
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()
         )
@@ -488,10 +523,17 @@ class WorldModel(Module):
         for key, value in obs.items():
             if key.startswith("log_"):
                 continue
-            if value.dtype in [np.uint8, torch.uint8] and key == "rgb":
+            if value.dtype in [np.uint8, torch.uint8] and "rgb" in key:
                 value = value / 255.0 - 0.5
             if key == "segmentation":
                 value = value * 1.0
+            if key == "objects_pos":
+                # value *= 1000  # convert to mm
+                max = torch.tensor([0.1, 0.1, 1.0], device=value.device)
+                min = torch.tensor([-0.1, -0.1, 0.75], device=value.device)
+
+                value = (value - min) / (max - min)
+
             obs[key] = value
         obs["reward"] = {
             "identity": nn.Identity(),
@@ -503,7 +545,9 @@ class WorldModel(Module):
         return obs
 
     def segmentation_visualization(
-        self, seg, palette=None,
+        self,
+        seg,
+        palette=None,
     ):
         gen = torch.Generator(device=seg.device)
 
@@ -536,7 +580,9 @@ class WorldModel(Module):
         seg_perm = seg.permute(0, 1, 3, 4, 2)
 
         color_seg = torch.zeros(
-            (*seg_perm.shape[:4], 3), dtype=torch.uint8, device=seg.device,
+            (*seg_perm.shape[:4], 3),
+            dtype=torch.uint8,
+            device=seg.device,
         )
 
         for label, color in enumerate(palette):
@@ -544,10 +590,68 @@ class WorldModel(Module):
 
         return color_seg.permute(0, 1, 4, 2, 3)
 
-    def video_pred(self, data, key, nvid=8):
-        # TODO process segm
+    def object_pos(self, data, key, head, nvid=8):
 
-        decoder = self.heads["decoder"]  # B, T, C, H, W
+        decoder = self.heads[head]
+
+        truth = data[key][:nvid][0].unsqueeze(1)
+        max = torch.tensor([0.1, 0.1, 0.9], device=truth.device)
+        min = torch.tensor([-0.1, -0.1, 0.75], device=truth.device)
+        conf = max - min
+        embed = self.encoder(data)
+        states, _ = self.rssm.observe(
+            embed[:nvid, 0].unsqueeze(1),
+            data["action"][:nvid, 0].unsqueeze(1),
+            data["is_first"][:nvid, 0].unsqueeze(1),
+        )
+
+        obj_predictions = decoder(
+            self.rssm.get_feat(states),
+            data["segmentation"][:nvid, 0].unsqueeze(1),
+        )[key]
+        objects = self.cfg.objects
+
+        text_out = []
+
+        for i in range(nvid):
+            for j, obj_pred in enumerate(obj_predictions):
+                GT = (truth[i][0][j] * conf - min).cpu().numpy()
+                pred = (obj_pred.mean[i][0] * conf - min).cpu().numpy()
+                error = pred - GT
+                text_out.append(
+                    f"Object {objects[j]} GT={GT}, Prediction={pred}, Error={error}"
+                )
+
+        return "\t".join(text_out)
+
+    def proprio_pred(self, data, key, head, nvid=8):
+
+        decoder = self.heads[head]
+        truth = data[key][:nvid][0].unsqueeze(1)
+        embed = self.encoder(data)
+        states, _ = self.rssm.observe(
+            embed[:nvid, 0].unsqueeze(1),
+            data["action"][:nvid, 0].unsqueeze(1),
+            data["is_first"][:nvid, 0].unsqueeze(1),
+        )
+
+        proprio_pred = decoder(self.rssm.get_feat(states))[key]
+
+        text_out = []
+
+        for i in range(nvid):
+            GT = truth[i][0].cpu().numpy()
+            pred = proprio_pred.mean[i][0].cpu().numpy()
+            error = pred - GT
+            text_out.append(
+                f"Proprio GT={GT}, Prediction={pred}, Error={error}"
+            )
+
+        return "\t".join(text_out)
+
+    def video_pred(self, data, key, head, nvid=8):
+
+        decoder = self.heads[head]  # B, T, C, H, W
         truth = data[key][:nvid] + 0.5
         embed = self.encoder(data)
         states, _ = self.rssm.observe(
@@ -555,17 +659,90 @@ class WorldModel(Module):
             data["action"][:nvid, :5],
             data["is_first"][:nvid, :5],
         )
-        recon = decoder(self.rssm.get_feat(states))[key].mean[:nvid]  # mode
-        init = {k: v[:, -1] for k, v in states.items()}
-        prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
-        prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
-        model = torch.clip(
-            torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
-        )
 
-        if key == "segmentation":
-            model = model.permute(0, 1, 4, 2, 3)
-        error = ((model - truth + 1) / 2).mean(axis=2).unsqueeze(dim=2)
+        if head == "decoder":
+            recon = decoder(self.rssm.get_feat(states))[key].mean[
+                :nvid
+            ]  # mode
+
+            init = {k: v[:, -1] for k, v in states.items()}
+            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+            prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
+            model = torch.clip(
+                torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
+            )
+
+            if key == "segmentation":
+                model = model.permute(0, 1, 4, 2, 3)
+            error = ((model - truth + 1) / 2).mean(axis=2).unsqueeze(dim=2)
+
+            if key == "segmentation":
+                truth = self.segmentation_visualization(truth - 0.5)
+                model = self.segmentation_visualization(model)
+
+        elif head == "object_decoder":
+            recon = decoder(
+                self.rssm.get_feat(states), data["segmentation"][:nvid, :5]
+            )[key]
+
+            init = {k: v[:, -1] for k, v in states.items()}
+            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+            prior_recon = decoder(
+                self.rssm.get_feat(prior), data["segmentation"][:nvid, 5:]
+            )[key]
+
+            for i in range(
+                data[key].shape[2] - 1
+            ):  # remove background channel
+                if i == 0:
+                    model = torch.clip(
+                        torch.cat(
+                            [
+                                recon[i].mean[:nvid, :5] + 0.5,
+                                prior_recon[i].mean + 0.5,
+                            ],
+                            1,
+                        ),
+                        0,
+                        1,
+                    )
+
+                    error = (
+                        ((model - truth[:, :, i] + 1) / 2)
+                        .mean(axis=2)
+                        .unsqueeze(dim=2)
+                    )
+                else:
+                    m = torch.clip(
+                        torch.cat(
+                            [
+                                recon[i].mean[:nvid, :5] + 0.5,
+                                prior_recon[i].mean + 0.5,
+                            ],
+                            1,
+                        ),
+                        0,
+                        1,
+                    )
+                    model = torch.cat([model, m], -1)
+
+                    error = torch.cat(
+                        [
+                            error,
+                            ((m - truth[:, :, i] + 1) / 2)
+                            .mean(axis=2)
+                            .unsqueeze(dim=2),
+                        ],
+                        -1,
+                    )
+
+            for i in range(truth.shape[2] - 1):  # remove background channel
+                if i == 0:
+                    truth_out = truth[:, :, i]
+                else:
+                    truth_out = torch.cat((truth_out, truth[:, :, i]), dim=-1)
+
+            truth = truth_out
 
         if getattr(self, "recon_skills", False):
             prior_feat = self.rssm.get_feat(prior)
@@ -597,11 +774,7 @@ class WorldModel(Module):
                 torch.cat([recon[:, :5] + 0.5, skill_recon + 0.5], 1), 0, 1
             )
 
-        if key == "segmentation":
-            truth = self.segmentation_visualization(truth - 0.5)
-            model = self.segmentation_visualization(model)
         error = torch.cat((error, error, error), 2)
-
         video = torch.cat([truth, model, error], 3)
         # B, T, C, H, W = video.shape
         return video

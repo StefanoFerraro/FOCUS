@@ -25,11 +25,13 @@ JACO_TASKS = [
     "jaco_reach_bottom_right",
 ]
 
+PANDA_TASKS_OBJ = {"Stack": ["cubeA", "cubeB"], "Lift": ["cube"]}
+
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS
 
 PRIMAL_TASKS = {
     "walker": "walker_stand",
     "jaco": "jaco_reach_top_left",
     "quadruped": "quadruped_walk",
-    "panda": "panda_lift",
+    "panda": "panda_Stack",
 }

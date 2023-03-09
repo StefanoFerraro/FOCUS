@@ -2,6 +2,7 @@ from collections import OrderedDict, deque
 from typing import Any, NamedTuple
 import os
 import cv2
+import yaml
 
 import dm_env
 import numpy as np
@@ -15,8 +16,11 @@ import pickle
 
 import robosuite as suite
 from robosuite.wrappers import Wrapper
+import robosuite.utils.camera_utils as CU
 from gym.core import Env
 from gym import spaces
+
+from dmc_benchmark import PANDA_TASKS_OBJ
 
 
 class ExtendedTimeStep(NamedTuple):
@@ -501,22 +505,24 @@ class PandaGymWrapper(Wrapper, Env):
 
 class PandaRoboSuite:
     def __init__(
-        self, task="Stack", seed=None, action_repeat=1, size=(64, 64)
+        self,
+        task="Lift",
+        objs=["cube"],
+        seed=None,
+        action_repeat=1,
+        size=(128, 128),
     ):
         os.environ["MUJOCO_GL"] = "egl"
         self._camera = "agentview"
 
-        self._proprio_keys = ["robot0_proprio-state"]
-
+        # self._proprio_keys = ["robot0_proprio-state"]
+        self._proprio_keys = ["robot0_joint_pos_cos"]
         self._obs_keys = [
             self._camera + "_image",
             self._camera + "_depth",
         ]
-        self.segmentation_instances = [
-            "cube",
-            "Panda0",
-            "PandaGripper0",
-        ]
+        self.segmentation_instances = objs
+
         self._object_keys = ["object-state"]
         self._env = PandaGymWrapper(
             suite.make(
@@ -543,6 +549,15 @@ class PandaRoboSuite:
         self._seed = seed
         self._task = task
 
+        # get camera matrices
+        self.world_to_camera = CU.get_camera_transform_matrix(
+            sim=self._env.sim,
+            camera_name=self._camera,
+            camera_height=self._size[0],
+            camera_width=self._size[1],
+        )
+        self.camera_to_world = np.linalg.inv(self.world_to_camera)
+
     def segmentation_channel_split(self, seg):
 
         instances_to_ids = self._env.model.instances_to_ids
@@ -555,19 +570,20 @@ class PandaRoboSuite:
             for id in instances_to_ids[instance]["geom"]:
                 seg_map[i][seg[0] == id] = 1
 
-        panda_idx = self.segmentation_instances.index("Panda0")
-        non_panda_idx = [
-            x
-            for x in range(len(self.segmentation_instances))
-            if x != panda_idx
-        ]
-        panda_median_layer = cv2.medianBlur(
-            seg_map[panda_idx], 3
-        )  # median filtering for panda segmentation
+        if "Panda0" in self.segmentation_instances:
+            panda_idx = self.segmentation_instances.index("Panda0")
+            non_panda_idx = [
+                x
+                for x in range(len(self.segmentation_instances))
+                if x != panda_idx
+            ]
+            panda_median_layer = cv2.medianBlur(
+                seg_map[panda_idx], 3
+            )  # median filtering for panda segmentation
 
-        # check that in panda layer there is no overlap with other encodings
-        panda_mask = np.all(seg_map[non_panda_idx] == 0, axis=0)
-        seg_map[panda_idx][panda_mask] = panda_median_layer[panda_mask]
+            # check that in panda layer there is no overlap with other encodings
+            panda_mask = np.all(seg_map[non_panda_idx] == 0, axis=0)
+            seg_map[panda_idx][panda_mask] = panda_median_layer[panda_mask]
 
         background_mask = np.all(seg_map == 0, axis=0)
         seg_map[-1][background_mask] = 1  # last layer is background layer
@@ -580,7 +596,7 @@ class PandaRoboSuite:
         Segmentation of image based on segmentation mask, works both with rgb and depth images.
         seg: (dim1, dim2, channels)
         image: (dim1, dim2, 1/3)
-        
+
         Return:
         seg_image: (dim1, dim2, 1/3, channels)
         """
@@ -596,7 +612,9 @@ class PandaRoboSuite:
 
         return seg_image
 
-    def rgb_spec(self,):
+    def rgb_spec(
+        self,
+    ):
         v = self.obs_space["rgb"]
         return specs.BoundedArray(
             name="rgb",
@@ -606,7 +624,9 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def depth_spec(self,):
+    def depth_spec(
+        self,
+    ):
         v = self.obs_space["depth"]
         return specs.BoundedArray(
             name="depth",
@@ -616,7 +636,9 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def proprio_spec(self,):
+    def proprio_spec(
+        self,
+    ):
         v = self.obs_space["proprio"]
         return specs.BoundedArray(
             name="proprio",
@@ -626,7 +648,21 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def segmentation_spec(self,):
+    def objects_pos_spec(
+        self,
+    ):
+        v = self.obs_space["objects_pos"]
+        return specs.BoundedArray(
+            name="objects_pos",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def segmentation_spec(
+        self,
+    ):
         v = self.obs_space["segmentation"]
         return specs.BoundedArray(
             name="segmentation",
@@ -636,7 +672,9 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def seg_rgb_spec(self,):
+    def seg_rgb_spec(
+        self,
+    ):
         v = self.obs_space["seg_rgb"]
         return specs.BoundedArray(
             name="seg_rgb",
@@ -646,7 +684,9 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def seg_depth_spec(self,):
+    def seg_depth_spec(
+        self,
+    ):
         v = self.obs_space["seg_depth"]
         return specs.BoundedArray(
             name="seg_depth",
@@ -656,7 +696,9 @@ class PandaRoboSuite:
             maximum=v.high,
         )
 
-    def action_spec(self,):
+    def action_spec(
+        self,
+    ):
         return specs.BoundedArray(
             name="action",
             shape=self._env.action_space.shape,
@@ -670,12 +712,23 @@ class PandaRoboSuite:
         spaces = {
             "rgb": gym.spaces.Box(0, 255, (3,) + self._size, dtype=np.uint8),
             "depth": gym.spaces.Box(
-                -np.inf, np.inf, (1,) + self._size, dtype=np.float32,
+                -np.inf,
+                np.inf,
+                (1,) + self._size,
+                dtype=np.float32,
             ),
             "proprio": gym.spaces.Box(
                 -np.inf,
                 np.inf,
-                self._env.modality_dims["robot0_proprio-state"],
+                # self._env.modality_dims["robot0_proprio-state"],
+                self._env.modality_dims["robot0_joint_pos_cos"],
+                # + self._env.modality_dims["robot0_joint_pos_sin"],
+                dtype=np.float32,
+            ),
+            "objects_pos": gym.spaces.Box(
+                -np.inf,
+                np.inf,
+                (len(self.segmentation_instances), 3),
                 dtype=np.float32,
             ),
             "segmentation": gym.spaces.Box(
@@ -687,13 +740,21 @@ class PandaRoboSuite:
             "seg_rgb": gym.spaces.Box(
                 0,
                 255,
-                (len(self.segmentation_instances) + 1, 3,) + self._size,
+                (
+                    len(self.segmentation_instances) + 1,
+                    3,
+                )
+                + self._size,
                 dtype=np.uint8,
             ),
             "seg_depth": gym.spaces.Box(
                 -np.inf,
                 np.inf,
-                (len(self.segmentation_instances) + 1, 1,) + self._size,
+                (
+                    len(self.segmentation_instances) + 1,
+                    1,
+                )
+                + self._size,
                 dtype=np.float32,
             ),
             "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
@@ -734,6 +795,34 @@ class PandaRoboSuite:
 
         return proprio, rgb, depth, seg, state
 
+    def pixel_to_world(self, seg, depth):
+
+        depth = depth.transpose(1, 2, 0)
+
+        # obtain world coordinates from the segmentation mask
+        depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
+        estimated_obj_pos = []
+
+        for ch in range(len(self.segmentation_instances)):
+            try:
+                centroid = np.mean(np.argwhere(seg[ch]), axis=0).astype(int)
+            except:
+                centroid = np.array(
+                    [0, 0]
+                )  # if no object is detected, set the centroid to the origin
+
+            # centroid_x, centroid_y = int(centroid[1]), int(centroid[0])
+
+            estimated_obj_pos += [
+                CU.transform_from_pixels_to_world(
+                    pixels=centroid,
+                    depth_map=depth_map,
+                    camera_to_world_transform=self.camera_to_world,
+                )
+            ]
+
+        return estimated_obj_pos
+
     def step(self, action):
         # assert np.isfinite(action["action"]).all(), action["action"]
         # TODO: check state match with observation
@@ -753,6 +842,8 @@ class PandaRoboSuite:
         seg_rgb = self.image_segmentation(rgb, seg)
         seg_depth = self.image_segmentation(depth, seg)
 
+        objects_pos = self.pixel_to_world(seg, depth)
+
         obs = {
             "reward": reward,
             "is_first": False,
@@ -761,6 +852,7 @@ class PandaRoboSuite:
             "rgb": rgb,
             "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
+            "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "seg_rgb": seg_rgb,
             "seg_depth": seg_depth,
@@ -781,6 +873,8 @@ class PandaRoboSuite:
         seg_rgb = self.image_segmentation(rgb, seg)
         seg_depth = self.image_segmentation(depth, seg)
 
+        objects_pos = self.pixel_to_world(seg, depth)
+
         obs = {
             "reward": 0.0,
             "is_first": True,
@@ -789,6 +883,7 @@ class PandaRoboSuite:
             "rgb": rgb,
             "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
+            "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "seg_rgb": seg_rgb,
             "seg_depth": seg_depth,
@@ -843,16 +938,36 @@ class PandaRoboSuite:
 
 
 def _make_panda(
-    obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
+    obs_type,
+    domain,
+    task,
+    objs,
+    frame_stack,
+    action_repeat,
+    seed,
+    img_size,
 ):
-    env = PandaRoboSuite("Lift", seed, action_repeat, (img_size, img_size))
+    # task = "Stack"
+
+    env = PandaRoboSuite(task, objs, seed, action_repeat, (img_size, img_size))
     return env
 
 
 def _make_jaco(
-    obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
+    obs_type,
+    domain,
+    task,
+    frame_stack,
+    action_repeat,
+    seed,
+    img_size,
 ):
-    env = cdmc.make_jaco(task, obs_type, seed, img_size,)
+    env = cdmc.make_jaco(
+        task,
+        obs_type,
+        seed,
+        img_size,
+    )
     env = ActionDTypeWrapper(env, np.float32)
     env = ActionRepeatWrapper(env, action_repeat)
     env = FlattenJacoObservationWrapper(env)
@@ -861,7 +976,13 @@ def _make_jaco(
 
 
 def _make_dmc(
-    obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
+    obs_type,
+    domain,
+    task,
+    frame_stack,
+    action_repeat,
+    seed,
+    img_size,
 ):
     visualize_reward = False
     if (domain, task) in suite.ALL_TASKS:
@@ -897,7 +1018,12 @@ def _make_dmc(
 
 
 def make(
-    name, obs_type, frame_stack, action_repeat, seed, img_size=84,
+    name,
+    obs_type,
+    frame_stack,
+    action_repeat,
+    seed,
+    img_size=84,
 ):
     assert obs_type in ["states", "pixels"]
     domain, task = name.split("_", 1)
@@ -905,14 +1031,28 @@ def make(
 
     if domain == "panda":
         make_fn = _make_panda
+        objs = PANDA_TASKS_OBJ[task]
         env = make_fn(
-            obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
+            obs_type,
+            domain,
+            task,
+            objs,
+            frame_stack,
+            action_repeat,
+            seed,
+            img_size,
         )
         return env
     else:
         make_fn = _make_jaco if domain == "jaco" else _make_dmc
     env = make_fn(
-        obs_type, domain, task, frame_stack, action_repeat, seed, img_size,
+        obs_type,
+        domain,
+        task,
+        frame_stack,
+        action_repeat,
+        seed,
+        img_size,
     )
 
     if obs_type == "pixels":

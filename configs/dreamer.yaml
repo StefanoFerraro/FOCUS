@@ -30,4 +30,6 @@ eval_state_mean: False
 
 precision: 32
 train_every_actions: 32
+
+objects: [] # field needed in case of object-centric model
 # 

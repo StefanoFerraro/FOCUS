@@ -449,6 +449,7 @@ class Encoder(Module):
             for k, v in shapes.items()
             if re.match(mlp_keys, k) and len(v) == 1
         ]
+
         print("Encoder CNN inputs:", list(self.cnn_keys))
         print("Encoder MLP inputs:", list(self.mlp_keys))
         self._act = act()
@@ -465,7 +466,7 @@ class Encoder(Module):
                     prev_depth = 4
                 else:
                     prev_depth = 2 ** (i - 1) * self._cnn_depth
-                depth = 2 ** i * self._cnn_depth
+                depth = 2**i * self._cnn_depth
                 self._conv_model.append(
                     nn.Conv2d(prev_depth, depth, kernel, stride=2)
                 )
@@ -607,8 +608,8 @@ class Decoder(Module):
                 else:
                     prev_width = self._mlp_layers[i - 1]
                 self._mlp_model.append(nn.Linear(prev_width, width))
-                self._mlp_model.append(NormLayer(norm, width))
-                self._mlp_model.append(act)
+                self._mlp_model.append(NormLayer(self._norm, width))
+                self._mlp_model.append(self._act)
             self._mlp_model = nn.Sequential(*self._mlp_model)
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(width, shape))
@@ -623,7 +624,14 @@ class Decoder(Module):
 
     def _cnn(self, features):
         x = self._conv_in(features)
-        x = x.reshape([-1, 32 * self._cnn_depth, 1, 1,])
+        x = x.reshape(
+            [
+                -1,
+                32 * self._cnn_depth,
+                1,
+                1,
+            ]
+        )
         x = self._conv_model(x)
         x = x.reshape(list(features.shape[:-1]) + list(x.shape[1:]))
         means = torch.split(x, list(self.channels.values()), 2)
@@ -645,11 +653,15 @@ class Decoder(Module):
         x = self._mlp_model(x)
         dists = {}
         for key, shape in shapes.items():
-            dists[key] = getattr(self, f"dense_{key}")(x)
+            lin = getattr(self, f"dense_{key}")
+            means = lin._out(x)
+
+            dists[key] = D.Normal(means, 1.0)
+            # dists[key] = getattr(self, f"dense_{key}")(x)
         return dists
 
 
-class ObjDecoder(Decoder):
+class ObjDecoder(Module):
     def __init__(
         self,
         shapes,
@@ -661,71 +673,161 @@ class ObjDecoder(Decoder):
         cnn_kernels=(4, 4, 4, 4),
         mlp_layers=[400, 400, 400, 400],
         embed_dim=1024,
-        instances_dim=10,
-        device="cuda",
     ):
-        super().__init__(
-            shapes,
-            cnn_keys,
-            mlp_keys,
-            act,
-            norm,
-            cnn_depth,
-            cnn_kernels,
-            mlp_layers,
-            embed_dim,
-        )
-        self.instances_dim = instances_dim
-        self.obj_onehot = torch.eye(instances_dim, device=device).repeat(
-            32, 32, 1, 1
-        )
+        super().__init__()
+        self._embed_dim = embed_dim
+        self._shapes = shapes
+        self.cnn_keys = [
+            k
+            for k, v in shapes.items()
+            if re.match(cnn_keys, k)  # and len(v) == 3
+        ]
+        self.mlp_keys = [
+            k
+            for k, v in shapes.items()
+            if re.match(mlp_keys, k)  # and len(v) == 1
+        ]
+        print("Decoder CNN outputs:", list(self.cnn_keys))
+        print("Decoder MLP outputs:", list(self.mlp_keys))
+
+        self._act = act()
+        self._norm = norm
+        self._cnn_depth = cnn_depth
+        self._cnn_kernels = cnn_kernels
+        self._mlp_layers = mlp_layers
+
+        self.instances_dim = (
+            self._shapes[self.cnn_keys[0]][0] - 1
+        )  # -1 discard the background layer
+
+        self.channels = {k: self._shapes[k][1] for k in self.cnn_keys}
 
         if len(self.cnn_keys) > 0:
+
             self._object_extractor = nn.Sequential(
-                nn.Linear(embed_dim + instances_dim, 512)
+                nn.Linear(embed_dim + self.instances_dim, 512)
             )
             self._conv_in = nn.Sequential(nn.Linear(512, 32 * self._cnn_depth))
 
+            self._conv_model = []
+            for i, kernel in enumerate(self._cnn_kernels):
+                if i == 0:
+                    prev_depth = 32 * self._cnn_depth
+                    self.layer_size = 1
+                else:
+                    prev_depth = (
+                        2 ** (len(self._cnn_kernels) - (i - 1) - 2)
+                        * self._cnn_depth
+                    )
+                depth = 2 ** (len(self._cnn_kernels) - i - 2) * self._cnn_depth
+                act, norm = self._act, self._norm
+                if i == len(self._cnn_kernels) - 1:
+                    depth, act, norm = (
+                        sum(self.channels.values()),
+                        nn.Identity(),
+                        "none",
+                    )
+
+                self._conv_model.append(
+                    nn.ConvTranspose2d(prev_depth, depth, kernel, stride=2)
+                )
+
+                self._conv_model.append(NormLayer(norm, depth))
+                self._conv_model.append(act)
+
+            self._conv_model = nn.Sequential(*self._conv_model)
+
+        if len(self.mlp_keys) > 0:
+            self._mlp_model = []
+            for i, width in enumerate(self._mlp_layers):
+                if i == 0:
+                    prev_width = embed_dim + self.instances_dim
+                else:
+                    prev_width = self._mlp_layers[i - 1]
+                self._mlp_model.append(nn.Linear(prev_width, width))
+                self._mlp_model.append(NormLayer(self._norm, width))
+                self._mlp_model.append(self._act)
+
+            self._mlp_model = nn.Sequential(*self._mlp_model)
+            for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
+                self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
+
     def forward(self, features, channels_masks):
         outputs = {}
+        obj_onehot = torch.eye(
+            self.instances_dim, device=features.device
+        ).repeat(*features.shape[:2], 1, 1)
+
         if self.cnn_keys:
-            outputs.update(self._cnn(features, channels_masks))
+            outputs.update(self._cnn(features, channels_masks, obj_onehot))
         if self.mlp_keys:
-            outputs.update(self._mlp(features))
+            outputs.update(self._mlp(features, channels_masks, obj_onehot))
         return outputs
 
-    def _cnn(self, features, channels_masks):
-        import code
+    def _cnn(self, features, channels_masks, obj_onehot):
+
+        dists = {}
+        for key in self.channels.keys():
+            dists[key] = []
 
         for i in range(self.instances_dim):
             # concatenate one hot encoding of instance to the full embedding
-            obj_feat = self.obj_onehot[..., i]
-            code.interact(local=locals())
+            obj_feat = obj_onehot[..., i]
+            feat = torch.cat((features, obj_feat), dim=-1)
 
-            features = torch.cat((features, obj_feat), dim=-1)
-            x = self._object_extractor(features)
+            x = self._object_extractor(feat)
             x = self._conv_in(x)
-            x = x.reshape([-1, 32 * self._cnn_depth, 1, 1,])
+            x = x.reshape(
+                [
+                    -1,
+                    32 * self._cnn_depth,
+                    1,
+                    1,
+                ]
+            )
             x = self._conv_model(x)
-            x = x.reshape(list(features.shape[:-1]) + list(x.shape[1:]))
+            x = x.reshape(list(feat.shape[:-1]) + list(x.shape[1:]))
             means = torch.split(x, list(self.channels.values()), 2)
 
-            # TODO: concatenate distributions in a dictionary and use them for the loss composition
-            dists = {}
+            for key, mean in zip(self.channels.keys(), means):
+                chs = mean.shape[2]
+                mask = (
+                    channels_masks[:, :, i]
+                    .unsqueeze(2)
+                    .repeat(1, 1, chs, 1, 1)
+                )
+                mean = mean * mask
 
-            # for _, mean in zip(self.channels.items(), means):
-            # mean = mean * channels_masks[]
-            # dists[] = D.Independent(D.Normal(mean, 1), 3)
+                dists[key] += [D.Independent(D.Normal(mean, 1), 3)]
 
-        # return dists
+        return dists
 
-    def _mlp(self, features):
+    def _mlp(self, features, channels_masks, obj_onehot):
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
-        x = features
-        x = self._mlp_model(x)
+
         dists = {}
-        for key, shape in shapes.items():
-            dists[key] = getattr(self, f"dense_{key}")(x)
+        for key in shapes.keys():
+            dists[key] = []
+
+        for i in range(self.instances_dim):
+            # concatenate one hot encoding of instance to the full embedding
+            obj_feat = obj_onehot[..., i]
+            feat = torch.cat((features, obj_feat), dim=-1)
+
+            x = self._mlp_model(feat)
+
+            ch = torch.count_nonzero(channels_masks[:, :, i], dim=(2, 3))
+            ch[ch > 0] = 1
+            ch = ch.unsqueeze(-1).repeat(1, 1, 3)
+
+            for key, shape in shapes.items():
+                lin = getattr(self, f"dense_{key}")
+                means = lin._out(x)
+                masked_mean = means * ch
+
+                dists[key] += [D.Normal(masked_mean, 1.0)]
+            # In case of absent object in the mask set the mean to [0 0 0]
+
         return dists
 
 
@@ -816,7 +918,9 @@ class DistLayer(Module):
         self._init_std = init_std
         self._out = nn.Linear(in_dim, int(np.prod(shape)), bias=bias)
         if dist in ("normal", "tanh_normal", "trunc_normal"):
-            self._std = nn.Linear(in_dim, int(np.prod(shape)))
+            self._std = nn.Sequential(
+                nn.Linear(in_dim, int(np.prod(shape))), nn.Softplus()
+            )
 
     def forward(self, inputs):
         out = self._out(inputs)
@@ -990,4 +1094,3 @@ class RequiresGrad:
 
     def __exit__(self, *args):
         self._model.requires_grad_(requires_grad=False)
-

@@ -203,6 +203,11 @@ class Logger(object):
                 v = np.uint8(v.cpu() * 255)
                 wandb.log({k: wandb.Video(v, fps=15, format="gif")})
 
+    def log_text(self, data, step):
+        if self._sw is not None:
+            for k, v in data.items():
+                self._sw.add_text(k, v, global_step=step)
+
 
 class LogAndDumpCtx:
     def __init__(self, logger, step, ty):
