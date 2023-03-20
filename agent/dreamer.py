@@ -77,11 +77,19 @@ class DreamerAgent(Module):
         ):
             return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
-        reward_fn = lambda seq: self.wm.heads["reward"](
-            seq["feat"]
-        ).mean  # .mode()
 
-        # reward_fn = lambda seq: self.wm.heads["object_decoder"](seq["feat"], )[0]
+        # reward_fn = lambda seq: self.wm.heads["reward"](
+        # seq["feat"]
+        # ).mean  # .mode()
+
+        reward_fn = (
+            lambda seq: self.wm.heads["object_decoder"](
+                seq["feat"], only_mlp=True
+            )["objects_pos"][0]
+            .mean[:, :, 1]
+            .unsqueeze(-1)
+        )  # move cubeA to the right (positive position)
+
         metrics.update(
             self._task_behavior.update(
                 self.wm, start, data["is_terminal"], reward_fn
@@ -93,28 +101,30 @@ class DreamerAgent(Module):
         report = {}
         text = {}
         data = self.wm.preprocess(data)
+        with torch.no_grad():
+            for key in self.wm.heads["decoder"].cnn_keys:
+                name = key.replace("/", "_")
+                report[f"openl_{name}"] = self.wm.video_pred(
+                    data, key, "decoder"
+                )
 
-        for key in self.wm.heads["decoder"].cnn_keys:
-            name = key.replace("/", "_")
-            report[f"openl_{name}"] = self.wm.video_pred(data, key, "decoder")
+            for key in self.wm.heads["decoder"].mlp_keys:
+                name = key.replace("/", "_")
+                text[f"openl_{name}"] = self.wm.proprio_pred(
+                    data, key, "decoder", nvid=1
+                )
 
-        for key in self.wm.heads["decoder"].mlp_keys:
-            name = key.replace("/", "_")
-            text[f"openl_{name}"] = self.wm.proprio_pred(
-                data, key, "decoder", nvid=1
-            )
+            for key in self.wm.heads["object_decoder"].cnn_keys:
+                name = key.replace("/", "_")
+                report[f"openl_{name}"] = self.wm.video_pred(
+                    data, key, "object_decoder", nvid=1
+                )
 
-        for key in self.wm.heads["object_decoder"].cnn_keys:
-            name = key.replace("/", "_")
-            report[f"openl_{name}"] = self.wm.video_pred(
-                data, key, "object_decoder", nvid=1
-            )
-
-        for key in self.wm.heads["object_decoder"].mlp_keys:
-            name = key.replace("/", "_")
-            text[f"openl_{name}"] = self.wm.object_pos(
-                data, key, "object_decoder", nvid=1
-            )
+            for key in self.wm.heads["object_decoder"].mlp_keys:
+                name = key.replace("/", "_")
+                text[f"openl_{name}"] = self.wm.object_pos(
+                    data, key, "object_decoder", nvid=1
+                )
 
         return report, text
 
@@ -527,12 +537,11 @@ class WorldModel(Module):
                 value = value / 255.0 - 0.5
             if key == "segmentation":
                 value = value * 1.0
-            if key == "objects_pos":
-                # value *= 1000  # convert to mm
-                max = torch.tensor([0.1, 0.1, 1.0], device=value.device)
-                min = torch.tensor([-0.1, -0.1, 0.75], device=value.device)
+            # if key == "objects_pos":
+            #     max = torch.tensor([0.1, 0.1, 1.0], device=value.device)
+            #     min = torch.tensor([-0.1, -0.1, 0.75], device=value.device)
 
-                value = (value - min) / (max - min)
+            #     value = (value - min) / (max - min)
 
             obs[key] = value
         obs["reward"] = {
@@ -595,9 +604,9 @@ class WorldModel(Module):
         decoder = self.heads[head]
 
         truth = data[key][:nvid][0].unsqueeze(1)
-        max = torch.tensor([0.1, 0.1, 0.9], device=truth.device)
-        min = torch.tensor([-0.1, -0.1, 0.75], device=truth.device)
-        conf = max - min
+        # max = torch.tensor([0.1, 0.1, 0.9], device=truth.device)
+        # min = torch.tensor([-0.1, -0.1, 0.75], device=truth.device)
+        # conf = max - min
         embed = self.encoder(data)
         states, _ = self.rssm.observe(
             embed[:nvid, 0].unsqueeze(1),
@@ -615,8 +624,8 @@ class WorldModel(Module):
 
         for i in range(nvid):
             for j, obj_pred in enumerate(obj_predictions):
-                GT = (truth[i][0][j] * conf - min).cpu().numpy()
-                pred = (obj_pred.mean[i][0] * conf - min).cpu().numpy()
+                GT = (truth[i][0][j]).cpu().numpy()
+                pred = (obj_pred.mean[i][0]).cpu().numpy()
                 error = pred - GT
                 text_out.append(
                     f"Object {objects[j]} GT={GT}, Prediction={pred}, Error={error}"

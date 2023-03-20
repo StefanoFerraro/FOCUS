@@ -515,8 +515,8 @@ class PandaRoboSuite:
         os.environ["MUJOCO_GL"] = "egl"
         self._camera = "agentview"
 
-        # self._proprio_keys = ["robot0_proprio-state"]
-        self._proprio_keys = ["robot0_joint_pos_cos"]
+        self._proprio_keys = ["robot0_proprio-state"]
+        # self._proprio_keys = ["robot0_joint_pos_cos"]
         self._obs_keys = [
             self._camera + "_image",
             self._camera + "_depth",
@@ -718,16 +718,16 @@ class PandaRoboSuite:
                 dtype=np.float32,
             ),
             "proprio": gym.spaces.Box(
-                -np.inf,
-                np.inf,
-                # self._env.modality_dims["robot0_proprio-state"],
-                self._env.modality_dims["robot0_joint_pos_cos"],
+                -5,
+                5,
+                self._env.modality_dims["robot0_proprio-state"],
+                # self._env.modality_dims["robot0_joint_pos_cos"],
                 # + self._env.modality_dims["robot0_joint_pos_sin"],
                 dtype=np.float32,
             ),
             "objects_pos": gym.spaces.Box(
-                -np.inf,
-                np.inf,
+                -2,
+                2,
                 (len(self.segmentation_instances), 3),
                 dtype=np.float32,
             ),
@@ -865,7 +865,16 @@ class PandaRoboSuite:
         return obs
 
     def reset(self):
-        env_state = self._env.reset()
+
+        self._env.reset()  # reset environment
+
+        # move starting point of robot closer to object
+        init_qpos = [-0.075, 0.85, 0, -2.05799388, 0, 2.94159265, 0.78539816]
+        self._env.robots[0].set_robot_joint_positions(init_qpos)
+        self._env.robots[0].controller.update_initial_joints(init_qpos)
+        self._env.robots[0].controller.reset_goal()
+
+        env_state = self._env._get_observations(force_update=True)
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
         seg = self.segmentation_channel_split(seg)

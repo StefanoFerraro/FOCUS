@@ -752,19 +752,19 @@ class ObjDecoder(Module):
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
 
-    def forward(self, features, channels_masks):
+    def forward(self, features, channels_masks=None, only_mlp=False):
         outputs = {}
         obj_onehot = torch.eye(
             self.instances_dim, device=features.device
         ).repeat(*features.shape[:2], 1, 1)
 
-        if self.cnn_keys:
-            outputs.update(self._cnn(features, channels_masks, obj_onehot))
+        if self.cnn_keys and not only_mlp:
+            outputs.update(self._cnn(features, obj_onehot, channels_masks))
         if self.mlp_keys:
-            outputs.update(self._mlp(features, channels_masks, obj_onehot))
+            outputs.update(self._mlp(features, obj_onehot, channels_masks))
         return outputs
 
-    def _cnn(self, features, channels_masks, obj_onehot):
+    def _cnn(self, features, obj_onehot, channels_masks):
 
         dists = {}
         for key in self.channels.keys():
@@ -791,18 +791,19 @@ class ObjDecoder(Module):
 
             for key, mean in zip(self.channels.keys(), means):
                 chs = mean.shape[2]
-                mask = (
-                    channels_masks[:, :, i]
-                    .unsqueeze(2)
-                    .repeat(1, 1, chs, 1, 1)
-                )
-                mean = mean * mask
+                if channels_masks != None:
+                    mask = (
+                        channels_masks[:, :, i]
+                        .unsqueeze(2)
+                        .repeat(1, 1, chs, 1, 1)
+                    )
+                    mean = mean * mask
 
                 dists[key] += [D.Independent(D.Normal(mean, 1), 3)]
 
         return dists
 
-    def _mlp(self, features, channels_masks, obj_onehot):
+    def _mlp(self, features, obj_onehot, channels_masks):
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
 
         dists = {}
@@ -816,16 +817,17 @@ class ObjDecoder(Module):
 
             x = self._mlp_model(feat)
 
-            ch = torch.count_nonzero(channels_masks[:, :, i], dim=(2, 3))
-            ch[ch > 0] = 1
-            ch = ch.unsqueeze(-1).repeat(1, 1, 3)
 
             for key, shape in shapes.items():
                 lin = getattr(self, f"dense_{key}")
                 means = lin._out(x)
-                masked_mean = means * ch
+                if channels_masks != None:
+                    ch = torch.count_nonzero(channels_masks[:, :, i], dim=(2, 3))
+                    ch[ch > 0] = 1
+                    ch = ch.unsqueeze(-1).repeat(1, 1, 3)
+                    means = means * ch
 
-                dists[key] += [D.Normal(masked_mean, 1.0)]
+                dists[key] += [D.Normal(means, 1.0)]
             # In case of absent object in the mask set the mean to [0 0 0]
 
         return dists

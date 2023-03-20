@@ -19,7 +19,7 @@ num_eval_episodes: 10
 snapshots: [100000, 500000, 1000000, 2000000] 
 snapshot_dir: ../../../models/${obs_type}/${domain}/${agent.name}/${seed}
 # replay buffer
-replay_buffer_size: 1000000
+replay_buffer_size: 500000
 replay_buffer_num_workers: 4
 # misc
 seed: 1

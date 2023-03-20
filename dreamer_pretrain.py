@@ -128,7 +128,6 @@ class Workspace:
         # get meta specs
         meta_specs = self.agent.get_meta_specs()
 
-        # create replay buffer
         data_specs = (
             self.train_env.rgb_spec(),
             self.train_env.depth_spec(),
