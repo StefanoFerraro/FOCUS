@@ -821,14 +821,15 @@ class ObjDecoder(Module):
             for key, shape in shapes.items():
                 lin = getattr(self, f"dense_{key}")
                 means = lin._out(x)
-                if channels_masks != None:
-                    ch = torch.count_nonzero(channels_masks[:, :, i], dim=(2, 3))
-                    ch[ch > 0] = 1
-                    ch = ch.unsqueeze(-1).repeat(1, 1, 3)
-                    means = means * ch
+                
+                # if channels_masks != None: # In case of absent object in the mask set the mean to [0 0 0]
+                #     ch = torch.count_nonzero(channels_masks[:, :, i], dim=(2, 3))
+                #     ch[ch > 0] = 1
+                #     ch = ch.unsqueeze(-1).repeat(1, 1, 3)
+                #     means = means * ch
 
                 dists[key] += [D.Normal(means, 1.0)]
-            # In case of absent object in the mask set the mean to [0 0 0]
+            
 
         return dists
 

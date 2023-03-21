@@ -557,6 +557,9 @@ class PandaRoboSuite:
             camera_width=self._size[1],
         )
         self.camera_to_world = np.linalg.inv(self.world_to_camera)
+        self.last_estimated_obj_pos = [[0, 0, 0]] * len(
+            objs
+        )  # initialize to zero
 
     def segmentation_channel_split(self, seg):
 
@@ -806,20 +809,19 @@ class PandaRoboSuite:
         for ch in range(len(self.segmentation_instances)):
             try:
                 centroid = np.mean(np.argwhere(seg[ch]), axis=0).astype(int)
+                estimated_obj_pos += [
+                    CU.transform_from_pixels_to_world(
+                        pixels=centroid,
+                        depth_map=depth_map,
+                        camera_to_world_transform=self.camera_to_world,
+                    )
+                ]
             except:
-                centroid = np.array(
-                    [0, 0]
-                )  # if no object is detected, set the centroid to the origin
+                estimated_obj_pos = self.last_estimated_obj_pos[
+                    ch
+                ]  # if no object is detected, set the centroid to the previous one detected
 
-            # centroid_x, centroid_y = int(centroid[1]), int(centroid[0])
-
-            estimated_obj_pos += [
-                CU.transform_from_pixels_to_world(
-                    pixels=centroid,
-                    depth_map=depth_map,
-                    camera_to_world_transform=self.camera_to_world,
-                )
-            ]
+        self.last_estimated_obj_pos = estimated_obj_pos
 
         return estimated_obj_pos
 
