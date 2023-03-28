@@ -514,7 +514,7 @@ class PandaRoboSuite:
         size=(128, 128),
     ):
         os.environ["MUJOCO_GL"] = "egl"
-        self._camera = "agentview"
+        self._camera = "frontview"
 
         self._proprio_keys = ["robot0_proprio-state"]
         # self._proprio_keys = ["robot0_joint_pos_cos"]
