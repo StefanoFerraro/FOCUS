@@ -638,12 +638,12 @@ class Decoder(Module):
 
         dists = {}
         for (key, shape), mean in zip(self.channels.items(), means):
-            if key == "rgb":
-                dists[key] = D.Independent(D.Normal(mean, 1), 3)
-            elif key == "segmentation":
+            if key == "segmentation":
                 mean = mean.permute(0, 1, 3, 4, 2)
                 # @pietro: this needs to be 2, cause the OneHot dimension is not counted
                 dists[key] = D.Independent(OneHotDist(mean), 2)
+            else:
+                dists[key] = D.Independent(D.Normal(mean, 1), 3)
 
         return dists
 
@@ -696,11 +696,9 @@ class ObjDecoder(Module):
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
 
-        self.instances_dim = (
-            self._shapes[self.cnn_keys[0]][0] - 1
-        )  # -1 discard the background layer
+        self.instances_dim = self._shapes[self.cnn_keys[0]][0]
 
-        self.channels = {k: self._shapes[k][1] for k in self.cnn_keys}
+        self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
 
         if len(self.cnn_keys) > 0:
 
@@ -712,7 +710,7 @@ class ObjDecoder(Module):
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
-                    prev_depth = 32 * self._cnn_depth
+                    prev_depth = 32 * self._cnn_depth * self.instances_dim
                     self.layer_size = 1
                 else:
                     prev_depth = (
@@ -752,76 +750,87 @@ class ObjDecoder(Module):
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
 
-    def forward(self, features, channels_masks=None, only_mlp=False):
+    def forward(self, features, only_mlp=False):
         outputs = {}
         obj_onehot = torch.eye(
             self.instances_dim, device=features.device
         ).repeat(*features.shape[:2], 1, 1)
 
         if self.cnn_keys and not only_mlp:
-            outputs.update(self._cnn(features, obj_onehot, channels_masks))
+            outputs.update(self._cnn(features, obj_onehot))
         if self.mlp_keys:
-            outputs.update(self._mlp(features, obj_onehot, channels_masks))
+            outputs.update(self._mlp(features, obj_onehot))
         return outputs
 
-    def _cnn(self, features, obj_onehot, channels_masks):
+    def _cnn(self, features, obj_onehot):
 
         dists = {}
-        for key in self.channels.keys():
-            dists[key] = []
+        # for key in self.channels.keys():
+        #     dists[key] = []
 
         for i in range(self.instances_dim):
             # concatenate one hot encoding of instance to the full embedding
             obj_feat = obj_onehot[..., i]
-            feat = torch.cat((features, obj_feat), dim=-1)
+            if i == 0:
+                feat = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
+            else:
+                temp = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
+                feat = torch.cat(
+                    (feat, temp), dim=2
+                )  # concatenate all object dimension along a third batch dimension
 
-            x = self._object_extractor(feat)
-            x = self._conv_in(x)
-            x = x.reshape(
-                [
-                    -1,
-                    32 * self._cnn_depth,
-                    1,
-                    1,
-                ]
-            )
-            x = self._conv_model(x)
-            x = x.reshape(list(feat.shape[:-1]) + list(x.shape[1:]))
-            means = torch.split(x, list(self.channels.values()), 2)
+        x = self._object_extractor(feat)
+        x = self._conv_in(x)
+        x = x.reshape(
+            [
+                -1,
+                32 * self._cnn_depth * self.instances_dim,
+                1,
+                1,
+            ]
+        )
+        x = self._conv_model(x)
+        x = x.reshape(list(feat.shape[:-2]) + list(x.shape[1:]))
+        means = torch.split(
+            x, list(self.channels.values()), 2
+        )  # divide means per single channel
 
-            for key, mean in zip(self.channels.keys(), means):
-                chs = mean.shape[2]
-                if channels_masks != None:
-                    mask = (
-                        channels_masks[:, :, i]
-                        .unsqueeze(2)
-                        .repeat(1, 1, chs, 1, 1)
-                    )
-                    mean = mean * mask
+        for key, mean in zip(self.channels.keys(), means):
+            # chs = mean.shape[2]
+            # if channels_masks != None:
+            #     mask = (
+            #         channels_masks[:, :, i]
+            #         .unsqueeze(2)
+            #         .repeat(1, 1, chs, 1, 1)
+            #     )
+            #     mean = mean * mask
 
-                dists[key] += [D.Independent(D.Normal(mean, 1), 3)]
+            # dists[key] += [D.Independent(D.Normal(mean, 1), 3)]
+            mean = mean.permute(
+                0, 1, 3, 4, 2
+            )  # move seg channel to the last dimension
+            dists[key] = D.Independent(OneHotDist(mean), 2)
 
         return dists
 
-    def _mlp(self, features, obj_onehot, channels_masks):
+    def _mlp(self, features, obj_onehot):
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
 
         dists = {}
         for key in shapes.keys():
             dists[key] = []
 
-        for i in range(self.instances_dim):
+        for i in range(self.instances_dim - 1): # remove background from instances
             # concatenate one hot encoding of instance to the full embedding
             obj_feat = obj_onehot[..., i]
             feat = torch.cat((features, obj_feat), dim=-1)
 
             x = self._mlp_model(feat)
 
-
             for key, shape in shapes.items():
                 lin = getattr(self, f"dense_{key}")
                 means = lin._out(x)
-                
+
                 # if channels_masks != None: # In case of absent object in the mask set the mean to [0 0 0]
                 #     ch = torch.count_nonzero(channels_masks[:, :, i], dim=(2, 3))
                 #     ch[ch > 0] = 1
@@ -829,7 +838,6 @@ class ObjDecoder(Module):
                 #     means = means * ch
 
                 dists[key] += [D.Normal(means, 1.0)]
-            
 
         return dists
 

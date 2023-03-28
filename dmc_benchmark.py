@@ -33,5 +33,5 @@ PRIMAL_TASKS = {
     "walker": "walker_stand",
     "jaco": "jaco_reach_top_left",
     "quadruped": "quadruped_walk",
-    "panda": "panda_Lift",
+    "panda": "panda_Stack",
 }

@@ -17,6 +17,7 @@ import pickle
 import robosuite as suite
 from robosuite.wrappers import Wrapper
 import robosuite.utils.camera_utils as CU
+from robosuite.utils.camera_utils import CameraMover as CM
 from gym.core import Env
 from gym import spaces
 
@@ -513,7 +514,7 @@ class PandaRoboSuite:
         size=(128, 128),
     ):
         os.environ["MUJOCO_GL"] = "egl"
-        self._camera = "agentview"
+        self._camera = "frontview"
 
         self._proprio_keys = ["robot0_proprio-state"]
         # self._proprio_keys = ["robot0_joint_pos_cos"]
@@ -522,6 +523,7 @@ class PandaRoboSuite:
             self._camera + "_depth",
         ]
         self.segmentation_instances = objs
+        self.include_background = True
 
         self._object_keys = ["object-state"]
         self._env = PandaGymWrapper(
@@ -544,6 +546,9 @@ class PandaRoboSuite:
             keys=self._proprio_keys + self._obs_keys,
         )
 
+        # move camera closer to robot
+        self.set_camera_pos()
+
         self._size = size
         self._action_repeat = action_repeat
         self._seed = seed
@@ -561,11 +566,29 @@ class PandaRoboSuite:
             objs
         )  # initialize to zero
 
-    def segmentation_channel_split(self, seg):
+    def set_camera_pos(self):
+        # move camera closer to robot
+        self.cam_mover = CM(self._env, camera=self._camera)
+        (
+            self.start_cam_pos,
+            self.start_cam_quat,
+        ) = self.cam_mover.get_camera_pose()
+        self.start_cam_pos -= [0.5, 0.0, 0.0]
+
+        self.cam_mover.set_camera_pose(pos=self.start_cam_pos)
+
+    def segmentation_channel_split(self, seg, include_background=False):
 
         instances_to_ids = self._env.model.instances_to_ids
+
+        channels = (
+            len(self.segmentation_instances) + 1
+            if include_background
+            else len(self.segmentation_instances)
+        )
+
         seg_map = np.zeros(
-            (len(self.segmentation_instances) + 1, seg.shape[1], seg.shape[2]),
+            (channels, seg.shape[1], seg.shape[2]),
             dtype=np.uint8,
         )
 
@@ -588,8 +611,9 @@ class PandaRoboSuite:
             panda_mask = np.all(seg_map[non_panda_idx] == 0, axis=0)
             seg_map[panda_idx][panda_mask] = panda_median_layer[panda_mask]
 
-        background_mask = np.all(seg_map == 0, axis=0)
-        seg_map[-1][background_mask] = 1  # last layer is background layer
+        if include_background:
+            background_mask = np.all(seg_map == 0, axis=0)
+            seg_map[-1][background_mask] = 1  # last layer is background layer
 
         return seg_map
 
@@ -737,28 +761,9 @@ class PandaRoboSuite:
             "segmentation": gym.spaces.Box(
                 0,
                 1,
-                (len(self.segmentation_instances) + 1,) + self._size,
-                dtype=np.uint8,
-            ),
-            "seg_rgb": gym.spaces.Box(
-                0,
-                255,
-                (
-                    len(self.segmentation_instances) + 1,
-                    3,
-                )
+                (len(self.segmentation_instances) + self.include_background,)
                 + self._size,
                 dtype=np.uint8,
-            ),
-            "seg_depth": gym.spaces.Box(
-                -np.inf,
-                np.inf,
-                (
-                    len(self.segmentation_instances) + 1,
-                    1,
-                )
-                + self._size,
-                dtype=np.float32,
             ),
             "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
             "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
@@ -788,6 +793,9 @@ class PandaRoboSuite:
         rgb = env_state[self._camera + "_image"][::-1].transpose(2, 0, 1)
         depth = env_state[self._camera + "_depth"][::-1].transpose(2, 0, 1)
 
+        # obtain world coordinates from the segmentation mask
+        depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
+
         seg = env_state[self._camera + "_segmentation_element"][
             ::-1
         ].transpose(2, 0, 1)
@@ -796,14 +804,13 @@ class PandaRoboSuite:
         for key in self._proprio_keys or self._obs_keys:
             state[key] = env_state[key]
 
-        return proprio, rgb, depth, seg, state
+        return proprio, rgb, depth_map, seg, state
 
     def pixel_to_world(self, seg, depth):
 
         depth = depth.transpose(1, 2, 0)
 
-        # obtain world coordinates from the segmentation mask
-        depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
+        # depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
         estimated_obj_pos = []
 
         for ch in range(len(self.segmentation_instances)):
@@ -812,7 +819,7 @@ class PandaRoboSuite:
                 estimated_obj_pos += [
                     CU.transform_from_pixels_to_world(
                         pixels=centroid,
-                        depth_map=depth_map,
+                        depth_map=depth,
                         camera_to_world_transform=self.camera_to_world,
                     )
                 ]
@@ -839,10 +846,7 @@ class PandaRoboSuite:
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
-        seg = self.segmentation_channel_split(seg)
-
-        seg_rgb = self.image_segmentation(rgb, seg)
-        seg_depth = self.image_segmentation(depth, seg)
+        seg = self.segmentation_channel_split(seg, self.include_background)
 
         objects_pos = self.pixel_to_world(seg, depth)
 
@@ -856,8 +860,6 @@ class PandaRoboSuite:
             "proprio": np.array(proprio).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
-            "seg_rgb": seg_rgb,
-            "seg_depth": seg_depth,
             "state": self._env._flatten_obs(state),
             "action": action,
             "success": success,
@@ -870,6 +872,8 @@ class PandaRoboSuite:
 
         self._env.reset()  # reset environment
 
+        self.set_camera_pos()  # move camera closer to the robot
+
         # move starting point of robot closer to object
         init_qpos = [-0.075, 0.85, 0, -2.05799388, 0, 2.94159265, 0.78539816]
         self._env.robots[0].set_robot_joint_positions(init_qpos)
@@ -879,10 +883,7 @@ class PandaRoboSuite:
         env_state = self._env._get_observations(force_update=True)
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
-        seg = self.segmentation_channel_split(seg)
-
-        seg_rgb = self.image_segmentation(rgb, seg)
-        seg_depth = self.image_segmentation(depth, seg)
+        seg = self.segmentation_channel_split(seg, self.include_background)
 
         objects_pos = self.pixel_to_world(seg, depth)
 
@@ -896,8 +897,6 @@ class PandaRoboSuite:
             "proprio": np.array(proprio).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
-            "seg_rgb": seg_rgb,
-            "seg_depth": seg_depth,
             "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,

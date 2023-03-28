@@ -412,24 +412,17 @@ class WorldModel(Module):
         for name, head in self.heads.items():
             grad_head = name in self.grad_heads
             inp = feat if grad_head else stop_gradient(feat)
-            if name == "object_decoder":
-                out = head(inp, data["segmentation"])
-            else:
-                out = head(inp)
+            out = head(inp)
+
             dists = out if isinstance(out, dict) else {name: out}
 
             for key, dist in dists.items():
                 like = 0
+
                 if key == "segmentation":
-                    seg = data[key].permute(
-                        0, 1, 3, 4, 2
-                    )  # in case of onehot distribution segmentation layer needs to the last dimension
+                    seg = data[key].permute(0, 1, 3, 4, 2)
                     like = dist.log_prob(seg)
-                elif key == "seg_rgb" or key == "seg_depth":
-                    for el in range(
-                        data[key].shape[2] - 1
-                    ):  # remove last channel which is the background
-                        like += dist[el].log_prob(data[key][:, :, el])
+
                 elif key == "objects_pos":
                     for el in range(data[key].shape[2]):
                         like += dist[el].log_prob(data[key][:, :, el])
@@ -535,13 +528,20 @@ class WorldModel(Module):
                 continue
             if value.dtype in [np.uint8, torch.uint8] and "rgb" in key:
                 value = value / 255.0 - 0.5
+
+            if key == "depth":
+                value = value / 4.0 - 0.5
+
             if key == "segmentation":
                 value = value * 1.0
-            # if key == "objects_pos":
-            #     max = torch.tensor([0.1, 0.1, 1.0], device=value.device)
-            #     min = torch.tensor([-0.1, -0.1, 0.75], device=value.device)
 
-            #     value = (value - min) / (max - min)
+            # if key == "objects_pos":
+            # value = value * 100.0  # convert units to meters
+
+            # max = torch.tensor([0.1, 0.1, 1.0], device=value.device)
+            # min = torch.tensor([-0.1, -0.1, 0.75], device=value.device)
+
+            # value = (value - min) / (max - min)
 
             obs[key] = value
         obs["reward"] = {
@@ -614,10 +614,7 @@ class WorldModel(Module):
             data["is_first"][:nvid, 0].unsqueeze(1),
         )
 
-        obj_predictions = decoder(
-            self.rssm.get_feat(states),
-            data["segmentation"][:nvid, 0].unsqueeze(1),
-        )[key]
+        obj_predictions = decoder(self.rssm.get_feat(states))[key]
         objects = self.cfg.objects
 
         text_out = []
@@ -669,89 +666,83 @@ class WorldModel(Module):
             data["is_first"][:nvid, :5],
         )
 
-        if head == "decoder":
-            recon = decoder(self.rssm.get_feat(states))[key].mean[
-                :nvid
-            ]  # mode
+        # if head == "decoder":
+        recon = decoder(self.rssm.get_feat(states))[key].mean[:nvid]  # mode
 
-            init = {k: v[:, -1] for k, v in states.items()}
-            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
-            prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
-            model = torch.clip(
-                torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
-            )
+        init = {k: v[:, -1] for k, v in states.items()}
+        prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+        prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
+        model = torch.clip(
+            torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
+        )
 
-            if key == "segmentation":
-                model = model.permute(0, 1, 4, 2, 3)
-            error = ((model - truth + 1) / 2).mean(axis=2).unsqueeze(dim=2)
+        if key == "segmentation":
+            model = model.permute(0, 1, 4, 2, 3)
+        error = ((model - truth + 1) / 2).mean(axis=2).unsqueeze(dim=2)
 
-            if key == "segmentation":
-                truth = self.segmentation_visualization(truth - 0.5)
-                model = self.segmentation_visualization(model)
+        if key == "segmentation":
+            truth = self.segmentation_visualization(truth - 0.5)
+            model = self.segmentation_visualization(model)
 
-        elif head == "object_decoder":
-            recon = decoder(
-                self.rssm.get_feat(states), data["segmentation"][:nvid, :5]
-            )[key]
+        # elif head == "object_decoder":
+        #     recon = decoder(self.rssm.get_feat(states))[key]
 
-            init = {k: v[:, -1] for k, v in states.items()}
-            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
-            prior_recon = decoder(
-                self.rssm.get_feat(prior), data["segmentation"][:nvid, 5:]
-            )[key]
+        #     init = {k: v[:, -1] for k, v in states.items()}
+        #     prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+        #     prior_recon = decoder(self.rssm.get_feat(prior))[key]
 
-            for i in range(
-                data[key].shape[2] - 1
-            ):  # remove background channel
-                if i == 0:
-                    model = torch.clip(
-                        torch.cat(
-                            [
-                                recon[i].mean[:nvid, :5] + 0.5,
-                                prior_recon[i].mean + 0.5,
-                            ],
-                            1,
-                        ),
-                        0,
-                        1,
-                    )
+        #     for i in range(
+        #         data[key].shape[2] - 1
+        #     ):  # remove background channel
+        #         if i == 0:
+        #             model = torch.clip(
+        #                 torch.cat(
+        #                     [
+        #                         recon[i].mean[:nvid, :5] + 0.5,
+        #                         prior_recon[i].mean + 0.5,
+        #                     ],
+        #                     1,
+        #                 ),
+        #                 0,
+        #                 1,
+        #             )
 
-                    error = (
-                        ((model - truth[:, :, i] + 1) / 2)
-                        .mean(axis=2)
-                        .unsqueeze(dim=2)
-                    )
-                else:
-                    m = torch.clip(
-                        torch.cat(
-                            [
-                                recon[i].mean[:nvid, :5] + 0.5,
-                                prior_recon[i].mean + 0.5,
-                            ],
-                            1,
-                        ),
-                        0,
-                        1,
-                    )
-                    model = torch.cat([model, m], -1)
+        #             error = (
+        #                 ((model - truth[:, :, i] + 1) / 2)
+        #                 .mean(axis=2)
+        #                 .unsqueeze(dim=2)
+        #             )
+        #         else:
+        #             m = torch.clip(
+        #                 torch.cat(
+        #                     [
+        #                         recon[i].mean[:nvid, :5] + 0.5,
+        #                         prior_recon[i].mean + 0.5,
+        #                     ],
+        #                     1,
+        #                 ),
+        #                 0,
+        #                 1,
+        #             )
+        #             model = torch.cat([model, m], -1)
 
-                    error = torch.cat(
-                        [
-                            error,
-                            ((m - truth[:, :, i] + 1) / 2)
-                            .mean(axis=2)
-                            .unsqueeze(dim=2),
-                        ],
-                        -1,
-                    )
+        #             error = torch.cat(
+        #                 [
+        #                     error,
+        #                     ((m - truth[:, :, i] + 1) / 2)
+        #                     .mean(axis=2)
+        #                     .unsqueeze(dim=2),
+        #                 ],
+        #                 -1,
+        #             )
 
-            for i in range(truth.shape[2] - 1):  # remove background channel
-                if i == 0:
-                    truth_out = truth[:, :, i]
-                else:
-                    truth_out = torch.cat((truth_out, truth[:, :, i]), dim=-1)
+        #     for i in range(truth.shape[2] - 1):  # remove background channel
+        #         if i == 0:
+        #             truth_out = truth[:, :, i]
+        #         else:
+        #             truth_out = torch.cat((truth_out, truth[:, :, i]), dim=-1)
 
-            truth = truth_out
+        #     truth = truth_out
 
         if getattr(self, "recon_skills", False):
             prior_feat = self.rssm.get_feat(prior)
@@ -783,9 +774,10 @@ class WorldModel(Module):
                 torch.cat([recon[:, :5] + 0.5, skill_recon + 0.5], 1), 0, 1
             )
 
-        error = torch.cat((error, error, error), 2)
+        # error = torch.cat((error, error, error), 2)
+        error = error.repeat(1, 1, truth.shape[2], 1, 1)
         video = torch.cat([truth, model, error], 3)
-        # B, T, C, H, W = video.shape
+
         return video
 
 
