@@ -514,7 +514,7 @@ class PandaRoboSuite:
         size=(128, 128),
     ):
         os.environ["MUJOCO_GL"] = "egl"
-        self._camera = "frontview"
+        self._camera = "agentview"
 
         self._proprio_keys = ["robot0_proprio-state"]
         # self._proprio_keys = ["robot0_joint_pos_cos"]
@@ -567,15 +567,16 @@ class PandaRoboSuite:
         )  # initialize to zero
 
     def set_camera_pos(self):
-        # move camera closer to robot
-        self.cam_mover = CM(self._env, camera=self._camera)
-        (
-            self.start_cam_pos,
-            self.start_cam_quat,
-        ) = self.cam_mover.get_camera_pose()
-        self.start_cam_pos -= [0.5, 0.0, 0.0]
+        if self._camera == "frontcamera":
+            # move camera closer to robot
+            self.cam_mover = CM(self._env, camera=self._camera)
+            (
+                self.start_cam_pos,
+                self.start_cam_quat,
+            ) = self.cam_mover.get_camera_pose()
+            self.start_cam_pos -= [0.5, 0.0, 0.0]
 
-        self.cam_mover.set_camera_pose(pos=self.start_cam_pos)
+            self.cam_mover.set_camera_pose(pos=self.start_cam_pos)
 
     def segmentation_channel_split(self, seg, include_background=False):
 
