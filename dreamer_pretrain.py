@@ -350,7 +350,7 @@ class Workspace:
             ]
         )
         wandb.init(
-            project=cfg.project_name + "_pretrain",
+            project=cfg.project_name,
             group=cfg.agent.name,
             name=exp_name,
         )
@@ -423,8 +423,8 @@ def main(cfg):
     from dreamer_pretrain import Workspace as W
 
     root_dir = Path.cwd()
-    cfg.use_wandb = False
-    cfg.project_name = "local"
+    # cfg.use_wandb = False
+    cfg.project_name = "ObjChoreo"
 
     workspace = W(cfg)
     workspace.root_dir = root_dir

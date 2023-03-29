@@ -496,6 +496,7 @@ class WorldModel(Module):
                 seq[key].append(value)
             if task_cond is not None:
                 seq["task"].append(task_cond)
+        
         # shape will be (T, B, *DIMS)
         seq = {k: torch.stack(v, 0) for k, v in seq.items()}
         if "discount" in self.heads:
