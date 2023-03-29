@@ -76,6 +76,7 @@ def segmentation_visualization(
 
     return seg
 
+
 class Workspace:
     def __init__(self, cfg, savedir=None, workdir=None):
         self.workdir = Path.cwd() if workdir is None else workdir
@@ -340,11 +341,8 @@ class Workspace:
         cfg = self.cfg
         exp_name = "_".join(
             [
-                cfg.experiment,
-                cfg.agent.name,
-                cfg.domain,
-                cfg.obs_type,
-                str(cfg.seed),
+                cfg.task,
+                cfg.env.renderer.camera
             ]
         )
         wandb.init(
