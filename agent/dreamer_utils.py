@@ -458,7 +458,6 @@ class Encoder(Module):
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
 
-        # self._input_channels = self.shapes["rgb"][0]
         if len(self.cnn_keys) > 0:
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
@@ -473,6 +472,7 @@ class Encoder(Module):
                 self._conv_model.append(NormLayer(norm, depth))
                 self._conv_model.append(self._act)
             self._conv_model = nn.Sequential(*self._conv_model)
+        
         if len(self.mlp_keys) > 0:
             self._mlp_model = []
             for i, width in enumerate(self._mlp_layers):
@@ -657,7 +657,7 @@ class Decoder(Module):
             means = lin._out(x)
 
             dists[key] = D.Normal(means, 1.0)
-            # dists[key] = getattr(self, f"dense_{key}")(x)
+            # dists[key] = getattr(self, f"dense_{key}")(x) # removed for debugging reasons
         return dists
 
 
@@ -796,20 +796,10 @@ class ObjDecoder(Module):
         )  # divide means per single channel
 
         for key, mean in zip(self.channels.keys(), means):
-            # chs = mean.shape[2]
-            # if channels_masks != None:
-            #     mask = (
-            #         channels_masks[:, :, i]
-            #         .unsqueeze(2)
-            #         .repeat(1, 1, chs, 1, 1)
-            #     )
-            #     mean = mean * mask
-
-            # dists[key] += [D.Independent(D.Normal(mean, 1), 3)]
             mean = mean.permute(
                 0, 1, 3, 4, 2
             )  # move seg channel to the last dimension
-            dists[key] = D.Independent(OneHotDist(mean), 2)
+            dists[key] = D.Independent(OneHotDist(mean), 2) # output is a binary mask
 
         return dists
 
@@ -830,12 +820,6 @@ class ObjDecoder(Module):
             for key, shape in shapes.items():
                 lin = getattr(self, f"dense_{key}")
                 means = lin._out(x)
-
-                # if channels_masks != None: # In case of absent object in the mask set the mean to [0 0 0]
-                #     ch = torch.count_nonzero(channels_masks[:, :, i], dim=(2, 3))
-                #     ch[ch > 0] = 1
-                #     ch = ch.unsqueeze(-1).repeat(1, 1, 3)
-                #     means = means * ch
 
                 dists[key] += [D.Normal(means, 1.0)]
 

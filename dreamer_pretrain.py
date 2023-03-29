@@ -76,7 +76,6 @@ def segmentation_visualization(
 
     return seg
 
-
 class Workspace:
     def __init__(self, cfg, savedir=None, workdir=None):
         self.workdir = Path.cwd() if workdir is None else workdir
@@ -95,7 +94,6 @@ class Workspace:
             cfg.task if cfg.task != "none" else PRIMAL_TASKS[self.cfg.domain]
         )  # -> which is the URLB default
         frame_stack = 1
-        img_size = 64
 
         self.train_env = envs.make(
             task,
@@ -103,7 +101,7 @@ class Workspace:
             frame_stack,
             cfg.action_repeat,
             cfg.seed,
-            img_size=img_size,
+            cfg.env,
         )
         self.eval_env = envs.make(
             task,
@@ -111,7 +109,7 @@ class Workspace:
             frame_stack,
             cfg.action_repeat,
             cfg.seed,
-            img_size=img_size,
+            cfg.env,
         )
 
         # add objects to cfg

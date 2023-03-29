@@ -507,23 +507,26 @@ class PandaGymWrapper(Wrapper, Env):
 class PandaRoboSuite:
     def __init__(
         self,
+        env_config,
         task="Lift",
         objs=["cube"],
         seed=None,
         action_repeat=1,
-        size=(128, 128),
     ):
         os.environ["MUJOCO_GL"] = "egl"
-        self._camera = "frontview"
+        self._camera = env_config.renderer.camera
+        self._size = tuple(env_config.renderer.size)
 
         self._proprio_keys = ["robot0_proprio-state"]
         # self._proprio_keys = ["robot0_joint_pos_cos"]
+
         self._obs_keys = [
             self._camera + "_image",
             self._camera + "_depth",
         ]
         self.segmentation_instances = objs
         self.include_background = True
+        self.segmentation_level = env_config.renderer.segmentation_level
 
         self._object_keys = ["object-state"]
         self._env = PandaGymWrapper(
@@ -536,10 +539,10 @@ class PandaRoboSuite:
                 use_camera_obs=True,  # provide image observations to agent
                 camera_names=self._camera,
                 camera_depths=True,
-                camera_segmentations="element",
-                camera_heights=size[0],  # image height
-                camera_widths=size[1],  # image width
-                horizon=250,  # each episode terminates after 200 steps
+                camera_segmentations=self.segmentation_level,
+                camera_heights=self._size[0],  # image height
+                camera_widths=self._size[1],  # image width
+                horizon=env_config.horizon,  # each episode terminates after 200 steps
                 reward_shaping=True,
                 control_freq=20,  # control should happen fast enough so that simulation looks smooth
             ),
@@ -549,7 +552,6 @@ class PandaRoboSuite:
         # move camera closer to robot
         self.set_camera_pos()
 
-        self._size = size
         self._action_repeat = action_repeat
         self._seed = seed
         self._task = task
@@ -579,7 +581,6 @@ class PandaRoboSuite:
             self.cam_mover.set_camera_pose(pos=self.start_cam_pos)
 
     def segmentation_channel_split(self, seg, include_background=False):
-
         instances_to_ids = self._env.model.instances_to_ids
 
         channels = (
@@ -750,7 +751,6 @@ class PandaRoboSuite:
                 5,
                 self._env.modality_dims["robot0_proprio-state"],
                 # self._env.modality_dims["robot0_joint_pos_cos"],
-                # + self._env.modality_dims["robot0_joint_pos_sin"],
                 dtype=np.float32,
             ),
             "objects_pos": gym.spaces.Box(
@@ -797,9 +797,9 @@ class PandaRoboSuite:
         # obtain world coordinates from the segmentation mask
         depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
 
-        seg = env_state[self._camera + "_segmentation_element"][
-            ::-1
-        ].transpose(2, 0, 1)
+        seg = env_state[
+            self._camera + "_segmentation_" + self.segmentation_level
+        ][::-1].transpose(2, 0, 1)
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
@@ -875,7 +875,7 @@ class PandaRoboSuite:
 
         self.set_camera_pos()  # move camera closer to the robot
 
-        # move starting point of robot closer to object
+        # move starting location of robot closer to object (task Lift)
         init_qpos = [-0.075, 0.85, 0, -2.05799388, 0, 2.94159265, 0.78539816]
         self._env.robots[0].set_robot_joint_positions(init_qpos)
         self._env.robots[0].controller.update_initial_joints(init_qpos)
@@ -906,47 +906,6 @@ class PandaRoboSuite:
 
         return obs
 
-    # def reset_with_task_id(self, task_id):
-    # if self._camera == "corner2":
-    #     self._env.model.cam_pos[2][:] = [0.75, 0.075, 0.7]
-
-    # task = self._tasks[task_id]
-    # self._env.set_task(task)
-
-    # state = self._env.reset()
-    # # This ensures the first observation is correct in the renderer
-    # self._env.sim.render(
-    #     *self._size, mode="offscreen", camera_name=self._camera
-    # )
-    # for site in self._env._target_site_config:
-    #     self._env._set_pos_site(*site)
-    # self._env.sim._render_context_offscreen._set_mujoco_buffers()
-
-    # obs = {
-    #     "reward": 0.0,
-    #     "is_first": True,
-    #     "is_last": False,
-    #     "is_terminal": False,
-    #     "observation": self._env.sim.render(
-    #         *self._size, mode="offscreen", camera_name=self._camera
-    #     )
-    #     .transpose(2, 0, 1)
-    #     .copy(),
-    #     "state": state,
-    #     "action": np.zeros_like(self.act_space["action"].sample()),
-    #     "success": False,
-    #     "discount": 1,
-    # }
-    # return (
-    #     dm_env.TimeStep(
-    #         step_type=dm_env.StepType.FIRST,
-    #         reward=None,
-    #         discount=None,
-    #         observation=obs["observation"],
-    #     ),
-    #     obs,
-    # )
-
 
 def _make_panda(
     obs_type,
@@ -956,11 +915,10 @@ def _make_panda(
     frame_stack,
     action_repeat,
     seed,
-    img_size,
+    env_config,
 ):
-    # task = "Stack"
 
-    env = PandaRoboSuite(task, objs, seed, action_repeat, (img_size, img_size))
+    env = PandaRoboSuite(env_config, task, objs, seed, action_repeat)
     return env
 
 
@@ -1034,7 +992,7 @@ def make(
     frame_stack,
     action_repeat,
     seed,
-    img_size=84,
+    env_config=None,
 ):
     assert obs_type in ["states", "pixels"]
     domain, task = name.split("_", 1)
@@ -1051,7 +1009,7 @@ def make(
             frame_stack,
             action_repeat,
             seed,
-            img_size,
+            env_config,
         )
         return env
     else:
@@ -1063,7 +1021,7 @@ def make(
         frame_stack,
         action_repeat,
         seed,
-        img_size,
+        64,
     )
 
     if obs_type == "pixels":
