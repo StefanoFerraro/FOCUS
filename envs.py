@@ -535,7 +535,8 @@ class PandaRoboSuite:
         # self._proprio_keys = ["robot0_joint_pos_cos"]
         self._object_keys = ["object-state"]
         self.cube_rgba = env_config.objects.rgba
-        self.cube_minsize = env_config.objects.minsize
+        self.cube_minsize = tuple([env_config.objects.minsize] * 3) # cube
+        
         self._obs_keys = [
             self.camera + "_image",
             self.camera + "_depth",

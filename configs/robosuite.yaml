@@ -17,4 +17,4 @@ env:
   reward_shaping: true
   objects:
     rgba: [1, 0, 0, 1]
-    minsize: [0.025, 0.025, 0.025]
+    minsize: 0.025
