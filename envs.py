@@ -1,6 +1,8 @@
 from collections import OrderedDict, deque
 from typing import Any, NamedTuple
 import os
+import sys
+
 import cv2
 import yaml
 
@@ -22,6 +24,8 @@ from gym.core import Env
 from gym import spaces
 
 from dmc_benchmark import PANDA_TASKS_OBJ
+
+import custom_robosuite_tasks
 
 
 class ExtendedTimeStep(NamedTuple):
@@ -514,71 +518,69 @@ class PandaRoboSuite:
         action_repeat=1,
     ):
         os.environ["MUJOCO_GL"] = "egl"
-        self._camera = env_config.renderer.camera
-        self._size = tuple(env_config.renderer.size)
+
+        if env_config.renderer.camera == "agentview1":
+            self.camera = "agentview"
+            self.camera_posmove = [0.0, 0.0, 0.0]
+        elif env_config.renderer.camera == "agentview2":
+            self.camera = "agentview"
+            self.camera_posmove = [0.2, 0.0, 0.4]
+        elif env_config.renderer.camera == "frontview":
+            self.camera = "frontview"
+            self.camera_posmove = [-0.5, 0.0, 0.0]
+
+        self.size = tuple(env_config.renderer.size)
 
         self._proprio_keys = ["robot0_proprio-state"]
         # self._proprio_keys = ["robot0_joint_pos_cos"]
-
+        self._object_keys = ["object-state"]
+        self.cube_rgba = env_config.objects.rgba
+        self.cube_minsize = env_config.objects.minsize
         self._obs_keys = [
-            self._camera + "_image",
-            self._camera + "_depth",
+            self.camera + "_image",
+            self.camera + "_depth",
         ]
         self.segmentation_instances = objs
         self.include_background = True
         self.segmentation_level = env_config.renderer.segmentation_level
+        self.horizon = env_config.horizon
 
-        self._object_keys = ["object-state"]
+        self._action_repeat = action_repeat
+        self._seed = seed
+        self.task = task
+
+    def make(self):
         self._env = PandaGymWrapper(
-            suite.make(
-                task,
-                robots="Panda",  # use Sawyer robot
-                has_renderer=False,  # on-screen renderer
-                has_offscreen_renderer=True,  # off-screen rendering needed for image obs
-                use_object_obs=True,  # provide object observations to agent
-                use_camera_obs=True,  # provide image observations to agent
-                camera_names=self._camera,
-                camera_depths=True,
-                camera_segmentations=self.segmentation_level,
-                camera_heights=self._size[0],  # image height
-                camera_widths=self._size[1],  # image width
-                horizon=env_config.horizon,  # each episode terminates after 200 steps
-                reward_shaping=True,
-                control_freq=20,  # control should happen fast enough so that simulation looks smooth
-            ),
+            custom_robosuite_tasks.make(self.task, self),
             keys=self._proprio_keys + self._obs_keys,
         )
 
         # move camera closer to robot
         self.set_camera_pos()
 
-        self._action_repeat = action_repeat
-        self._seed = seed
-        self._task = task
-
         # get camera matrices
         self.world_to_camera = CU.get_camera_transform_matrix(
             sim=self._env.sim,
-            camera_name=self._camera,
-            camera_height=self._size[0],
-            camera_width=self._size[1],
+            camera_name=self.camera,
+            camera_height=self.size[0],
+            camera_width=self.size[1],
         )
         self.camera_to_world = np.linalg.inv(self.world_to_camera)
         self.last_estimated_obj_pos = [[0, 0, 0]] * len(
-            objs
+            self.segmentation_instances
         )  # initialize to zero
 
     def set_camera_pos(self):
-        if self._camera == "frontcamera":
-            # move camera closer to robot
-            self.cam_mover = CM(self._env, camera=self._camera)
-            (
-                self.start_cam_pos,
-                self.start_cam_quat,
-            ) = self.cam_mover.get_camera_pose()
-            self.start_cam_pos -= [0.5, 0.0, 0.0]
 
-            self.cam_mover.set_camera_pose(pos=self.start_cam_pos)
+        # move camera closer to robot
+        self.cam_mover = CM(self._env, camera=self.camera)
+        (
+            self.start_cam_pos,
+            self.start_cam_quat,
+        ) = self.cam_mover.get_camera_pose()
+        self.start_cam_pos += self.camera_posmove
+
+        self.cam_mover.set_camera_pose(pos=self.start_cam_pos)
 
     def segmentation_channel_split(self, seg, include_background=False):
         instances_to_ids = self._env.model.instances_to_ids
@@ -739,11 +741,11 @@ class PandaRoboSuite:
     @property
     def obs_space(self):
         spaces = {
-            "rgb": gym.spaces.Box(0, 255, (3,) + self._size, dtype=np.uint8),
+            "rgb": gym.spaces.Box(0, 255, (3,) + self.size, dtype=np.uint8),
             "depth": gym.spaces.Box(
                 -np.inf,
                 np.inf,
-                (1,) + self._size,
+                (1,) + self.size,
                 dtype=np.float32,
             ),
             "proprio": gym.spaces.Box(
@@ -763,7 +765,7 @@ class PandaRoboSuite:
                 0,
                 1,
                 (len(self.segmentation_instances) + self.include_background,)
-                + self._size,
+                + self.size,
                 dtype=np.uint8,
             ),
             "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
@@ -791,14 +793,14 @@ class PandaRoboSuite:
     def _state_extraction(self, env_state):
         proprio = self._proprio_obs(env_state)
 
-        rgb = env_state[self._camera + "_image"][::-1].transpose(2, 0, 1)
-        depth = env_state[self._camera + "_depth"][::-1].transpose(2, 0, 1)
+        rgb = env_state[self.camera + "_image"][::-1].transpose(2, 0, 1)
+        depth = env_state[self.camera + "_depth"][::-1].transpose(2, 0, 1)
 
         # obtain world coordinates from the segmentation mask
         depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
 
         seg = env_state[
-            self._camera + "_segmentation_" + self.segmentation_level
+            self.camera + "_segmentation_" + self.segmentation_level
         ][::-1].transpose(2, 0, 1)
 
         state = {}
@@ -919,6 +921,8 @@ def _make_panda(
 ):
 
     env = PandaRoboSuite(env_config, task, objs, seed, action_repeat)
+    env.make()
+
     return env
 
 

@@ -104,25 +104,23 @@ class DreamerAgent(Module):
         with torch.no_grad():
             for key in self.wm.heads["decoder"].cnn_keys:
                 name = key.replace("/", "_")
-                report[f"openl_{name}"] = self.wm.video_pred(
-                    data, key, "decoder"
-                )
+                report[f"{name}"] = self.wm.video_pred(data, key, "decoder")
 
             for key in self.wm.heads["decoder"].mlp_keys:
                 name = key.replace("/", "_")
-                text[f"openl_{name}"] = self.wm.proprio_pred(
+                text[f"{name}"] = self.wm.proprio_pred(
                     data, key, "decoder", nvid=1
                 )
 
             for key in self.wm.heads["object_decoder"].cnn_keys:
                 name = key.replace("/", "_")
-                report[f"openl_{name}"] = self.wm.video_pred(
+                report[f"{name}"] = self.wm.video_pred(
                     data, key, "object_decoder", nvid=2
                 )
 
             for key in self.wm.heads["object_decoder"].mlp_keys:
                 name = key.replace("/", "_")
-                text[f"openl_{name}"] = self.wm.object_pos(
+                text[f"{name}"] = self.wm.object_pos(
                     data, key, "object_decoder", nvid=1
                 )
 
@@ -617,6 +615,13 @@ class WorldModel(Module):
         objects = self.cfg.objects
 
         text_out = []
+        dict_out = {}
+        rows = ["Proprio GT", "Prediction", "Error"]
+
+        for obj in objects:
+            dict_out[obj] = {}
+            for row in rows:
+                dict_out[obj][row] = []
 
         for i in range(nvid):
             for j, obj_pred in enumerate(obj_predictions):
@@ -627,7 +632,12 @@ class WorldModel(Module):
                     f"Object {objects[j]} GT={GT}, Prediction={pred}, Error={error}"
                 )
 
-        return "\t".join(text_out)
+                dict_out[objects[j]]["Proprio GT"].append(GT)
+                dict_out[objects[j]]["Prediction"].append(pred)
+                dict_out[objects[j]]["Error"].append(error)
+
+        # return "\t".join(text_out)
+        return dict_out
 
     def proprio_pred(self, data, key, head, nvid=8):
 
@@ -643,6 +653,11 @@ class WorldModel(Module):
         proprio_pred = decoder(self.rssm.get_feat(states))[key]
 
         text_out = []
+        dict_out = {}
+        rows = ["Proprio GT", "Prediction", "Error"]
+
+        for row in rows:
+            dict_out[row] = []
 
         for i in range(nvid):
             GT = truth[i][0].cpu().numpy()
@@ -652,7 +667,12 @@ class WorldModel(Module):
                 f"Proprio GT={GT}, Prediction={pred}, Error={error}"
             )
 
-        return "\t".join(text_out)
+            dict_out["Proprio GT"].append(GT)
+            dict_out["Prediction"].append(pred)
+            dict_out["Error"].append(error)
+
+        # return "\t".join(text_out)
+        return dict_out
 
     def video_pred(self, data, key, head, nvid=8):
 

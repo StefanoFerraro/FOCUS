@@ -15,3 +15,6 @@ env:
     depths: True
     segmentation_level: "element" # None, class, instance or element 
   reward_shaping: true
+  objects:
+    rgba: [1, 0, 0, 1]
+    minsize: [0.025, 0.025, 0.025]

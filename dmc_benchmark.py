@@ -25,7 +25,7 @@ JACO_TASKS = [
     "jaco_reach_bottom_right",
 ]
 
-PANDA_TASKS_OBJ = {"Stack": ["cubeA", "cubeB"], "Lift": ["cube"]}
+PANDA_TASKS_OBJ = {"Stack": ["cubeA", "cubeB"], "Lift": ["cube"], "CustomLift": ["cube"]}
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS
 
