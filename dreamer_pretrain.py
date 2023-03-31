@@ -342,7 +342,9 @@ class Workspace:
         exp_name = "_".join(
             [
                 cfg.task,
-                cfg.env.renderer.camera
+                cfg.env.renderer.camera,
+                str(cfg.env.objects.minsize),
+                cfg.comment,
             ]
         )
         wandb.init(
