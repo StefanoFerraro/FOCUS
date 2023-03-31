@@ -82,13 +82,16 @@ class DreamerAgent(Module):
         # seq["feat"]
         # ).mean  # .mode()
 
-        reward_fn = (
-            lambda seq: self.wm.heads["object_decoder"](
-                seq["feat"], only_mlp=True
-            )["objects_pos"][0]
-            .mean[:, :, 1]
-            .unsqueeze(-1)
-        )  # move cubeA to the right (positive position)
+        reward_fn = lambda seq: (
+            torch.max(
+                torch.abs(
+                    self.wm.heads["object_decoder"](
+                        seq["feat"], only_mlp=True
+                    )["objects_pos"][0].mean
+                ),
+                2,
+            ).values.unsqueeze(-1)
+        )  # displace cubeA
 
         metrics.update(
             self._task_behavior.update(
