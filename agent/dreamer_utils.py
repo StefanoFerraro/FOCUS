@@ -472,7 +472,7 @@ class Encoder(Module):
                 self._conv_model.append(NormLayer(norm, depth))
                 self._conv_model.append(self._act)
             self._conv_model = nn.Sequential(*self._conv_model)
-        
+
         if len(self.mlp_keys) > 0:
             self._mlp_model = []
             for i, width in enumerate(self._mlp_layers):
@@ -696,7 +696,11 @@ class ObjDecoder(Module):
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
 
-        self.instances_dim = self._shapes[self.cnn_keys[0]][0]
+        self.instances_dim = (
+            self._shapes[self.cnn_keys[0]][0]
+            if len(self.cnn_keys) > 0
+            else self._shapes[self.mlp_keys[0]][0] + 1
+        )
 
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
 
@@ -799,7 +803,9 @@ class ObjDecoder(Module):
             mean = mean.permute(
                 0, 1, 3, 4, 2
             )  # move seg channel to the last dimension
-            dists[key] = D.Independent(OneHotDist(mean), 2) # output is a binary mask
+            dists[key] = D.Independent(
+                OneHotDist(mean), 2
+            )  # output is a binary mask
 
         return dists
 
@@ -810,7 +816,9 @@ class ObjDecoder(Module):
         for key in shapes.keys():
             dists[key] = []
 
-        for i in range(self.instances_dim - 1): # remove background from instances
+        for i in range(
+            self.instances_dim - 1
+        ):  # remove background from instances
             # concatenate one hot encoding of instance to the full embedding
             obj_feat = obj_onehot[..., i]
             feat = torch.cat((features, obj_feat), dim=-1)
