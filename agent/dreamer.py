@@ -92,7 +92,7 @@ class DreamerAgent(Module):
         #         2,
         #     ).values.unsqueeze(-1)
         # )  # displace cubeA
-        
+
         reward_fn = (
             lambda seq: self.wm.heads["object_decoder"](
                 seq["feat"], only_mlp=True
@@ -100,7 +100,6 @@ class DreamerAgent(Module):
             .mean[:, :, 1]
             .unsqueeze(-1)
         )  # move cubeA to the right (positive position)
-
 
         metrics.update(
             self._task_behavior.update(
@@ -118,11 +117,11 @@ class DreamerAgent(Module):
                 name = key.replace("/", "_")
                 report[f"{name}"] = self.wm.video_pred(data, key, "decoder")
 
-            for key in self.wm.heads["decoder"].mlp_keys:
-                name = key.replace("/", "_")
-                text[f"{name}"] = self.wm.proprio_pred(
-                    data, key, "decoder", nvid=1
-                )
+            # for key in self.wm.heads["decoder"].mlp_keys:
+            #     name = key.replace("/", "_")
+            #     text[f"{name}"] = self.wm.proprio_pred(
+            #         data, key, "decoder", nvid=1
+            #     )
 
             for key in self.wm.heads["object_decoder"].cnn_keys:
                 name = key.replace("/", "_")
@@ -130,11 +129,11 @@ class DreamerAgent(Module):
                     data, key, "object_decoder", nvid=2
                 )
 
-            for key in self.wm.heads["object_decoder"].mlp_keys:
-                name = key.replace("/", "_")
-                text[f"{name}"] = self.wm.object_pos(
-                    data, key, "object_decoder", nvid=1
-                )
+            # for key in self.wm.heads["object_decoder"].mlp_keys:
+            #     name = key.replace("/", "_")
+            #     text[f"{name}"] = self.wm.object_pos(
+            #         data, key, "object_decoder", nvid=1
+            #     )
 
         return report, text
 
