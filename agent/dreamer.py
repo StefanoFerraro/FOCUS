@@ -97,9 +97,9 @@ class DreamerAgent(Module):
             lambda seq: self.wm.heads["object_decoder"](
                 seq["feat"], only_mlp=True
             )["objects_pos"][0]
-            .mean[:, :, 1]
+            .mean[:, :, 2]
             .unsqueeze(-1)
-        )  # move cubeA to the right (positive position)
+        )  # move cubeA Up (positive position)
 
         metrics.update(
             self._task_behavior.update(
