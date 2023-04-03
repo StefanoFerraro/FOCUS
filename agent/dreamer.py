@@ -117,11 +117,11 @@ class DreamerAgent(Module):
                 name = key.replace("/", "_")
                 report[f"{name}"] = self.wm.video_pred(data, key, "decoder")
 
-            for key in self.wm.heads["decoder"].mlp_keys:
-                name = key.replace("/", "_")
-                text[f"{name}"] = self.wm.proprio_pred(
-                    data, key, "decoder", nvid=1
-                )
+            # for key in self.wm.heads["decoder"].mlp_keys:
+            #     name = key.replace("/", "_")
+            #     text[f"{name}"] = self.wm.proprio_pred(
+            #         data, key, "decoder", nvid=1
+            #     )
 
             for key in self.wm.heads["object_decoder"].cnn_keys:
                 name = key.replace("/", "_")
@@ -129,11 +129,11 @@ class DreamerAgent(Module):
                     data, key, "object_decoder", nvid=2
                 )
 
-            for key in self.wm.heads["object_decoder"].mlp_keys:
-                name = key.replace("/", "_")
-                text[f"{name}"] = self.wm.object_pos(
-                    data, key, "object_decoder", nvid=1
-                )
+            # for key in self.wm.heads["object_decoder"].mlp_keys:
+            #     name = key.replace("/", "_")
+            #     text[f"{name}"] = self.wm.object_pos(
+            #         data, key, "object_decoder", nvid=1
+            #     )
 
         return report, text
 
