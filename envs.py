@@ -535,8 +535,8 @@ class PandaRoboSuite:
         # self._proprio_keys = ["robot0_joint_pos_cos"]
         self._object_keys = ["object-state"]
         self.cube_rgba = env_config.objects.rgba
-        self.cube_minsize = tuple([env_config.objects.minsize] * 3) # cube
-        
+        self.cube_minsize = tuple([env_config.objects.minsize] * 3)  # cube
+
         self._obs_keys = [
             self.camera + "_image",
             self.camera + "_depth",
@@ -818,8 +818,9 @@ class PandaRoboSuite:
         estimated_obj_pos = []
 
         for ch in range(len(self.segmentation_instances)):
-            try:
-                centroid = np.mean(np.argwhere(seg[ch]), axis=0).astype(int)
+            seg_pixels = np.argwhere(seg[ch])
+            if seg_pixels.size != 0:
+                centroid = np.mean(seg_pixels, axis=0).astype(int)
                 estimated_obj_pos += [
                     CU.transform_from_pixels_to_world(
                         pixels=centroid,
@@ -827,10 +828,9 @@ class PandaRoboSuite:
                         camera_to_world_transform=self.camera_to_world,
                     )
                 ]
-            except:
-                estimated_obj_pos = self.last_estimated_obj_pos[
-                    ch
-                ]  # if no object is detected, set the centroid to the previous one detected
+
+            else:  # if object is not detected in the scene just take the last relevand position
+                estimated_obj_pos += [self.last_estimated_obj_pos[ch]]
 
         self.last_estimated_obj_pos = estimated_obj_pos
 
