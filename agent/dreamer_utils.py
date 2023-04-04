@@ -1054,6 +1054,7 @@ class StreamNorm:
     ):
         # Momentum of 0 normalizes only based on the current batch.
         # Momentum of 1 disables normalization.
+        
         self.device = device
         self._shape = tuple(shape)
         self._momentum = momentum

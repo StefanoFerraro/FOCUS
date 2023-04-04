@@ -536,6 +536,7 @@ class PandaRoboSuite:
         self._object_keys = ["object-state"]
         self.cube_rgba = env_config.objects.rgba
         self.cube_minsize = tuple([env_config.objects.minsize] * 3)  # cube
+        self.objects_pixels = [0] * len(objs)
 
         self._obs_keys = [
             self.camera + "_image",
@@ -819,7 +820,14 @@ class PandaRoboSuite:
 
         for ch in range(len(self.segmentation_instances)):
             seg_pixels = np.argwhere(seg[ch])
-            if seg_pixels.size != 0:
+            if (
+                seg_pixels.size > self.objects_pixels[ch]
+            ):  # update max number of pixels that compose the objects
+                self.objects_pixels[ch] = seg_pixels.size
+
+            if (
+                seg_pixels.size > 0.4 * self.objects_pixels[ch]
+            ):  # at least 40% of pixels needs to be in view to update the object position
                 centroid = np.mean(seg_pixels, axis=0).astype(int)
                 estimated_obj_pos += [
                     CU.transform_from_pixels_to_world(
@@ -879,7 +887,11 @@ class PandaRoboSuite:
         self.set_camera_pos()  # move camera closer to the robot
 
         # move starting location of robot closer to object (task Lift)
-        init_qpos = [-0.075, 0.85, 0, -2.05799388, 0, 2.94159265, 0.78539816]
+        # init_qpos = [-0.075, 0.85, 0, -2.05799388, 0, 2.94159265, 0.78539816]
+        if self.cube_minsize == 0.025:
+            init_qpos = [-0.1, 0.85, 0, -2.2, 0, 3, 0.75]
+        else:
+            init_qpos = [-0.3, 0.85, 0, -2.2, 0, 3, 0.75]
         self._env.robots[0].set_robot_joint_positions(init_qpos)
         self._env.robots[0].controller.update_initial_joints(init_qpos)
         self._env.robots[0].controller.reset_goal()
