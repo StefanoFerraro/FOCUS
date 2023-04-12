@@ -707,9 +707,11 @@ class ObjDecoder(Module):
         if len(self.cnn_keys) > 0:
 
             self._object_extractor = nn.Sequential(
-                nn.Linear(embed_dim + self.instances_dim, 512)
+                nn.Linear(embed_dim + self.instances_dim, 512),
+                nn.Linear(512, 512),
+                nn.Linear(512, 32 * self._cnn_depth),
             )
-            self._conv_in = nn.Sequential(nn.Linear(512, 32 * self._cnn_depth))
+            # self._conv_in = nn.Sequential(nn.Linear(512, 32 * self._cnn_depth))
 
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
@@ -784,17 +786,19 @@ class ObjDecoder(Module):
                 )  # concatenate all object dimension along a third batch dimension
 
         x = self._object_extractor(feat)
-        x = self._conv_in(x)
+        # x = self._conv_in(x)
         x = x.reshape(
             [
-                -1, 
+                -1,
                 32 * self._cnn_depth,
                 1,
                 1,
             ]
         )
         x = self._conv_model(x)
-        x = x.reshape(list(feat.shape[:-2]) + [self.instances_dim] + list(x.shape[2:]))
+        x = x.reshape(
+            list(feat.shape[:-2]) + [self.instances_dim] + list(x.shape[2:])
+        )
         means = torch.split(
             x, list(self.channels.values()), 2
         )  # divide means per single channel
