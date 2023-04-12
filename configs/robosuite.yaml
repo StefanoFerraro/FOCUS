@@ -2,9 +2,9 @@
 obs_type: pixels
 action_repeat: 2 
 encoder: {mlp_keys: 'proprio', cnn_keys: 'rgb|depth', norm: none, cnn_depth: 48, cnn_kernels: [4, 4, 4, 4], mlp_layers: [400, 400, 400, 400]} # act: elu
-decoder: {mlp_keys: 'proprio', cnn_keys: 'rgb|depth', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
-object_decoder: {mlp_keys: 'objects_pos', cnn_keys: 'segmentation', norm: none, cnn_depth: 24, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
-replay.capacity: 5e5
+decoder: {mlp_keys: 'proprio', cnn_keys: '$^', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
+object_decoder: {mlp_keys: 'objects_pos', cnn_keys: 'rgb|depth|segmentation', norm: none, cnn_depth: 72, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
+replay.capacity: 1e6
 # env param
 env:
   horizon: 250

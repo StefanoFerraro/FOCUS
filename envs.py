@@ -550,7 +550,7 @@ class PandaRoboSuite:
         self._action_repeat = action_repeat
         self._seed = seed
         self.task = task
-        
+
         self.make()
 
     def make(self):
@@ -756,7 +756,6 @@ class PandaRoboSuite:
                 -5,
                 5,
                 self._env.modality_dims["robot0_proprio-state"],
-                # self._env.modality_dims["robot0_joint_pos_cos"],
                 dtype=np.float32,
             ),
             "objects_pos": gym.spaces.Box(

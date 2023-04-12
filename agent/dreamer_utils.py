@@ -697,7 +697,7 @@ class ObjDecoder(Module):
         self._mlp_layers = mlp_layers
 
         self.instances_dim = (
-            self._shapes[self.cnn_keys[0]][0]
+            self._shapes["segmentation"][0]
             if len(self.cnn_keys) > 0
             else self._shapes[self.mlp_keys[0]][0] + 1
         )
@@ -726,8 +726,9 @@ class ObjDecoder(Module):
                 act, norm = self._act, self._norm
                 if i == len(self._cnn_kernels) - 1:
                     depth, act, norm = (
-                        # sum(self.channels.values()),
-                        1,
+                        sum(self.channels.values())
+                        - self.channels["segmentation"]
+                        + 1,  # for segmentation consider only 1 channel, and split object instances over batch
                         nn.Identity(),
                         "none",
                     )
@@ -740,6 +741,15 @@ class ObjDecoder(Module):
                 self._conv_model.append(act)
 
             self._conv_model = nn.Sequential(*self._conv_model)
+
+            self.keys = [
+                x for x in list(self.channels.keys()) if x != "segmentation"
+            ]
+            self.chs = [
+                self.channels[x] * self.channels["segmentation"]
+                for x in self.keys
+            ] + [self.channels["segmentation"]]
+            # self.chs = (sum(self.channels.values()) - self.channels["segmentation"] + 1) * self.channels["segmentation"]
 
         if len(self.mlp_keys) > 0:
             self._mlp_model = []
@@ -756,19 +766,32 @@ class ObjDecoder(Module):
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
 
-    def forward(self, features, only_mlp=False):
+    def forward(self, features, masks=None, only_mlp=False):
         outputs = {}
         obj_onehot = torch.eye(
             self.instances_dim, device=features.device
         ).repeat(*features.shape[:2], 1, 1)
 
         if self.cnn_keys and not only_mlp:
-            outputs.update(self._cnn(features, obj_onehot))
+            outputs.update(self._cnn(features, obj_onehot, masks))
         if self.mlp_keys:
             outputs.update(self._mlp(features, obj_onehot))
         return outputs
 
-    def _cnn(self, features, obj_onehot):
+    @staticmethod
+    def tile(a, dim, n_tile):
+        init_dim = a.size(dim)
+        repeat_idx = [1] * a.dim()
+        repeat_idx[dim] = n_tile
+        a = a.repeat(*(repeat_idx))
+        order_index = torch.LongTensor(
+            np.concatenate(
+                [init_dim * np.arange(n_tile) + i for i in range(init_dim)]
+            )
+        )
+        return torch.index_select(a, dim, order_index.to(device=a.device))
+
+    def _cnn(self, features, obj_onehot, masks):
 
         dists = {}
         # for key in self.channels.keys():
@@ -786,7 +809,7 @@ class ObjDecoder(Module):
                 )  # concatenate all object dimension along a third batch dimension
 
         x = self._object_extractor(feat)
-        # x = self._conv_in(x)
+
         x = x.reshape(
             [
                 -1,
@@ -796,21 +819,26 @@ class ObjDecoder(Module):
             ]
         )
         x = self._conv_model(x)
+
         x = x.reshape(
-            list(feat.shape[:-2]) + [self.instances_dim] + list(x.shape[2:])
+            list(feat.shape[:-2]) + [sum(self.chs)] + list(x.shape[2:])
         )
-        means = torch.split(
-            x, list(self.channels.values()), 2
-        )  # divide means per single channel
+        means = torch.split(x, self.chs, 2)  # divide means per single channel
 
         for key, mean in zip(self.channels.keys(), means):
-            mean = mean.permute(
-                0, 1, 3, 4, 2
-            )  # move seg channel to the last dimension
-            dists[key] = D.Independent(
-                OneHotDist(mean), 2
-            )  # output is a binary mask
-
+            if key == "segmentation":
+                mean = mean.permute(
+                    0, 1, 3, 4, 2
+                )  # move seg channel to the last dimension
+                dists[key] = D.Independent(
+                    OneHotDist(mean), 2
+                )  # output is a binary mask
+            else:
+                if masks != None:
+                    ch = int(mean.shape[2] / self.instances_dim)
+                    mask = self.tile(masks, 2, ch)
+                    mean = mean * mask # mask means to avoid reconstruction in pixels out of objects
+                dists[key] = D.Independent(D.Normal(mean, 1), 3)
         return dists
 
     def _mlp(self, features, obj_onehot):
