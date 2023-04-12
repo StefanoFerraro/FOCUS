@@ -344,7 +344,7 @@ class Workspace:
                 cfg.task,
                 cfg.env.renderer.camera,
                 str(cfg.env.objects.minsize),
-                cfg.comment,
+                str(cfg.comment),
             ]
         )
         wandb.init(
