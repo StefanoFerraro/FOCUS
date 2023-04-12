@@ -550,6 +550,8 @@ class PandaRoboSuite:
         self._action_repeat = action_repeat
         self._seed = seed
         self.task = task
+        
+        self.make()
 
     def make(self):
         self._env = PandaGymWrapper(
@@ -934,7 +936,7 @@ def _make_panda(
 ):
 
     env = PandaRoboSuite(env_config, task, objs, seed, action_repeat)
-    env.make()
+    # env.make()
 
     return env
 

@@ -714,8 +714,7 @@ class ObjDecoder(Module):
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
-                    prev_depth = 32 * self._cnn_depth * self.instances_dim
-                    self.layer_size = 1
+                    prev_depth = 32 * self._cnn_depth  # * self.instances_dim
                 else:
                     prev_depth = (
                         2 ** (len(self._cnn_kernels) - (i - 1) - 2)
@@ -725,7 +724,8 @@ class ObjDecoder(Module):
                 act, norm = self._act, self._norm
                 if i == len(self._cnn_kernels) - 1:
                     depth, act, norm = (
-                        sum(self.channels.values()),
+                        # sum(self.channels.values()),
+                        1,
                         nn.Identity(),
                         "none",
                     )
@@ -787,14 +787,14 @@ class ObjDecoder(Module):
         x = self._conv_in(x)
         x = x.reshape(
             [
-                -1,
-                32 * self._cnn_depth * self.instances_dim,
+                -1, 
+                32 * self._cnn_depth,
                 1,
                 1,
             ]
         )
         x = self._conv_model(x)
-        x = x.reshape(list(feat.shape[:-2]) + list(x.shape[1:]))
+        x = x.reshape(list(feat.shape[:-2]) + [self.instances_dim] + list(x.shape[2:]))
         means = torch.split(
             x, list(self.channels.values()), 2
         )  # divide means per single channel
@@ -1054,7 +1054,7 @@ class StreamNorm:
     ):
         # Momentum of 0 normalizes only based on the current batch.
         # Momentum of 1 disables normalization.
-        
+
         self.device = device
         self._shape = tuple(shape)
         self._momentum = momentum
