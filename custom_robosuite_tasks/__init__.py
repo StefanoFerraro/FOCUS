@@ -22,6 +22,7 @@ def make(task, env_args):
             control_freq=20,  # control should happen fast enough so that simulation looks smooth
             cube_rgba=env_args.cube_rgba,
             cube_minsize=env_args.cube_minsize,
+            spawn_range=env_args.spawn_range,
         )
     elif task in REGISTERED_ENVS:
         return suite.make(

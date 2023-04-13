@@ -711,46 +711,52 @@ class WorldModel(Module):
 
     def video_pred(self, data, key, head, nvid=8):
 
-        decoder = self.heads[head]  # B, T, C, H, W
-        truth = data[key][:nvid] + 0.5
-        embed = self.encoder(data)
-        states, _ = self.rssm.observe(
-            embed[:nvid, :5],
-            data["action"][:nvid, :5],
-            data["is_first"][:nvid, :5],
-        )
-
         if key == "rgb" or key == "depth":
+            decoder = self.heads[head]  # B, T, C, H, W
+            truth = data[key][:nvid] + 0.5
+            embed = self.encoder(data)
+            states, _ = self.rssm.observe(
+                embed[:nvid, :5],
+                data["action"][:nvid, :5],
+                data["is_first"][:nvid, :5],
+            )
+
             recon = decoder(
                 self.rssm.get_feat(states), data["segmentation"][:nvid, :5]
             )[key].mean[
                 :nvid
             ]  # mode
-        else:
-            recon = decoder(self.rssm.get_feat(states))[key].mean[
+
+            recon_unmasked = decoder(self.rssm.get_feat(states))[key].mean[
                 :nvid
             ]  # mode
 
-        init = {k: v[:, -1] for k, v in states.items()}
-        prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+            init = {k: v[:, -1] for k, v in states.items()}
+            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
 
-        if key == "rgb" or key == "depth":
             prior_recon = decoder(
                 self.rssm.get_feat(prior), data["segmentation"][:nvid, 5:]
             )[
                 key
             ].mean  # mode
-        else:
-            prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
 
-        model = torch.clip(
-            torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
-        )
+            prior_recon_unmasked = decoder(self.rssm.get_feat(prior))[
+                key
+            ].mean  # mode
 
-        if key == "segmentation":
-            model = model.permute(0, 1, 4, 2, 3)
+            model = torch.clip(
+                torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
+            )
 
-        if key == "rgb" or key == "depth":
+            model_unmasked = torch.clip(
+                torch.cat(
+                    [recon_unmasked[:, :5] + 0.5, prior_recon_unmasked + 0.5],
+                    1,
+                ),
+                0,
+                1,
+            )
+
             # create masks for truth
             masks = data["segmentation"]
             chs = truth.shape[2]
@@ -767,22 +773,47 @@ class WorldModel(Module):
                     )
                     truth_out = torch.cat((truth_out, temp), 4)
 
+            # truth = truth_out
             # divide model output
-            model_out = torch.cat(torch.split(model, chs, 2), dim=4)
-        else:
-            truth_out = truth
-            model_out = model
+            model = torch.cat(torch.split(model, chs, 2), dim=4)
+            model_unmasked = torch.cat(
+                torch.split(model_unmasked, chs, 2), dim=4
+            )
 
-        error_out = (
-            ((model_out - truth_out + 1) / 2).mean(axis=2).unsqueeze(dim=2)
-        )
+            video = torch.cat([truth_out, model, model_unmasked], 3)
 
-        if key == "segmentation":
+        elif key == "segmentation":
+
+            decoder = self.heads[head]  # B, T, C, H, W
+            truth = data[key][:nvid] + 0.5
+            embed = self.encoder(data)
+            states, _ = self.rssm.observe(
+                embed[:nvid, :5],
+                data["action"][:nvid, :5],
+                data["is_first"][:nvid, :5],
+            )
+
+            recon = decoder(self.rssm.get_feat(states))[key].mean[
+                :nvid
+            ]  # mode
+
+            init = {k: v[:, -1] for k, v in states.items()}
+            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+            prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
+
+            model = torch.clip(
+                torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
+            )
+
+            model = model.permute(0, 1, 4, 2, 3)
+
+            error = ((model - truth + 1) / 2).mean(axis=2).unsqueeze(dim=2)
+
             truth_out = self.segmentation_visualization(truth - 0.5)
-            model_out = self.segmentation_visualization(model)
+            model = self.segmentation_visualization(model)
 
-        error_out = error_out.repeat(1, 1, truth_out.shape[2], 1, 1)
-        video = torch.cat([truth_out, model_out, error_out], 3)
+            error = error.repeat(1, 1, truth_out.shape[2], 1, 1)
+            video = torch.cat([truth_out, model, error], 3)
 
         return video
 

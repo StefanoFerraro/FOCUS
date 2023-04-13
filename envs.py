@@ -536,6 +536,7 @@ class PandaRoboSuite:
         self._object_keys = ["object-state"]
         self.cube_rgba = env_config.objects.rgba
         self.cube_minsize = tuple([env_config.objects.minsize] * 3)  # cube
+        self.spawn_range = (-env_config.objects.spawn_range, env_config.objects.spawn_range)
         self.objects_pixels = [0] * len(objs)
 
         self._obs_keys = [
