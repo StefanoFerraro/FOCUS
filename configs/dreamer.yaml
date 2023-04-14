@@ -21,6 +21,12 @@ slow_target_update: 100
 slow_target_fraction: 1
 slow_baseline: True
 
+apt: 
+  knn_rms: False 
+  knn_k: 30
+  knn_avg: True 
+  knn_clip: 0.0001
+
 clip_rewards: identity
 
 batch_size: 32

@@ -33,6 +33,16 @@ class DreamerAgent(Module):
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
+        rms = utils.RMS(self.device)
+        self.pbe = utils.PBE(
+            rms,
+            cfg.apt.knn_clip,
+            cfg.apt.knn_k,
+            cfg.apt.knn_avg,
+            cfg.apt.knn_rms,
+            self.device,
+        )
+
     def act(self, obs, meta, step, eval_mode, state):
         obs = {
             k: torch.as_tensor(np.copy(v), device=self.device).unsqueeze(0)
@@ -94,20 +104,65 @@ class DreamerAgent(Module):
         #     ).values.unsqueeze(-1)
         # )  # displace cubeA
 
-        reward_fn = (
-            lambda seq: self.wm.heads["object_decoder"](
-                seq["feat"], only_mlp=True
-            )["objects_pos"][0]
-            .mean[:, :, 1]
-            .unsqueeze(-1)
-        )  # move cubeA right (positive position)
+        # reward_fn = (
+        #     lambda seq: self.wm.heads["object_decoder"](
+        #         seq["feat"], only_mlp=True
+        #     )["objects_pos"][0]
+        #     .mean[:, :, 1]
+        #     .unsqueeze(-1)
+        # )  # move cubeA right (positive position)
 
         metrics.update(
             self._task_behavior.update(
-                self.wm, start, data["is_terminal"], reward_fn
+                self.wm, start, data["is_terminal"], self.reward_fn
             )
         )
         return state, metrics
+
+    def compute_intr_reward(self, seq):
+        rep = stop_gradient(seq)
+        B, T, _ = rep.shape
+        rep = rep.reshape(B * T, -1)
+        reward = self.pbe(rep, cdist=True)
+        reward = reward.reshape(B, T, 1)
+        return reward
+
+    def reward_fn(self, seq):
+
+        obj_id = 0
+
+        rw_dict = {}
+        obj_pos = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
+            "objects_pos"
+        ].mean[:,:,obj_id]
+
+        # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
+        id_eef = 21
+        gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
+            :, :, id_eef : id_eef + 3
+        ]
+
+        rw_mov = obj_pos[:, :, 1].unsqueeze(
+            -1
+        )  # reward for moving cubeA right (positive position)
+
+        rw_dist_obj = torch.sum(
+            ((gripper_pos - obj_pos) ** 2), dim=2
+        ).unsqueeze(-1)
+
+        obj_onehot = torch.eye(2, device=seq["feat"].device).repeat(
+            *seq["feat"].shape[:2], 1, 1
+        )
+
+        x, _ = self.wm.heads["object_decoder"].object_latent_extractor(
+            seq["feat"], obj_onehot
+        )
+
+        rw_intr = self.compute_intr_reward(x[:, :, obj_id])
+
+        rw = rw_mov + rw_dist_obj + rw_intr
+
+        return rw
 
     def report(self, data):
         report = {}
@@ -346,6 +401,20 @@ class DreamerAgent(Module):
         return a.cpu().numpy(), new_state
 
 
+# if getattr(self, "recon_skills", False):
+#             prior_feat = self.rssm.get_feat(prior)
+#             if self.skill_module.discrete_skills:
+#                 B, T, _ = prior["deter"].shape
+#                 z_e = self.skill_module.skill_encoder(
+#                     prior["deter"].reshape(B * T, -1)
+#                 ).mean
+#                 z_q, _ = self.skill_module.emb(z_e, weight_sg=True)
+#                 latent_skills = z_q.reshape(B, T, -1)
+#             else:
+#                 latent_skills = self.skill_module.skill_encoder(
+#                     prior["deter"]
+
+
 class WorldModel(Module):
     def __init__(self, config, obs_space, act_dim, tfstep):
         super().__init__()
@@ -439,8 +508,8 @@ class WorldModel(Module):
                     like = dist.log_prob(seg)
 
                 elif key == "objects_pos":
-                    for el in range(data[key].shape[2]):
-                        like += dist[el].log_prob(data[key][:, :, el])
+                    # for el in range(data[key].shape[2]):
+                        like = dist.log_prob(data[key])
                 elif key == "rgb" or key == "depth":
                     masks = data["segmentation"]
                     chs = data[key].shape[2]

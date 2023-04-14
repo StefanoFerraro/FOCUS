@@ -704,13 +704,14 @@ class ObjDecoder(Module):
 
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
 
+        self._object_extractor = nn.Sequential(
+            nn.Linear(embed_dim + self.instances_dim, 512),
+            nn.Linear(512, 512),
+            nn.Linear(512, 32 * self._cnn_depth),
+        )
+
         if len(self.cnn_keys) > 0:
 
-            self._object_extractor = nn.Sequential(
-                nn.Linear(embed_dim + self.instances_dim, 512),
-                nn.Linear(512, 512),
-                nn.Linear(512, 32 * self._cnn_depth),
-            )
             # self._conv_in = nn.Sequential(nn.Linear(512, 32 * self._cnn_depth))
 
             self._conv_model = []
@@ -755,7 +756,7 @@ class ObjDecoder(Module):
             self._mlp_model = []
             for i, width in enumerate(self._mlp_layers):
                 if i == 0:
-                    prev_width = embed_dim + self.instances_dim
+                    prev_width = 32 * self._cnn_depth
                 else:
                     prev_width = self._mlp_layers[i - 1]
                 self._mlp_model.append(nn.Linear(prev_width, width))
@@ -794,21 +795,8 @@ class ObjDecoder(Module):
     def _cnn(self, features, obj_onehot, masks):
 
         dists = {}
-        # for key in self.channels.keys():
-        #     dists[key] = []
 
-        for i in range(self.instances_dim):
-            # concatenate one hot encoding of instance to the full embedding
-            obj_feat = obj_onehot[..., i]
-            if i == 0:
-                feat = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
-            else:
-                temp = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
-                feat = torch.cat(
-                    (feat, temp), dim=2
-                )  # concatenate all object dimension along a third batch dimension
-
-        x = self._object_extractor(feat)
+        x, feat = self.object_latent_extractor(features, obj_onehot)
 
         x = x.reshape(
             [
@@ -837,31 +825,46 @@ class ObjDecoder(Module):
                 if masks != None:
                     ch = int(mean.shape[2] / self.instances_dim)
                     mask = self.tile(masks, 2, ch)
-                    mean = mean * mask # mask means to avoid reconstruction in pixels out of objects
+                    mean = (
+                        mean * mask
+                    )  # mask means to avoid reconstruction in pixels out of objects
                 dists[key] = D.Independent(D.Normal(mean, 1), 3)
         return dists
 
-    def _mlp(self, features, obj_onehot):
-        shapes = {k: self._shapes[k] for k in self.mlp_keys}
+    def object_latent_extractor(self, features, obj_onehot, instances=None):
+        instances = self.instances_dim if instances == None else instances
 
-        dists = {}
-        for key in shapes.keys():
-            dists[key] = []
-
-        for i in range(
-            self.instances_dim - 1
-        ):  # remove background from instances
+        for i in range(instances):
             # concatenate one hot encoding of instance to the full embedding
             obj_feat = obj_onehot[..., i]
-            feat = torch.cat((features, obj_feat), dim=-1)
+            if i == 0:
+                feat = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
+            else:
+                temp = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
+                feat = torch.cat(
+                    (feat, temp), dim=2
+                )  # concatenate all object dimension along a third batch dimension
 
-            x = self._mlp_model(feat)
+        x = self._object_extractor(feat)
 
-            for key, shape in shapes.items():
-                lin = getattr(self, f"dense_{key}")
-                means = lin._out(x)
+        return x, feat
 
-                dists[key] += [D.Normal(means, 1.0)]
+    def _mlp(self, features, obj_onehot):
+
+        dists = {}
+        shapes = {k: self._shapes[k] for k in self.mlp_keys}
+
+        x, _ = self.object_latent_extractor(
+            features, obj_onehot, self.instances_dim - 1
+        )
+
+        x = self._mlp_model(x)
+
+        for key, shape in shapes.items():
+            lin = getattr(self, f"dense_{key}")
+            means = lin._out(x)
+
+            dists[key] = D.Independent(D.Normal(means, 1.0), 3)
 
         return dists
 
