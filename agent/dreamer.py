@@ -32,6 +32,7 @@ class DreamerAgent(Module):
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
+        self.reward_coeff = cfg.reward_coeff
 
         rms = utils.RMS(self.device)
         self.pbe = utils.PBE(
@@ -129,12 +130,12 @@ class DreamerAgent(Module):
 
     def reward_fn(self, seq):
 
-        obj_id = 0
+        rw_dict = {"rw_mov", "rw_dist_obj", "rw_intr"}
 
-        rw_dict = {}
+        obj_id = 0
         obj_pos = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
             "objects_pos"
-        ].mean[:,:,obj_id]
+        ].mean[:, :, obj_id]
 
         # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
         id_eef = 21
@@ -160,9 +161,19 @@ class DreamerAgent(Module):
 
         rw_intr = self.compute_intr_reward(x[:, :, obj_id])
 
-        rw = rw_mov + rw_dist_obj + rw_intr
+        rw = (
+            self.reward_coeff["rw_mov"] * rw_mov
+            - self.reward_coeff["rw_dist_obj"] * rw_dist_obj
+            + self.reward_coeff["rw_intr"] * rw_intr
+        )
 
-        return rw
+        rw_dict = {
+            "rw_mov": rw_mov,
+            "rw_dist_obj": rw_dist_obj,
+            "rw_intr": rw_intr,
+        }
+
+        return rw, rw_dict
 
     def report(self, data):
         report = {}
@@ -509,7 +520,7 @@ class WorldModel(Module):
 
                 elif key == "objects_pos":
                     # for el in range(data[key].shape[2]):
-                        like = dist.log_prob(data[key])
+                    like = dist.log_prob(data[key])
                 elif key == "rgb" or key == "depth":
                     masks = data["segmentation"]
                     chs = data[key].shape[2]
@@ -935,7 +946,14 @@ class ActorCritic(Module):
         with common.RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = world_model.imagine(self.actor, start, is_terminal, hor)
-                reward = reward_fn(seq)
+                reward, reward_dict = reward_fn(seq)
+
+                mets0 = {}  # individual rewards components
+                for rw_key, rw in reward_dict.items():
+                    _, met = self.rewnorm(rw)
+                    met = {f"{rw_key}_{k}": v for k, v in met.items()}
+                    mets0.update(met)
+
                 seq["reward"], mets1 = self.rewnorm(reward)
                 mets1 = {f"reward_{k}": v for k, v in mets1.items()}
                 target, mets2 = self.target(seq)
@@ -948,7 +966,7 @@ class ActorCritic(Module):
             metrics.update(
                 self.critic_opt(critic_loss, self.critic.parameters())
             )
-        metrics.update(**mets1, **mets2, **mets3, **mets4)
+        metrics.update(**mets0, **mets1, **mets2, **mets3, **mets4)
         self.update_slow_target()  # Variables exist after first forward pass.
         return metrics
 
