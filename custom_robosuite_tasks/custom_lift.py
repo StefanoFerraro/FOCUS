@@ -185,7 +185,7 @@ class CustomLift(SingleArmEnv):
         # object placement initializer
         self.placement_initializer = placement_initializer
         self.spawn_range = spawn_range
-        
+
         super().__init__(
             robots=robots,
             env_configuration=env_configuration,
@@ -322,7 +322,7 @@ class CustomLift(SingleArmEnv):
             self.placement_initializer = UniformRandomSampler(
                 name="ObjectSampler",
                 mujoco_objects=self.cube,
-                x_range=list(self.spawn_range),
+                x_range=[-0.03, 0.03],
                 y_range=list(self.spawn_range),
                 rotation=None,
                 ensure_object_boundary_in_range=False,
