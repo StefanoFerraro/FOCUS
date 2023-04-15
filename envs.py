@@ -893,13 +893,13 @@ class PandaRoboSuite:
 
         # move starting location of robot closer to object (task Lift)
         # init_qpos = [-0.075, 0.85, 0, -2.05799388, 0, 2.94159265, 0.78539816]
-        if self.cube_minsize == 0.025:
-            init_qpos = [-0.1, 0.85, 0, -2.2, 0, 3, 0.75]
-        else:
-            init_qpos = [-0.3, 0.85, 0, -2.2, 0, 3, 0.75]
-        self._env.robots[0].set_robot_joint_positions(init_qpos)
-        self._env.robots[0].controller.update_initial_joints(init_qpos)
-        self._env.robots[0].controller.reset_goal()
+        # if self.cube_minsize == 0.025:
+        #     init_qpos = [-0.1, 0.85, 0, -2.2, 0, 3, 0.75]
+        # else:
+        #     init_qpos = [-0.3, 0.85, 0, -2.2, 0, 3, 0.75]
+        # self._env.robots[0].set_robot_joint_positions(init_qpos)
+        # self._env.robots[0].controller.update_initial_joints(init_qpos)
+        # self._env.robots[0].controller.reset_goal()
 
         env_state = self._env._get_observations(force_update=True)
 
