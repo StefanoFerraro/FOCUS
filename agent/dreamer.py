@@ -133,9 +133,11 @@ class DreamerAgent(Module):
         rw_dict = {"rw_mov", "rw_dist_obj", "rw_intr"}
 
         obj_id = 0
-        obj_pos = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
-            "objects_pos"
-        ].mean[:, :, obj_id]
+        obj_poses = self.wm.heads["object_decoder"](
+            seq["feat"], only_mlp=True
+        )["objects_pos"].mean
+
+        obj_pos = obj_poses[:, :, obj_id]
 
         # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
         id_eef = 21
@@ -151,7 +153,8 @@ class DreamerAgent(Module):
             ((gripper_pos - obj_pos) ** 2), dim=2
         ).unsqueeze(-1)
 
-        obj_onehot = torch.eye(2, device=seq["feat"].device).repeat(
+        instances = obj_poses.shape[2]
+        obj_onehot = torch.eye(instances + 1, device=seq["feat"].device).repeat(
             *seq["feat"].shape[:2], 1, 1
         )
 
