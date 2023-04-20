@@ -702,6 +702,8 @@ class ObjDecoder(Module):
             else self._shapes[self.mlp_keys[0]][0] + 1
         )
 
+        self.objects_dim = self.instances_dim - 1
+
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
 
         self._object_extractor = nn.Sequential(
@@ -747,9 +749,8 @@ class ObjDecoder(Module):
                 x for x in list(self.channels.keys()) if x != "segmentation"
             ]
             self.chs = [
-                self.channels[x] * self.channels["segmentation"]
-                for x in self.keys
-            ] + [self.channels["segmentation"]]
+                self.channels[x] * self.instances_dim for x in self.keys
+            ] + [self.instances_dim]
             # self.chs = (sum(self.channels.values()) - self.channels["segmentation"] + 1) * self.channels["segmentation"]
 
         if len(self.mlp_keys) > 0:
@@ -855,7 +856,7 @@ class ObjDecoder(Module):
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
 
         x, _ = self.object_latent_extractor(
-            features, obj_onehot, self.instances_dim - 1
+            features, obj_onehot, self.objects_dim
         )
 
         x = self._mlp_model(x)

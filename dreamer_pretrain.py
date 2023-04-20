@@ -22,7 +22,7 @@ from dreamer_replay import ReplayBuffer, make_replay_loader
 
 torch.backends.cudnn.benchmark = True
 
-from dmc_benchmark import PRIMAL_TASKS, PANDA_TASKS_OBJ
+from dmc_benchmark import PRIMAL_TASKS, RS_PANDA_TASKS_OBJ, MS_PANDA_TASKS_OBJ
 
 import warnings
 
@@ -114,7 +114,13 @@ class Workspace:
         )
 
         # add objects to cfg
-        cfg.objects = PANDA_TASKS_OBJ[task.split("_")[1]]
+        domain, _ = task.split("_", 1)
+
+        objets_list = (
+            RS_PANDA_TASKS_OBJ if domain == "rs_panda" else MS_PANDA_TASKS_OBJ
+        )
+
+        cfg.objects = objets_list[task.split("_")[1]]
 
         # create agent
         self.agent = make_dreamer_agent(

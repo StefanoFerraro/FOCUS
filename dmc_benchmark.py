@@ -25,7 +25,12 @@ JACO_TASKS = [
     "jaco_reach_bottom_right",
 ]
 
-PANDA_TASKS_OBJ = {"CustomStack": ["cubeA", "cubeB"], "Lift": ["cube"], "CustomLift": ["cube"]}
+RS_PANDA_TASKS_OBJ = {
+    "CustomStack": ["cubeA", "cubeB"],
+    "Lift": ["cube"],
+    "CustomLift": ["cube"],
+}
+MS_PANDA_TASKS_OBJ = {"Lift": ["obj"], "Stack": ["cubeA", "cubeB"],}
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS
 
@@ -33,5 +38,6 @@ PRIMAL_TASKS = {
     "walker": "walker_stand",
     "jaco": "jaco_reach_top_left",
     "quadruped": "quadruped_walk",
-    "panda": "panda_Stack",
+    "rs_panda": "rs_panda_Stack",
+    "ms_panda": "ms_panda_Stack",
 }
