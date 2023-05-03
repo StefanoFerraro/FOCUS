@@ -25,9 +25,10 @@ from gym import spaces
 
 from dmc_benchmark import RS_PANDA_TASKS_OBJ, MS_PANDA_TASKS_OBJ
 
-import custom_robosuite_tasks
-
 import mani_skill2.envs
+import custom_robosuite_tasks
+import custom_maniskill_tasks
+
 from mani_skill2.utils.wrappers.sb3 import ContinuousTaskWrapper
 from mani_skill2.utils.common import (
     flatten_dict_space_keys,
@@ -527,18 +528,21 @@ class PandaManiSkill:
         return np.concatenate(ob_lst)
 
     def make(self):
-        self._env = gym.make(
-            self.env_id,
-            obs_mode=self.obs_mode,
-            reward_mode=self.reward_mode,
-            control_mode=self.control_mode,
-            camera_cfgs={
-                "add_segmentation": True,
-                "height": self.size[0],
-                "width": self.size[1],
-                "texture_names": ("Color", "Position", "Segmentation"),
-            },
-        )
+
+        self._env = custom_maniskill_tasks.make(self.env_id, self)
+
+        # self._env = gym.make(
+        #     self.env_id,
+        #     obs_mode=self.obs_mode,
+        #     reward_mode=self.reward_mode,
+        #     control_mode=self.control_mode,
+        #     camera_cfgs={
+        #         "add_segmentation": True,
+        #         "height": self.size[0],
+        #         "width": self.size[1],
+        #         "texture_names": ("Color", "Position", "Segmentation"),
+        #     },
+        # )
 
         self._env = ContinuousTaskWrapper(self._env, self.horizon)
 
@@ -554,9 +558,19 @@ class PandaManiSkill:
         obs = {**obs, **images}
 
         self.camera_params = self._env.get_camera_params()
-        self.camera_to_world = self.camera_params["base_camera"][
-            "cam2world_gl"
-        ]
+        self.intr = self.camera_params["base_camera"]["intrinsic_cv"]
+        self.intr = np.c_[self.intr, np.zeros(3)]
+
+        self.extr = self.camera_params["base_camera"]["extrinsic_cv"]
+
+        self.world_to_camera = np.append(
+            np.matmul(self.intr, self.extr), [[0, 0, 0, 1]], axis=0
+        )
+        self.camera_to_world = np.linalg.inv(self.world_to_camera)
+
+        # self.camera_to_world = self.camera_params["base_camera"][
+        #     "cam2world_gl"
+        # ]
 
         self.last_estimated_obj_pos = [[0, 0, 0]] * len(
             self.segmentation_instances
@@ -789,13 +803,15 @@ class PandaManiSkill:
                 seg_pixels.size > 0.4 * self.objects_pixels[ch]
             ):  # at least 40% of pixels needs to be in view to update the object position
                 centroid = np.mean(seg_pixels, axis=0).astype(int)
-                estimated_obj_pos += [ # TODO: convert this properly, idea: visualize ref frame
-                    CU.transform_from_pixels_to_world(
-                        pixels=centroid,
-                        depth_map=depth,
-                        camera_to_world_transform=self.camera_to_world,
-                    )
-                ]
+                estimated_obj_pos += (
+                    [  # TODO: convert this properly, idea: visualize ref frame
+                        CU.transform_from_pixels_to_world(
+                            pixels=centroid,
+                            depth_map=depth,
+                            camera_to_world_transform=self.camera_to_world,
+                        )
+                    ]
+                )
 
             else:  # if object is not detected in the scene just take the last relevand position
                 estimated_obj_pos += [self.last_estimated_obj_pos[ch]]
@@ -817,7 +833,6 @@ class PandaManiSkill:
         assert success in [0.0, 1.0]
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
-
         seg = self.segmentation_channel_split(seg, self.include_background)
 
         objects_pos = self.pixel_to_world(seg, depth)

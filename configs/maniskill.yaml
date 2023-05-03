@@ -16,7 +16,7 @@ env:
     segmentation_level: "element" # None, class, instance or element 
   reward_shaping: true
   objects:
-    rgba: [1, 0, 0, 1]
-    minsize: 0.025
-    spawn_range: 0.25
+    rgba: [0, 0, 1, 1]
+    minsize: 0.04
+    spawn_range: 0.1
 comment: ""

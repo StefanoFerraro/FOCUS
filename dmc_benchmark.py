@@ -30,7 +30,12 @@ RS_PANDA_TASKS_OBJ = {
     "Lift": ["cube"],
     "CustomLift": ["cube"],
 }
-MS_PANDA_TASKS_OBJ = {"Lift": ["obj"], "Stack": ["cubeA", "cubeB"],}
+MS_PANDA_TASKS_OBJ = {
+    "Stack": ["cubeA", "cubeB"],
+    "CustomStack": ["cubeA", "cubeB"],
+    "Lift": ["cube"],
+    "CustomLift": ["cube"],
+}
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS
 
