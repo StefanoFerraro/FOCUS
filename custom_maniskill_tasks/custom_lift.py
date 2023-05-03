@@ -17,11 +17,13 @@ class CustomLiftCubeEnv(LiftCubeEnv):
         spawn_range=[-0.1, 0.1],
         **kwargs
     ):
-        super().__init__(*args, **kwargs)
         self.obj_init_rot_z = obj_init_rot_z
         self.box_half_size = np.array(box_half_size, np.float32)
         self.cube_rgba = cube_rgba
         self.spawn_range = spawn_range
+        super().__init__(*args, **kwargs)
+        
+        self.box_half_size = np.array(box_half_size, np.float32) # reset for avoiding confilict with parent init
 
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
