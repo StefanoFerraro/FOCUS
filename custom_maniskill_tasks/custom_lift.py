@@ -22,8 +22,10 @@ class CustomLiftCubeEnv(LiftCubeEnv):
         self.cube_rgba = cube_rgba
         self.spawn_range = spawn_range
         super().__init__(*args, **kwargs)
-        
-        self.box_half_size = np.array(box_half_size, np.float32) # reset for avoiding confilict with parent init
+
+        self.box_half_size = np.array(
+            box_half_size, np.float32
+        )  # reset for avoiding confilict with parent init
 
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
@@ -31,8 +33,9 @@ class CustomLiftCubeEnv(LiftCubeEnv):
         self.goal_site = self._build_sphere_site(self.goal_thresh)
 
     def _initialize_actors(self):
-        xy = self._episode_rng.uniform(*self.spawn_range, [2])
-        xyz = np.hstack([xy, self.box_half_size[2]])
+        x = self._episode_rng.uniform(*self.spawn_range, [1])
+        y = self._episode_rng.uniform(-0.025, 0.025, [1])
+        xyz = np.hstack([x, y, self.box_half_size[2]])
         q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
             ori = self._episode_rng.uniform(0, 2 * np.pi)
