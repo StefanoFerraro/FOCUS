@@ -15,7 +15,7 @@ import torch
 import wandb
 from dm_env import specs
 
-import envs
+from envs.make import make
 import utils
 from logger import Logger
 from dreamer_replay import ReplayBuffer, make_replay_loader
@@ -96,7 +96,7 @@ class Workspace:
         )  # -> which is the URLB default
         frame_stack = 1
 
-        self.train_env = envs.make(
+        self.train_env = make(
             task,
             cfg.obs_type,
             frame_stack,
@@ -104,7 +104,7 @@ class Workspace:
             cfg.seed,
             cfg.env,
         )
-        self.eval_env = envs.make(
+        self.eval_env = make(
             task,
             cfg.obs_type,
             frame_stack,

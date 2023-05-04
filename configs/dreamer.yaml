@@ -13,7 +13,7 @@ actor: {layers: 4, units: 400, norm: none, dist: trunc_normal, min_std: 0.1 } # 
 critic: {layers: 4, units: 400, norm: none, dist: mse} # act: elu, 
 actor_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100, wd: 1e-6}
 critic_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100, wd: 1e-6}
-reward_coeff: {rw_mov: 1.0, rw_dist_obj: 1.0, rw_intr: 1.0} 
+reward_coeff: {rw_sup: 0.0, rw_mov: 1.0, rw_dist_obj: 1.0, rw_intr: 1.0} 
 discount: 0.99
 discount_lambda: 0.95
 actor_grad: dynamics

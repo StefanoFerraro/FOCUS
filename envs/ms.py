@@ -1,0 +1,465 @@
+import os
+
+import numpy as np
+from dm_env import StepType, specs
+
+import gym
+from gym import spaces
+
+import robosuite.utils.camera_utils as CU
+
+import mani_skill2.envs
+import custom_maniskill_tasks
+
+from mani_skill2.utils.wrappers.sb3 import ContinuousTaskWrapper
+from mani_skill2.utils.common import (
+    flatten_dict_space_keys,
+    flatten_state_dict,
+)
+
+
+class PandaManiSkill:
+    def __init__(
+        self,
+        env_config,
+        task="Stack",
+        objs=["obj"],
+        seed=None,
+        action_repeat=1,
+    ):
+
+        os.environ["DISPLAY"] = ":0"
+        os.environ["MUJOCO_GL"] = "egl"
+
+        self.env_id = task + "Cube-v0"
+        self.obs_mode = "state_dict"  # ['image', 'pointcloud', 'rgbd', 'state_dict', 'state']
+        self.control_mode = "pd_joint_delta_pos"  # @param can be one of ['pd_ee_delta_pose', 'pd_ee_delta_pos', 'pd_joint_delta_pos', 'arm_pd_joint_pos_vel']
+        self.reward_mode = "sparse"  # @param can be one of ['sparse', 'dense']
+
+        self.size = tuple(env_config.renderer.size)
+
+        self.camera = env_config.renderer.camera
+
+        self._proprio_keys = {"extra": ["tcp_pose"], "agent": ["qpos", "qvel"]}
+        self._object_keys = {"extra": [obj + "_pose" for obj in objs]}
+
+        self.cube_rgba = env_config.objects.rgba
+        self.cube_minsize = tuple([env_config.objects.minsize] * 3)  # cube
+        self.spawn_range = (
+            -env_config.objects.spawn_range,
+            env_config.objects.spawn_range,
+        )
+
+        self.objects_pixels = [0] * len(objs)
+        self._obs_keys = {"base_camera": ["Color", "Position", "Segmentation"]}
+
+        self.segmentation_instances = objs
+        self.include_background = True
+        self.segmentation_level = env_config.renderer.segmentation_level
+        self.horizon = env_config.horizon
+
+        self._action_repeat = action_repeat
+        self._seed = seed
+        self.task = task
+
+        self.make()
+
+    def _filter_obs(self, obs, keys):
+        out_obs = {}
+        for key, values in list(obs.items()):
+            if key in list(keys):
+                for value in list(values):
+                    if value in keys[key]:
+                        out_obs[value] = obs[key][value]
+        return out_obs
+
+    def _keys_rename(self, obs):
+
+        obs["rgb"] = obs.pop("Color")
+        obs["depth"] = obs.pop("Position")
+        obs.pop(
+            "Segmentation"
+        )  # remove segmentation from dict, not in the state dict
+
+        obs["proprio"] = np.array(
+            (
+                list(obs.pop("qpos"))
+                + list(obs.pop("qvel"))
+                + list(obs.pop("tcp_pose"))
+            ),
+            dtype=np.float32,
+        )
+
+        return obs
+
+    def _flatten_obs(self, obs_dict, verbose=False):
+        """
+        Filters keys of interest out and concatenate the information.
+        Args:
+            obs_dict (OrderedDict): ordered dictionary of observations
+            verbose (bool): Whether to print out to console as observation keys are processed
+        Returns:
+            np.array: observations flattened into a 1d array
+        """
+        ob_lst = []
+        for key in self.keys:
+            if key in obs_dict:
+                if verbose:
+                    print("adding key: {}".format(key))
+                ob_lst.append(np.array(obs_dict[key]).flatten())
+        return np.concatenate(ob_lst)
+
+    def make(self):
+
+        self._env = custom_maniskill_tasks.make(self.env_id, self)
+
+        # self._env = gym.make(
+        #     self.env_id,
+        #     obs_mode=self.obs_mode,
+        #     reward_mode=self.reward_mode,
+        #     control_mode=self.control_mode,
+        #     camera_cfgs={
+        #         "add_segmentation": True,
+        #         "height": self.size[0],
+        #         "width": self.size[1],
+        #         "texture_names": ("Color", "Position", "Segmentation"),
+        #     },
+        # )
+
+        self._env = ContinuousTaskWrapper(self._env, self.horizon)
+
+        obs = self._env.reset()
+        self._env.render(mode="cameras")
+        images = self._env.get_images()
+        self.target_object_actor_ids = [
+            x.id
+            for x in self._env.get_actors()
+            if x.name not in ["ground", "goal_site"]
+        ]
+
+        obs = {**obs, **images}
+
+        self.camera_params = self._env.get_camera_params()
+        self.intr = self.camera_params["base_camera"]["intrinsic_cv"]
+        self.intr = np.c_[self.intr, np.zeros(3)]
+
+        self.extr = self.camera_params["base_camera"]["extrinsic_cv"]
+
+        self.world_to_camera = np.append(
+            np.matmul(self.intr, self.extr), [[0, 0, 0, 1]], axis=0
+        )
+        self.camera_to_world = np.linalg.inv(self.world_to_camera)
+
+        # self.camera_to_world = self.camera_params["base_camera"][
+        #     "cam2world_gl"
+        # ]
+
+        self.last_estimated_obj_pos = [[0, 0, 0]] * len(
+            self.segmentation_instances
+        )  # initialize to zero
+
+        self.dict_keys = {**self._proprio_keys, **self._obs_keys}
+        self.keys = ["rgb", "depth", "proprio"]
+
+        # filter state based on keys
+        obs = self._keys_rename(self._filter_obs(obs, self.dict_keys))
+
+        # Concatenate all the states
+        self.modality_dims = {key: obs[key].shape for key in self.keys}
+
+        state = self._flatten_obs(obs)
+        self.obs_dim = state.shape
+        high = np.inf * np.ones(self.obs_dim)
+        low = -high
+        self.observation_space = spaces.Box(low=low, high=high)
+
+        self.action_space = self._env.action_space
+
+    def segmentation_channel_split(self, seg, include_background=False):
+
+        channels = (
+            len(self.segmentation_instances) + 1
+            if include_background
+            else len(self.segmentation_instances)
+        )
+
+        seg_map = np.zeros(
+            (channels, seg.shape[1], seg.shape[2]),
+            dtype=np.uint8,
+        )
+
+        for i, instance in enumerate(self.target_object_actor_ids):
+            seg_map[i][seg[0] == instance] = 1
+
+        # if "Panda0" in self.segmentation_instances:
+        #     panda_idx = self.segmentation_instances.index("Panda0")
+        #     non_panda_idx = [
+        #         x
+        #         for x in range(len(self.segmentation_instances))
+        #         if x != panda_idx
+        #     ]
+        #     panda_median_layer = cv2.medianBlur(
+        #         seg_map[panda_idx], 3
+        #     )  # median filtering for panda segmentation
+
+        #     # check that in panda layer there is no overlap with other encodings
+        #     panda_mask = np.all(seg_map[non_panda_idx] == 0, axis=0)
+        #     seg_map[panda_idx][panda_mask] = panda_median_layer[panda_mask]
+
+        if include_background:
+            background_mask = np.all(seg_map == 0, axis=0)
+            seg_map[-1][background_mask] = 1  # last layer is background layer
+
+        return seg_map
+
+    @staticmethod
+    def image_segmentation(image, seg):
+        """
+        Segmentation of image based on segmentation mask, works both with rgb and depth images.
+        seg: (dim1, dim2, channels)
+        image: (dim1, dim2, 1/3)
+
+        Return:
+        seg_image: (dim1, dim2, 1/3, channels)
+        """
+
+        seg_chs, _, _ = seg.shape
+        image_chs, _, _ = image.shape
+
+        seg_mask = np.repeat(np.expand_dims(seg, axis=1), image_chs, 1)
+        seg_image = np.zeros((seg_chs, *image.shape), dtype=image.dtype)
+
+        for ch in range(seg_chs):
+            seg_image[ch] = image * seg_mask[ch]
+
+        return seg_image
+
+    def rgb_spec(
+        self,
+    ):
+        v = self.obs_space["rgb"]
+        return specs.BoundedArray(
+            name="rgb",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def depth_spec(
+        self,
+    ):
+        v = self.obs_space["depth"]
+        return specs.BoundedArray(
+            name="depth",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def proprio_spec(
+        self,
+    ):
+        v = self.obs_space["proprio"]
+        return specs.BoundedArray(
+            name="proprio",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def objects_pos_spec(
+        self,
+    ):
+        v = self.obs_space["objects_pos"]
+        return specs.BoundedArray(
+            name="objects_pos",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def segmentation_spec(
+        self,
+    ):
+        v = self.obs_space["segmentation"]
+        return specs.BoundedArray(
+            name="segmentation",
+            shape=v.shape,
+            dtype=v.dtype,
+            minimum=v.low,
+            maximum=v.high,
+        )
+
+    def action_spec(
+        self,
+    ):
+        return specs.BoundedArray(
+            name="action",
+            shape=self._env.action_space.shape,
+            dtype=self._env.action_space.dtype,
+            minimum=self._env.action_space.low,
+            maximum=self._env.action_space.high,
+        )
+
+    @property
+    def obs_space(self):
+        spaces = {
+            "rgb": gym.spaces.Box(0, 255, (3,) + self.size, dtype=np.uint8),
+            "depth": gym.spaces.Box(
+                -np.inf,
+                np.inf,
+                (1,) + self.size,
+                dtype=np.float32,
+            ),
+            "proprio": gym.spaces.Box(
+                -5,
+                5,
+                self.modality_dims["proprio"],
+                dtype=np.float32,
+            ),
+            "objects_pos": gym.spaces.Box(
+                -2, 2, (len(self.segmentation_instances), 3), dtype=np.float32
+            ),
+            "segmentation": gym.spaces.Box(
+                0,
+                1,
+                (len(self.segmentation_instances) + self.include_background,)
+                + self.size,
+                dtype=np.uint8,
+            ),
+            "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
+            "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
+            "is_last": gym.spaces.Box(0, 1, (), dtype=bool),
+            "is_terminal": gym.spaces.Box(0, 1, (), dtype=bool),
+            "state": gym.spaces.Box(
+                -np.inf, np.inf, (self.obs_dim), dtype=np.float32
+            ),
+            "success": gym.spaces.Box(0, 1, (), dtype=bool),
+        }
+        return spaces
+
+    @property
+    def act_space(self):
+        action = self._env.action_space
+        return {"action": action}
+
+    def _state_extraction(self, env_state):
+
+        # concatenate proprio and obs
+        self._env.render(mode="cameras")
+        images = self._env.get_images()
+        state = {**env_state, **images}
+
+        seg = np.expand_dims(
+            state[self.camera]["Segmentation"][:, :, 1], axis=0
+        )
+        state_dict = self._keys_rename(self._filter_obs(state, self.dict_keys))
+
+        proprio = state_dict["proprio"]
+
+        rgb = state_dict["rgb"][..., :3]
+        rgb = np.clip(rgb * 255, 0, 255).astype(np.uint8).transpose(2, 0, 1)
+
+        depth_map = -state_dict["depth"][..., [2]].transpose(2, 0, 1)
+
+        return proprio, rgb, depth_map, seg, state_dict
+
+    def pixel_to_world(self, seg, depth):
+
+        depth = depth.transpose(1, 2, 0)
+
+        estimated_obj_pos = []
+
+        for ch in range(len(self.segmentation_instances)):
+            seg_pixels = np.argwhere(seg[ch])
+            if (
+                seg_pixels.size > self.objects_pixels[ch]
+            ):  # update max number of pixels that compose the objects
+                self.objects_pixels[ch] = seg_pixels.size
+
+            if (
+                seg_pixels.size > 0.4 * self.objects_pixels[ch]
+            ):  # at least 40% of pixels needs to be in view to update the object position
+                centroid = np.mean(seg_pixels, axis=0).astype(int)
+                estimated_obj_pos += (
+                    [  # TODO: convert this properly, idea: visualize ref frame
+                        CU.transform_from_pixels_to_world(
+                            pixels=centroid,
+                            depth_map=depth,
+                            camera_to_world_transform=self.camera_to_world,
+                        )
+                    ]
+                )
+
+            else:  # if object is not detected in the scene just take the last relevand position
+                estimated_obj_pos += [self.last_estimated_obj_pos[ch]]
+
+        self.last_estimated_obj_pos = estimated_obj_pos
+
+        return estimated_obj_pos
+
+    def step(self, action):
+        # assert np.isfinite(action["action"]).all(), action["action"]
+        # TODO: check state match with observation
+        reward = 0.0
+        success = 0.0
+        for _ in range(self._action_repeat):
+            env_state, rew, done, info = self._env.step(action)
+            success += float(done)
+            reward += float(rew)
+        success = min(success, 1.0)
+        assert success in [0.0, 1.0]
+
+        proprio, rgb, depth, seg, state = self._state_extraction(env_state)
+        seg = self.segmentation_channel_split(seg, self.include_background)
+
+        objects_pos = self.pixel_to_world(seg, depth)
+
+        obs = {
+            "reward": reward,
+            "is_first": False,
+            "is_last": done,  # will be handled by timelimit wrapper
+            "is_terminal": False,  # will be handled by per_episode function
+            "rgb": rgb,
+            "depth": depth,
+            "proprio": np.array(proprio).astype(np.float32),
+            "objects_pos": np.array(objects_pos).astype(np.float32),
+            "segmentation": seg,
+            "state": self._flatten_obs(state),
+            "action": action,
+            "success": success,
+            "discount": 1,
+        }
+
+        return obs
+
+    def reset(self):
+
+        env_state = self._env.reset()  # reset environment
+
+        proprio, rgb, depth, seg, state = self._state_extraction(env_state)
+        seg = self.segmentation_channel_split(seg, self.include_background)
+
+        objects_pos = self.pixel_to_world(seg, depth)
+
+        obs = {
+            "reward": 0.0,
+            "is_first": True,
+            "is_last": False,
+            "is_terminal": False,
+            "rgb": rgb,
+            "depth": depth,
+            "proprio": np.array(proprio).astype(np.float32),
+            "objects_pos": np.array(objects_pos).astype(np.float32),
+            "segmentation": seg,
+            "state": self._flatten_obs(state),
+            "action": np.zeros_like(self.act_space["action"].sample()),
+            "success": False,
+            "discount": 1,
+        }
+
+        return obs

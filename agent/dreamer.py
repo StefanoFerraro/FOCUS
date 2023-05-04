@@ -131,7 +131,7 @@ class DreamerAgent(Module):
 
     def reward_fn(self, seq):
 
-        rw_dict = {"rw_mov", "rw_dist_obj", "rw_intr"}
+        rw_dict = {"rw_sup", "rw_mov", "rw_dist_obj", "rw_intr"}
 
         obj_id = 0
         obj_poses = self.wm.heads["object_decoder"](
@@ -145,6 +145,8 @@ class DreamerAgent(Module):
         gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
             :, :, id_eef : id_eef + 3
         ]
+
+        rw_sup = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
 
         rw_mov = obj_pos[:, :, 1].unsqueeze(
             -1
@@ -166,7 +168,8 @@ class DreamerAgent(Module):
         rw_intr = self.compute_intr_reward(x[:, :, obj_id])
 
         rw = (
-            self.reward_coeff["rw_mov"] * rw_mov
+            self.reward_coeff["rw_sup"] * rw_sup
+            + self.reward_coeff["rw_mov"] * rw_mov
             - self.reward_coeff["rw_dist_obj"] * rw_dist_obj
             + self.reward_coeff["rw_intr"] * rw_intr
         )
