@@ -347,9 +347,9 @@ class Workspace:
         cfg = self.cfg
         exp_name = "_".join(
             [
+                cfg.agent.name,
                 cfg.task,
                 cfg.env.renderer.camera,
-                str(cfg.env.objects.minsize),
                 str(cfg.comment),
             ]
         )
