@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+from torch.nn.functional import normalize
 
 import utils
 import agent.dreamer_utils as common
@@ -14,11 +15,12 @@ def stop_gradient(x):
 Module = nn.Module
 
 
-class DreamerAgent(Module):
+class DreamerObjAgent(Module):
     def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
         super().__init__()
         self.name = name
         self.cfg = cfg
+        self.env = self.cfg["task"][:2]
         self.cfg.update(**kwargs)
         self.obs_space = obs_space
         self.act_spec = act_spec
@@ -26,10 +28,22 @@ class DreamerAgent(Module):
         self._use_amp = cfg.precision == 16
         self.device = cfg.device
         self.act_dim = act_spec.shape[0]
+
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
+        self.reward_coeff = cfg.reward_coeff
+
+        rms = utils.RMS(self.device)
+        self.pbe = utils.PBE(
+            rms,
+            cfg.apt.knn_clip,
+            cfg.apt.knn_k,
+            cfg.apt.knn_avg,
+            cfg.apt.knn_rms,
+            self.device,
+        )
 
     def act(self, obs, meta, step, eval_mode, state):
         obs = {
@@ -75,24 +89,126 @@ class DreamerAgent(Module):
         ):
             return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
-        reward_fn = lambda seq: self.wm.heads["reward"](
-            seq["feat"]
-        ).mean  # .mode()
+
+        # reward_fn = lambda seq: self.wm.heads["reward"](
+        # seq["feat"]
+        # ).mean  # .mode()
+
+        # reward_fn = lambda seq: (
+        #     torch.max(
+        #         torch.abs(
+        #             self.wm.heads["object_decoder"](
+        #                 seq["feat"], only_mlp=True
+        #             )["objects_pos"][0].mean
+        #         )
+        #         - torch.tensor([0, 0, 0.8], device=seq["feat"].device),
+        #         2,
+        #     ).values.unsqueeze(-1)
+        # )  # displace cubeA
+
+        # reward_fn = (
+        #     lambda seq: self.wm.heads["object_decoder"](
+        #         seq["feat"], only_mlp=True
+        #     )["objects_pos"][0]
+        #     .mean[:, :, 1]
+        #     .unsqueeze(-1)
+        # )  # move cubeA right (positive position)
+
         metrics.update(
             self._task_behavior.update(
-                self.wm, start, data["is_terminal"], reward_fn
+                self.wm, start, data["is_terminal"], self.reward_fn
             )
         )
         return state, metrics
 
+    def compute_intr_reward(self, seq):
+        rep = stop_gradient(seq)
+        B, T, _ = rep.shape
+        rep = rep.reshape(B * T, -1)
+        reward = self.pbe(rep, cdist=True)
+        reward = reward.reshape(B, T, 1)
+        return reward
+
+    def reward_fn(self, seq):
+
+        rw_dict = {"rw_sup", "rw_mov", "rw_dist_obj", "rw_intr"}
+
+        obj_id = 0
+        obj_poses = self.wm.heads["object_decoder"](
+            seq["feat"], only_mlp=True
+        )["objects_pos"].mean
+
+        obj_pos = obj_poses[:, :, obj_id]
+
+        # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
+        id_eef = 21 if self.env == "rs" else 18
+        gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
+            :, :, id_eef : id_eef + 3
+        ]
+
+        rw_sup = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+
+        rw_mov = obj_pos[:, :, 1].unsqueeze(
+            -1
+        )  # reward for moving cubeA right (positive position)
+
+        rw_dist_obj = torch.sum(
+            ((gripper_pos - obj_pos) ** 2), dim=2
+        ).unsqueeze(-1)
+
+        instances = obj_poses.shape[2]
+        obj_onehot = torch.eye(
+            instances + 1, device=seq["feat"].device
+        ).repeat(*seq["feat"].shape[:2], 1, 1)
+
+        x, _ = self.wm.heads["object_decoder"].object_latent_extractor(
+            seq["feat"], obj_onehot
+        )
+
+        rw_intr = self.compute_intr_reward(x[:, :, obj_id])
+
+        rw = (
+            self.reward_coeff["rw_sup"] * rw_sup
+            + self.reward_coeff["rw_mov"] * rw_mov
+            - self.reward_coeff["rw_dist_obj"] * rw_dist_obj
+            + self.reward_coeff["rw_intr"] * rw_intr
+        )
+
+        rw_dict = {
+            "rw_mov": rw_mov,
+            "rw_dist_obj": rw_dist_obj,
+            "rw_intr": rw_intr,
+        }
+
+        return rw, rw_dict
+
     def report(self, data):
         report = {}
         text = {}
-        
         data = self.wm.preprocess(data)
-        for key in self.wm.heads["decoder"].cnn_keys:
-            name = key.replace("/", "_")
-            report[f"{name}"] = self.wm.video_pred(data, key, nvid=4)
+        with torch.no_grad():
+            for key in self.wm.heads["decoder"].cnn_keys:
+                name = key.replace("/", "_")
+                report[f"{name}"] = self.wm.video_pred(data, key, "decoder")
+
+            # for key in self.wm.heads["decoder"].mlp_keys:
+            #     name = key.replace("/", "_")
+            #     text[f"{name}"] = self.wm.proprio_pred(
+            #         data, key, "decoder", nvid=1
+            #     )
+
+            for key in self.wm.heads["object_decoder"].cnn_keys:
+                name = key.replace("/", "_")
+                report[f"{name}"] = self.wm.video_pred(
+                    data, key, "object_decoder", nvid=2
+                )
+
+            # for key in self.wm.heads["object_decoder"].mlp_keys:
+            #     name = key.replace("/", "_")
+            #     text[f"{name}"] = self.wm.object_pos(
+            #         data, key, "object_decoder", nvid=1
+            #     )
+
         return report, text
 
     def get_meta_specs(self):
@@ -311,6 +427,7 @@ class WorldModel(Module):
         self.device = config.device
         self.tfstep = tfstep
         self.encoder = common.Encoder(shapes, **config.encoder)
+
         # Computing embed dim
         with torch.no_grad():
             zeros = {k: torch.zeros((1,) + v) for k, v in shapes.items()}
@@ -334,6 +451,10 @@ class WorldModel(Module):
         self.heads["decoder"] = common.Decoder(
             shapes, **config.decoder, embed_dim=inp_size
         )
+        self.heads["object_decoder"] = common.ObjDecoder(
+            shapes, **config.object_decoder, embed_dim=inp_size
+        )
+
         self.heads["reward"] = common.MLP(inp_size, (1,), **config.reward_head)
         if config.pred_discount:
             self.heads["discount"] = common.MLP(
@@ -370,15 +491,53 @@ class WorldModel(Module):
         likes = {}
         losses = {"kl": kl_loss}
         feat = self.rssm.get_feat(post)
+
         for name, head in self.heads.items():
             grad_head = name in self.grad_heads
             inp = feat if grad_head else stop_gradient(feat)
-            out = head(inp)
+
+            out = (
+                head(inp, data["segmentation"])
+                if name == "object_decoder"
+                else head(inp)
+            )
+
             dists = out if isinstance(out, dict) else {name: out}
+
             for key, dist in dists.items():
-                like = dist.log_prob(data[key])
+                like = 0
+
+                if key == "segmentation":
+                    seg = data[key].permute(0, 1, 3, 4, 2)
+                    like = dist.log_prob(seg)
+
+                elif key == "objects_pos":
+                    # for el in range(data[key].shape[2]):
+                    like = dist.log_prob(data[key])
+                elif key == "rgb" or key == "depth":
+                    masks = data["segmentation"]
+                    chs = data[key].shape[2]
+                    for i in range(masks.shape[2]):
+                        if i == 0:
+                            images = (
+                                masks[:, :, i]
+                                .unsqueeze(2)
+                                .repeat(1, 1, chs, 1, 1)
+                            ) * data[key]
+                        else:
+                            m = (
+                                masks[:, :, i]
+                                .unsqueeze(2)
+                                .repeat(1, 1, chs, 1, 1)
+                            ) * data[key]
+                            images = torch.cat((images, m), dim=2)
+                    like = dist.log_prob(images)
+                else:
+                    like = dist.log_prob(data[key])
+
                 likes[key] = like
                 losses[key] = -like.mean()
+
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()
         )
@@ -443,6 +602,7 @@ class WorldModel(Module):
                 seq[key].append(value)
             if task_cond is not None:
                 seq["task"].append(task_cond)
+
         # shape will be (T, B, *DIMS)
         seq = {k: torch.stack(v, 0) for k, v in seq.items()}
         if "discount" in self.heads:
@@ -473,8 +633,23 @@ class WorldModel(Module):
         for key, value in obs.items():
             if key.startswith("log_"):
                 continue
-            if value.dtype in [np.uint8, torch.uint8]:
+            if value.dtype in [np.uint8, torch.uint8] and "rgb" in key:
                 value = value / 255.0 - 0.5
+
+            if key == "depth":
+                value = value / 4.0 - 0.5
+
+            if key == "segmentation":
+                value = value * 1.0
+
+            # if key == "objects_pos":
+            # value = value * 100.0  # convert units to meters
+
+            # max = torch.tensor([0.1, 0.1, 1.0], device=value.device)
+            # min = torch.tensor([-0.1, -0.1, 0.75], device=value.device)
+
+            # value = (value - min) / (max - min)
+
             obs[key] = value
         obs["reward"] = {
             "identity": nn.Identity(),
@@ -485,56 +660,234 @@ class WorldModel(Module):
         obs["discount"] *= self.cfg.discount
         return obs
 
-    def video_pred(self, data, key, nvid=8):
-        decoder = self.heads["decoder"]  # B, T, C, H, W
-        truth = data[key][:nvid] + 0.5
-        embed = self.encoder(data)
-        states, _ = self.rssm.observe(
-            embed[:nvid, :5],
-            data["action"][:nvid, :5],
-            data["is_first"][:nvid, :5],
-        )
-        recon = decoder(self.rssm.get_feat(states))[key].mean[:nvid]  # mode
-        init = {k: v[:, -1] for k, v in states.items()}
-        prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
-        prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
-        model = torch.clip(
-            torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
-        )
-        error = (model - truth + 1) / 2
+    def segmentation_visualization(
+        self,
+        seg,
+        palette=None,
+    ):
+        gen = torch.Generator(device=seg.device)
 
-        if getattr(self, "recon_skills", False):
-            prior_feat = self.rssm.get_feat(prior)
-            if self.skill_module.discrete_skills:
-                B, T, _ = prior["deter"].shape
-                z_e = self.skill_module.skill_encoder(
-                    prior["deter"].reshape(B * T, -1)
-                ).mean
-                z_q, _ = self.skill_module.emb(z_e, weight_sg=True)
-                latent_skills = z_q.reshape(B, T, -1)
-            else:
-                latent_skills = self.skill_module.skill_encoder(
-                    prior["deter"]
-                ).mean
-                latent_skills = latent_skills / torch.norm(
-                    latent_skills, dim=-1, keepdim=True
-                )
+        if palette is None:
+            # Get random state before set seed,
+            # and restore random state later.
+            # It will prevent loss of randomness, as the palette
+            # may be different in each iteration if not specified.
+            # See: https://github.com/open-mmlab/mmdetection/issues/5844
+            state = gen.get_state()
+            gen.manual_seed(42)
 
-            x = deter = self.skill_module.skill_decoder(latent_skills).mean
-
-            stats = self.rssm._suff_stats_ensemble(x)
-            index = torch.randint(0, self.rssm._ensemble, ())
-            stats = {k: v[index] for k, v in stats.items()}
-            dist = self.rssm.get_dist(stats)
-            stoch = dist.sample()
-            prior = {"stoch": stoch, "deter": deter, **stats}
-            skill_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
-            error = torch.clip(
-                torch.cat([recon[:, :5] + 0.5, skill_recon + 0.5], 1), 0, 1
+            # random palette
+            palette = torch.randint(
+                0,
+                255,
+                (seg.shape[2], 3),  # segmentation channels are in dim 2
+                dtype=torch.uint8,
+                generator=gen,
+                device=seg.device,
             )
 
-        video = torch.cat([truth, model, error], 3)
-        B, T, C, H, W = video.shape
+            gen.set_state(state)
+
+        seg_perm = seg.permute(0, 1, 3, 4, 2)
+
+        color_seg = torch.zeros(
+            (*seg_perm.shape[:4], 3),
+            dtype=torch.uint8,
+            device=seg.device,
+        )
+
+        for label, color in enumerate(palette):
+            color_seg[(seg_perm == 1)[..., label]] = color
+
+        return color_seg.permute(0, 1, 4, 2, 3)
+
+    def object_pos(self, data, key, head, nvid=8):
+
+        decoder = self.heads[head]
+
+        truth = data[key][:nvid][0].unsqueeze(1)
+
+        # normalization object_pose
+        # max = torch.tensor([0.1, 0.1, 0.9], device=truth.device)
+        # min = torch.tensor([-0.1, -0.1, 0.75], device=truth.device)
+        # conf = max - min
+
+        embed = self.encoder(data)
+        states, _ = self.rssm.observe(
+            embed[:nvid, 0].unsqueeze(1),
+            data["action"][:nvid, 0].unsqueeze(1),
+            data["is_first"][:nvid, 0].unsqueeze(1),
+        )
+
+        obj_predictions = decoder(self.rssm.get_feat(states))[key]
+        objects = self.cfg.objects
+
+        text_out = []
+        dict_out = {}
+        rows = ["Proprio GT", "Prediction", "Error"]
+
+        for obj in objects:
+            dict_out[obj] = {}
+            for row in rows:
+                dict_out[obj][row] = []
+
+        for i in range(nvid):
+            for j, obj_pred in enumerate(obj_predictions):
+                GT = (truth[i][0][j]).cpu().numpy()
+                pred = (obj_pred.mean[i][0]).cpu().numpy()
+                error = pred - GT
+                text_out.append(
+                    f"Object {objects[j]} GT={GT}, Prediction={pred}, Error={error}"
+                )
+
+                dict_out[objects[j]]["Proprio GT"].append(GT)
+                dict_out[objects[j]]["Prediction"].append(pred)
+                dict_out[objects[j]]["Error"].append(error)
+
+        # return "\t".join(text_out)
+        return dict_out
+
+    def proprio_pred(self, data, key, head, nvid=8):
+
+        decoder = self.heads[head]
+        truth = data[key][:nvid][0].unsqueeze(1)
+        embed = self.encoder(data)
+        states, _ = self.rssm.observe(
+            embed[:nvid, 0].unsqueeze(1),
+            data["action"][:nvid, 0].unsqueeze(1),
+            data["is_first"][:nvid, 0].unsqueeze(1),
+        )
+
+        proprio_pred = decoder(self.rssm.get_feat(states))[key]
+
+        text_out = []
+        dict_out = {}
+        rows = ["Proprio GT", "Prediction", "Error"]
+
+        for row in rows:
+            dict_out[row] = []
+
+        for i in range(nvid):
+            GT = truth[i][0].cpu().numpy()
+            pred = proprio_pred.mean[i][0].cpu().numpy()
+            error = pred - GT
+            text_out.append(
+                f"Proprio GT={GT}, Prediction={pred}, Error={error}"
+            )
+
+            dict_out["Proprio GT"].append(GT)
+            dict_out["Prediction"].append(pred)
+            dict_out["Error"].append(error)
+
+        # return "\t".join(text_out)
+        return dict_out
+
+    def video_pred(self, data, key, head, nvid=8):
+
+        if key == "rgb" or key == "depth":
+            decoder = self.heads[head]  # B, T, C, H, W
+            truth = data[key][:nvid] + 0.5
+            embed = self.encoder(data)
+            states, _ = self.rssm.observe(
+                embed[:nvid, :5],
+                data["action"][:nvid, :5],
+                data["is_first"][:nvid, :5],
+            )
+
+            recon = decoder(
+                self.rssm.get_feat(states), data["segmentation"][:nvid, :5]
+            )[key].mean[
+                :nvid
+            ]  # mode
+
+            recon_unmasked = decoder(self.rssm.get_feat(states))[key].mean[
+                :nvid
+            ]  # mode
+
+            init = {k: v[:, -1] for k, v in states.items()}
+            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+
+            prior_recon = decoder(
+                self.rssm.get_feat(prior), data["segmentation"][:nvid, 5:]
+            )[
+                key
+            ].mean  # mode
+
+            prior_recon_unmasked = decoder(self.rssm.get_feat(prior))[
+                key
+            ].mean  # mode
+
+            model = torch.clip(
+                torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
+            )
+
+            model_unmasked = torch.clip(
+                torch.cat(
+                    [recon_unmasked[:, :5] + 0.5, prior_recon_unmasked + 0.5],
+                    1,
+                ),
+                0,
+                1,
+            )
+
+            # create masks for truth
+            masks = data["segmentation"]
+            chs = truth.shape[2]
+            for m in range(masks.shape[2]):
+                if m == 0:
+                    truth_out = (
+                        masks[:nvid, :, m].unsqueeze(2).repeat(1, 1, chs, 1, 1)
+                        * truth
+                    )
+                else:
+                    temp = (
+                        masks[:nvid, :, m].unsqueeze(2).repeat(1, 1, chs, 1, 1)
+                        * truth
+                    )
+                    truth_out = torch.cat((truth_out, temp), 4)
+
+            # truth = truth_out
+            # divide model output
+            model = torch.cat(torch.split(model, chs, 2), dim=4)
+            model_unmasked = torch.cat(
+                torch.split(model_unmasked, chs, 2), dim=4
+            )
+
+            video = torch.cat([truth_out, model, model_unmasked], 3)
+
+        elif key == "segmentation":
+
+            decoder = self.heads[head]  # B, T, C, H, W
+            truth = data[key][:nvid] + 0.5
+            embed = self.encoder(data)
+            states, _ = self.rssm.observe(
+                embed[:nvid, :5],
+                data["action"][:nvid, :5],
+                data["is_first"][:nvid, :5],
+            )
+
+            recon = decoder(self.rssm.get_feat(states))[key].mean[
+                :nvid
+            ]  # mode
+
+            init = {k: v[:, -1] for k, v in states.items()}
+            prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
+            prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
+
+            model = torch.clip(
+                torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
+            )
+
+            model = model.permute(0, 1, 4, 2, 3)
+
+            error = ((model - truth + 1) / 2).mean(axis=2).unsqueeze(dim=2)
+
+            truth_out = self.segmentation_visualization(truth - 0.5)
+            model = self.segmentation_visualization(model)
+
+            error = error.repeat(1, 1, truth_out.shape[2], 1, 1)
+            video = torch.cat([truth_out, model, error], 3)
+
         return video
 
 
@@ -586,7 +939,14 @@ class ActorCritic(Module):
         with common.RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = world_model.imagine(self.actor, start, is_terminal, hor)
-                reward = reward_fn(seq)
+                reward, reward_dict = reward_fn(seq)
+
+                mets0 = {}  # individual rewards components
+                for rw_key, rw in reward_dict.items():
+                    _, met = self.rewnorm(rw)
+                    met = {f"{rw_key}_{k}": v for k, v in met.items()}
+                    mets0.update(met)
+
                 seq["reward"], mets1 = self.rewnorm(reward)
                 mets1 = {f"reward_{k}": v for k, v in mets1.items()}
                 target, mets2 = self.target(seq)
@@ -599,7 +959,7 @@ class ActorCritic(Module):
             metrics.update(
                 self.critic_opt(critic_loss, self.critic.parameters())
             )
-        metrics.update(**mets1, **mets2, **mets3, **mets4)
+        metrics.update(**mets0, **mets1, **mets2, **mets3, **mets4)
         self.update_slow_target()  # Variables exist after first forward pass.
         return metrics
 

@@ -11,12 +11,12 @@ env:
   renderer:
     fps: 30
     size: [64, 64]
-    camera: "agentview" # "frontview", "agentview", "eye_in_hand"
+    camera: "base_camera" # "frontview", "agentview", "eye_in_hand" for robosuite | "base_camera" for maniskill
     depths: True
     segmentation_level: "element" # None, class, instance or element 
   reward_shaping: true
   objects:
     rgba: [1, 0, 0, 1]
-    minsize: 0.025
+    minsize: 0.04
     spawn_range: 0.25
 comment: ""
