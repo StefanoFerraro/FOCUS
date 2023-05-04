@@ -20,6 +20,7 @@ class DreamerAgent(Module):
         super().__init__()
         self.name = name
         self.cfg = cfg
+        self.env = self.cfg["task"][:2]
         self.cfg.update(**kwargs)
         self.obs_space = obs_space
         self.act_spec = act_spec
@@ -140,7 +141,7 @@ class DreamerAgent(Module):
         obj_pos = obj_poses[:, :, obj_id]
 
         # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
-        id_eef = 21
+        id_eef = 21 if self.env == "rs" else 18
         gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
             :, :, id_eef : id_eef + 3
         ]
@@ -154,9 +155,9 @@ class DreamerAgent(Module):
         ).unsqueeze(-1)
 
         instances = obj_poses.shape[2]
-        obj_onehot = torch.eye(instances + 1, device=seq["feat"].device).repeat(
-            *seq["feat"].shape[:2], 1, 1
-        )
+        obj_onehot = torch.eye(
+            instances + 1, device=seq["feat"].device
+        ).repeat(*seq["feat"].shape[:2], 1, 1)
 
         x, _ = self.wm.heads["object_decoder"].object_latent_extractor(
             seq["feat"], obj_onehot
@@ -413,20 +414,6 @@ class DreamerAgent(Module):
             a += std * torch.randn(self.act_dim, device=std.device)
         new_state = (post, a.unsqueeze(0))
         return a.cpu().numpy(), new_state
-
-
-# if getattr(self, "recon_skills", False):
-#             prior_feat = self.rssm.get_feat(prior)
-#             if self.skill_module.discrete_skills:
-#                 B, T, _ = prior["deter"].shape
-#                 z_e = self.skill_module.skill_encoder(
-#                     prior["deter"].reshape(B * T, -1)
-#                 ).mean
-#                 z_q, _ = self.skill_module.emb(z_e, weight_sg=True)
-#                 latent_skills = z_q.reshape(B, T, -1)
-#             else:
-#                 latent_skills = self.skill_module.skill_encoder(
-#                     prior["deter"]
 
 
 class WorldModel(Module):
