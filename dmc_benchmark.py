@@ -26,6 +26,7 @@ JACO_TASKS = [
 ]
 
 RS_PANDA_TASKS_OBJ = {
+    "Stack": ["cubeA", "cubeB"],
     "CustomStack": ["cubeA", "cubeB"],
     "Lift": ["cube"],
     "CustomLift": ["cube"],

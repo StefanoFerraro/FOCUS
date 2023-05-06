@@ -21,8 +21,15 @@ def make(task, env_args):
         "reward_shaping": True,
     }
 
-    if task == "CustomLift" or task == "CustomStack":
+    if task == "CustomLift":
         return CustomLift(
+            **kwargs,
+            cube_rgba=env_args.cube_rgba,
+            cube_minsize=env_args.cube_minsize,
+            spawn_range=env_args.spawn_range,
+        )
+    elif task == "CustomStack":
+        return CustomStack(
             **kwargs,
             cube_rgba=env_args.cube_rgba,
             cube_minsize=env_args.cube_minsize,
