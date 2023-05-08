@@ -6,8 +6,8 @@ def make(task, env_args):
                 
     kwargs = {
                 "obs_mode": env_args.obs_mode,
+                "control_mode": env_args.controller,
                 "reward_mode": env_args.reward_mode,
-                "control_mode": env_args.control_mode,
                 "camera_cfgs": {
                     "add_segmentation": True,
                     "height": env_args.size[0],

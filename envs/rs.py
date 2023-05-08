@@ -11,6 +11,7 @@ from envs.wrappers import PandaGymWrapper
 
 import custom_robosuite_tasks
 
+
 class PandaRoboSuite:
     def __init__(
         self,
@@ -60,6 +61,8 @@ class PandaRoboSuite:
         self._action_repeat = action_repeat
         self._seed = seed
         self.task = task
+
+        self.controller = env_config.controller
 
         self.make()
 
@@ -244,12 +247,18 @@ class PandaRoboSuite:
     def action_spec(
         self,
     ):
+        action_space = (
+            self._env.action_space
+            if self.controller == "JOINT_POSITION"
+            else gym.spaces.Box(-1, 1, (4,), dtype=np.float32)
+        )
+
         return specs.BoundedArray(
             name="action",
-            shape=self._env.action_space.shape,
-            dtype=self._env.action_space.dtype,
-            minimum=self._env.action_space.low,
-            maximum=self._env.action_space.high,
+            shape=action_space.shape,
+            dtype=action_space.dtype,
+            minimum=action_space.low,
+            maximum=action_space.high,
         )
 
     @property
@@ -293,6 +302,8 @@ class PandaRoboSuite:
     @property
     def act_space(self):
         action = self._env.action_space
+        if self.controller == "OSC_POSE":
+            action = gym.spaces.Box(-1, 1, (4,), dtype=np.float32)
         return {"action": action}
 
     def _proprio_obs(self, state):
@@ -356,6 +367,12 @@ class PandaRoboSuite:
         return estimated_obj_pos
 
     def step(self, action):
+
+        if self.controller == "OSC_POSE":
+            action = np.insert(
+                action, 3, [0, 0, 0]
+            )  # add dummy orientation values
+
         # assert np.isfinite(action["action"]).all(), action["action"]
         # TODO: check state match with observation
         reward = 0.0
@@ -372,6 +389,7 @@ class PandaRoboSuite:
         seg = self.segmentation_channel_split(seg, self.include_background)
 
         objects_pos = self.pixel_to_world(seg, depth)
+        action = np.delete(action, [3, 4, 5]) # remove dummy orientation values
 
         obs = {
             "reward": reward,

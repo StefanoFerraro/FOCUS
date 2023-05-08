@@ -8,6 +8,7 @@ replay.capacity: 5e5
 # env param
 env:
   horizon: 250
+  controller: "pd_ee_target_delta_pos"
   renderer:
     fps: 30
     size: [64, 64]
@@ -18,5 +19,5 @@ env:
   objects:
     rgba: [1, 0, 0, 1]
     minsize: 0.04
-    spawn_range: 0.25
+    spawn_range: 0.001
 comment: ""

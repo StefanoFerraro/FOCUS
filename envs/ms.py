@@ -33,7 +33,6 @@ class PandaManiSkill:
 
         self.env_id = task + "Cube-v0"
         self.obs_mode = "state_dict"  # ['image', 'pointcloud', 'rgbd', 'state_dict', 'state']
-        self.control_mode = "pd_joint_delta_pos"  # @param can be one of ['pd_ee_delta_pose', 'pd_ee_delta_pos', 'pd_joint_delta_pos', 'arm_pd_joint_pos_vel']
         self.reward_mode = "dense"  # @param can be one of ['sparse', 'dense']
 
         self.size = tuple(env_config.renderer.size)
@@ -62,6 +61,8 @@ class PandaManiSkill:
         self._seed = seed
         self.task = task
 
+        self.controller = env_config.controller
+        
         self.make()
 
     def _filter_obs(self, obs, keys):

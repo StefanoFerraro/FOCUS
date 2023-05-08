@@ -16,6 +16,6 @@ env:
   reward_shaping: true
   objects:
     rgba: [1, 0, 0, 1]
-    minsize: 0.025
-    spawn_range: 0.25
+    minsize: 0.04
+    spawn_range:  0.001
 comment: ""
