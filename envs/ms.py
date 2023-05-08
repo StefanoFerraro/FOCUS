@@ -62,7 +62,7 @@ class PandaManiSkill:
         self.task = task
 
         self.controller = env_config.controller
-        
+
         self.make()
 
     def _filter_obs(self, obs, keys):
