@@ -275,7 +275,7 @@ class Workspace:
                         log("step", self.global_step)
                         log("success", dreamer_obs["success"])
                         log("contact", float(contact_count / episode_frame))
-                        log("displacement", cumm_displacement * 100)  # in cm
+                        log("displacement", cumm_displacement)  # in cm
                 contact_count = 0
                 cumm_displacement = 0
 
