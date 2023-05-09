@@ -250,6 +250,9 @@ class Workspace:
 
         self.replay_storage.add(data, meta)
         metrics = None
+        contact_count = 0
+        cumm_displacement = 0
+
         while train_until_step(self.global_step):
             if bool(dreamer_obs["is_last"]):
                 self._global_episode += 1
@@ -270,6 +273,11 @@ class Workspace:
                         log("episode", self.global_episode)
                         log("buffer_size", len(self.replay_storage))
                         log("step", self.global_step)
+                        log("success", dreamer_obs["success"])
+                        log("contact", float(contact_count / episode_frame))
+                        log("displacement", cumm_displacement * 100)  # in cm
+                contact_count = 0
+                cumm_displacement = 0
 
                 # save last model
                 self.save_last_model()
@@ -334,6 +342,8 @@ class Workspace:
             self.replay_storage.add(data, meta)
             episode_step += 1
             self._global_step += 1
+            contact_count += int(dreamer_obs["contact"])
+            cumm_displacement += dreamer_obs["displacement"]
 
     @utils.retry
     def save_snapshot(self):

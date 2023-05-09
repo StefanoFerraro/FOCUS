@@ -11,6 +11,7 @@ from robosuite.wrappers import Wrapper
 from gym.core import Env
 from gym import spaces
 
+
 class ExtendedTimeStep(NamedTuple):
     step_type: Any
     reward: Any
@@ -410,6 +411,7 @@ class NormalizeAction:
         orig = np.where(self._mask, orig, action[self._key])
         return self._env.step({**action, self._key: orig})
 
+
 class PandaGymWrapper(Wrapper, Env):
     def __init__(self, env, keys=None):
         # Run super method
@@ -474,4 +476,6 @@ class PandaGymWrapper(Wrapper, Env):
                     print("adding key: {}".format(key))
                 ob_lst.append(np.array(obs_dict[key]).flatten())
         return np.concatenate(ob_lst)
-    
+
+    def check_success(self):
+        return self.env._check_success()

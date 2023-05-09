@@ -66,6 +66,14 @@ class PandaRoboSuite:
 
         self.make()
 
+    def get_object_pose(self):
+        if self.task == "CustomLift":
+            obj_pose = self._env.sim.data.body_xpos[self._env.cube_body_id]
+        elif self.task == "CustomStack":
+            obj_pose = self._env.sim.data.body_xpos[self._env.cubeA_body_id]
+
+        return obj_pose.copy()
+
     def make(self):
         self._env = PandaGymWrapper(
             custom_robosuite_tasks.make(self.task, self),
@@ -86,6 +94,7 @@ class PandaRoboSuite:
         self.last_estimated_obj_pos = [[0, 0, 0]] * len(
             self.segmentation_instances
         )  # initialize to zero
+        self.true_obj_pose = self.get_object_pose()
 
     def set_camera_pos(self):
 
@@ -366,6 +375,17 @@ class PandaRoboSuite:
 
         return estimated_obj_pos
 
+    def check_contact(self):
+        contact = 0
+        for object in self.segmentation_instances:
+            contact += int(
+                self._env.check_contact(
+                    self._env.robots[0].robot_model, getattr(self._env, object)
+                )
+            )
+
+        return contact > 0
+
     def step(self, action):
 
         if self.controller == "OSC_POSE":
@@ -374,22 +394,32 @@ class PandaRoboSuite:
             )  # add dummy orientation values
 
         # assert np.isfinite(action["action"]).all(), action["action"]
-        # TODO: check state match with observation
+
         reward = 0.0
         success = 0.0
         for _ in range(self._action_repeat):
             env_state, rew, done, info = self._env.step(action)
-            success += float(done)
+            success = self._env.check_success()
             reward += float(rew)
         success = min(success, 1.0)
         assert success in [0.0, 1.0]
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
+        contact = self.check_contact()
+
+        new_true_obj_pose = self.get_object_pose()
+        true_displacement = np.sum(
+            ((new_true_obj_pose - self.true_obj_pose) ** 2)
+        )
+        self.true_obj_pose = new_true_obj_pose
+
         seg = self.segmentation_channel_split(seg, self.include_background)
 
         objects_pos = self.pixel_to_world(seg, depth)
-        action = np.delete(action, [3, 4, 5]) # remove dummy orientation values
+        action = np.delete(
+            action, [3, 4, 5]
+        )  # remove dummy orientation values
 
         obs = {
             "reward": reward,
@@ -403,7 +433,9 @@ class PandaRoboSuite:
             "segmentation": seg,
             "state": self._env._flatten_obs(state),
             "action": action,
-            "success": success,
+            "success": bool(success),
+            "contact": contact,
+            "displacement": true_displacement,
             "discount": 1,
         }
 
@@ -430,6 +462,8 @@ class PandaRoboSuite:
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
         seg = self.segmentation_channel_split(seg, self.include_background)
 
+        self.true_obj_pose = self.get_object_pose()
+
         objects_pos = self.pixel_to_world(seg, depth)
 
         obs = {
@@ -445,6 +479,8 @@ class PandaRoboSuite:
             "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
+            "contact": False,
+            "displacement": 0.0,
             "discount": 1,
         }
 
