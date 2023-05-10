@@ -8,16 +8,22 @@ replay.capacity: 5e5
 # env param
 env:
   horizon: 250
-  controller: "OSC_POSE" # "pd_ee_target_delta_pos" # 
+  controller: "OSC_POSE" # "pd_ee_target_delta_pos" #    
   renderer:
     fps: 30
     size: [64, 64]
     camera: "base_camera" # "frontview", "agentview", "eye_in_hand" for robosuite | "base_camera" for maniskill
     depths: True
     segmentation_level: "element" # None, class, instance or element 
-  reward_shaping: true
+  reward_shaping: False
   objects:
     rgba: [1, 0, 0, 1]
     minsize: 0.04
-    spawn_range: 0.001
+    spawn_range: 0.1
+  goal:
+    x: None
+    y: None
+    z: 0.1
+    point_goal: False
+
 comment: ""

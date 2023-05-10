@@ -21,6 +21,8 @@ from mani_skill2.utils.sapien_utils import (
     get_articulation_contacts,
 )
 
+from sapien.core import Pose
+
 
 class PandaManiSkill:
     def __init__(
@@ -35,9 +37,13 @@ class PandaManiSkill:
         os.environ["DISPLAY"] = ":0"
         os.environ["MUJOCO_GL"] = "egl"
 
-        self.env_id = task + "Cube-v0"
+        self.env_id = (
+            task + "Cube-v0" if task != "TurnFaucet" else task + "-v0"
+        )
         self.obs_mode = "state_dict"  # ['image', 'pointcloud', 'rgbd', 'state_dict', 'state']
-        self.reward_mode = "dense"  # @param can be one of ['sparse', 'dense']
+        self.reward_mode = (
+            "dense" if env_config.reward_shaping else "sparse"
+        )  # @param can be one of ['sparse', 'dense']
 
         self.size = tuple(env_config.renderer.size)
 
@@ -52,6 +58,10 @@ class PandaManiSkill:
             -env_config.objects.spawn_range,
             env_config.objects.spawn_range,
         )
+        self.target_x = env_config.goal.x
+        self.target_y = env_config.goal.y
+        self.target_z = env_config.goal.z
+        self.point_goal = env_config.goal.point_goal
 
         self.objects_pixels = [0] * len(objs)
         self._obs_keys = {"base_camera": ["Color", "Position", "Segmentation"]}
@@ -115,31 +125,29 @@ class PandaManiSkill:
         return np.concatenate(ob_lst)
 
     def get_object_pose(self):
-        if self.task == "CustomLift":
+        if self.task == "CustomLift" or self.task == "MoveTo":
             obj_pose = self._env.unwrapped.obj.get_pose().p
         elif self.task == "CustomStack":
             obj_pose = self._env.unwrapped.cubeA.get_pose().p
-
+        elif self.task == "TurnFaucet":
+            obj_pose = self._env.unwrapped.faucet.get_pose().p
         return obj_pose
 
     def make(self):
 
         self._env = custom_maniskill_tasks.make(self.env_id, self)
 
-        # self._env = gym.make(
-        #     self.env_id,
-        #     obs_mode=self.obs_mode,
-        #     reward_mode=self.reward_mode,
-        #     control_mode=self.control_mode,
-        #     camera_cfgs={
-        #         "add_segmentation": True,
-        #         "height": self.size[0],
-        #         "width": self.size[1],
-        #         "texture_names": ("Color", "Position", "Segmentation"),
-        #     },
-        # )
-
         self._env = ContinuousTaskWrapper(self._env, self.horizon)
+        if self.task == "TurnFaucet":
+            cameras = self._env.env.unwrapped._scene.get_cameras()
+            for cam in cameras:
+                if cam.name == self.camera:
+                    cam.set_pose(
+                        Pose(
+                            [0.3, 0, 0.6],
+                            [6.50068e-17, 0.433189, -1.11022e-16, -0.901303],
+                        )
+                    )
 
         obs = self._env.reset()
         self._env.render(mode="cameras")
@@ -466,13 +474,14 @@ class PandaManiSkill:
         contact = self.check_contact()
 
         new_true_obj_pose = self.get_object_pose()
-        true_displacement = np.sum(((new_true_obj_pose - self.true_obj_pose) ** 2))
+        true_displacement = np.sqrt(
+            np.sum(((new_true_obj_pose - self.true_obj_pose) ** 2))
+        )
         self.true_obj_pose = new_true_obj_pose
 
         seg = self.segmentation_channel_split(seg, self.include_background)
 
         objects_pos = self.pixel_to_world(seg, depth)
-
 
         obs = {
             "reward": reward,

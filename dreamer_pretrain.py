@@ -96,6 +96,10 @@ class Workspace:
         )  # -> which is the URLB default
         frame_stack = 1
 
+        os.chdir(
+            (hydra.utils.get_original_cwd())
+        )  # change to original working directory for loading URDF models
+
         self.train_env = make(
             task,
             cfg.obs_type,
@@ -112,6 +116,8 @@ class Workspace:
             cfg.seed,
             cfg.env,
         )
+
+        os.chdir(self.workdir)
 
         # add objects to cfg
         domain, _ = task.split("_", 1)
@@ -167,6 +173,15 @@ class Workspace:
         self.timer = utils.Timer()
         self._global_step = 0
         self._global_episode = 0
+
+    def reset(self, func):
+        os.chdir(
+            (hydra.utils.get_original_cwd())
+        )  # change to original working directory for loading URDF models
+        obs = func.reset()
+        os.chdir(self.workdir)
+
+        return obs
 
     @property
     def global_step(self):
@@ -241,9 +256,9 @@ class Workspace:
 
         episode_step, episode_reward = 0, 0
         try:
-            _, dreamer_obs = self.train_env.reset()
+            _, dreamer_obs = self.reset(self.train_env)
         except:
-            dreamer_obs = self.train_env.reset()
+            dreamer_obs = self.reset(self.train_env)
         agent_state = None
         meta = self.agent.init_meta()
         data = dreamer_obs
@@ -283,7 +298,7 @@ class Workspace:
                 self.save_last_model()
 
                 # reset env
-                dreamer_obs = self.train_env.reset()
+                dreamer_obs = self.reset(self.train_env)
 
                 agent_state = None  # Resetting agent's latent state
                 meta = self.agent.init_meta()

@@ -1,5 +1,6 @@
 from custom_maniskill_tasks.custom_lift import CustomLiftCubeEnv
 from custom_maniskill_tasks.custom_stack import CustomStackCubeEnv
+from custom_maniskill_tasks.move_to import MoveToEnv
 import gym
 
 def make(task, env_args):
@@ -23,6 +24,25 @@ def make(task, env_args):
             spawn_range=env_args.spawn_range,
             **kwargs,
         )
+    elif task == "MoveToCube-v0":
+        return gym.make(
+            task,
+            box_half_size=env_args.cube_minsize,
+            cube_rgba=env_args.cube_rgba[:3], 
+            spawn_range=env_args.spawn_range,
+            target_x=env_args.target_x,
+            target_y=env_args.target_y,
+            target_z=env_args.target_z,
+            point_goal=env_args.point_goal,
+            **kwargs,
+        )
+    elif task == "TurnFaucet-v0":
+        return gym.make(
+            task,
+            model_ids="5007",
+            **kwargs,
+        )
+        
     else:
         return gym.make(
             task,

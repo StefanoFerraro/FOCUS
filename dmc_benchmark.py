@@ -26,16 +26,19 @@ JACO_TASKS = [
 ]
 
 RS_PANDA_TASKS_OBJ = {
+    "MoveTo": ["cube"],
     "Stack": ["cubeA", "cubeB"],
     "CustomStack": ["cubeA", "cubeB"],
     "Lift": ["cube"],
     "CustomLift": ["cube"],
 }
 MS_PANDA_TASKS_OBJ = {
+    "MoveTo": ["cube"],
     "Stack": ["cubeA", "cubeB"],
     "CustomStack": ["cubeA", "cubeB"],
     "Lift": ["cube"],
     "CustomLift": ["cube"],
+    "TurnFaucet": ["faucet"],
 }
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS

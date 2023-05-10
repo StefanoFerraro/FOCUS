@@ -34,6 +34,12 @@ class DreamerObjAgent(Module):
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
         self.reward_coeff = cfg.reward_coeff
+        self.rw_dict = {"rw_sup", "rw_mov", "rw_dist_obj", "rw_intr"}
+        self.rewnorm_dict = {}
+        for k in self.rw_dict:
+            self.rewnorm_dict[k] = common.StreamNorm(
+                **self.cfg.reward_norm, device=self.device
+            )
 
         rms = utils.RMS(self.device)
         self.pbe = utils.PBE(
@@ -90,30 +96,6 @@ class DreamerObjAgent(Module):
             return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
 
-        # reward_fn = lambda seq: self.wm.heads["reward"](
-        # seq["feat"]
-        # ).mean  # .mode()
-
-        # reward_fn = lambda seq: (
-        #     torch.max(
-        #         torch.abs(
-        #             self.wm.heads["object_decoder"](
-        #                 seq["feat"], only_mlp=True
-        #             )["objects_pos"][0].mean
-        #         )
-        #         - torch.tensor([0, 0, 0.8], device=seq["feat"].device),
-        #         2,
-        #     ).values.unsqueeze(-1)
-        # )  # displace cubeA
-
-        # reward_fn = (
-        #     lambda seq: self.wm.heads["object_decoder"](
-        #         seq["feat"], only_mlp=True
-        #     )["objects_pos"][0]
-        #     .mean[:, :, 1]
-        #     .unsqueeze(-1)
-        # )  # move cubeA right (positive position)
-
         metrics.update(
             self._task_behavior.update(
                 self.wm, start, data["is_terminal"], self.reward_fn
@@ -130,8 +112,6 @@ class DreamerObjAgent(Module):
         return reward
 
     def reward_fn(self, seq):
-
-        rw_dict = {"rw_sup", "rw_mov", "rw_dist_obj", "rw_intr"}
 
         obj_id = 0
         obj_poses = self.wm.heads["object_decoder"](
@@ -168,20 +148,25 @@ class DreamerObjAgent(Module):
         # rw_intr = self.compute_intr_reward(x[:, :, obj_id])
         rw_intr = self.compute_intr_reward(obj_pos)
 
-        rw = (
-            self.reward_coeff["rw_sup"] * rw_sup
-            + self.reward_coeff["rw_mov"] * rw_mov
-            - self.reward_coeff["rw_dist_obj"] * rw_dist_obj
-            + self.reward_coeff["rw_intr"] * rw_intr
-        )
-
-        rw_dict = {
+        self.rw_dict = {
+            "rw_sup": rw_sup,
             "rw_mov": rw_mov,
             "rw_dist_obj": rw_dist_obj,
             "rw_intr": rw_intr,
         }
+        rw_norm = {}
+        mets = {}
 
-        return rw, rw_dict
+        for key, val in self.rw_dict.items():
+            rw_norm[key], met = self.rewnorm_dict[key](val)
+            met = {f"{key}_{k}": v for k, v in met.items()}
+            mets.update(met)
+
+        rw = 0
+        for key, val in rw_norm.items():
+            rw += self.reward_coeff[key] * val
+
+        return rw, mets
 
     def report(self, data):
         report = {}
@@ -940,16 +925,13 @@ class ActorCritic(Module):
         with common.RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = world_model.imagine(self.actor, start, is_terminal, hor)
-                reward, reward_dict = reward_fn(seq)
+                seq["reward"], mets0 = reward_fn(seq)
 
-                mets0 = {}  # individual rewards components
-                for rw_key, rw in reward_dict.items():
-                    _, met = self.rewnorm(rw)
-                    met = {f"{rw_key}_{k}": v for k, v in met.items()}
-                    mets0.update(met)
-
-                seq["reward"], mets1 = self.rewnorm(reward)
+                mets1 = {}
+                mets1["mean"] = seq["reward"].mean()
+                mets1["std"] = seq["reward"].std()
                 mets1 = {f"reward_{k}": v for k, v in mets1.items()}
+
                 target, mets2 = self.target(seq)
                 actor_loss, mets3 = self.actor_loss(seq, target)
             metrics.update(self.actor_opt(actor_loss, self.actor.parameters()))

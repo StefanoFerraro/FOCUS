@@ -1,22 +1,28 @@
 {
-    "jobDefinition": {
-        "name": "$CONFIG-$AGENT-$DOMAIN",
-        "clusterId": $CLUSTER_ID,
-        "description": "$EXPERIMENT_NAME",
-        "dockerImage": "$DOCKER_IMAGE",
-        "jobType": "BATCH",
-        "command": "$COMMAND",
-        "resources": {
-            "minCudaVersion": 10,
-            "gpus": $GPUS,
-            "systemMemory": $MEMORY,
-            "cpuCores": $CPUS
+    "name": "$CONFIG-$AGENT-$DOMAIN",
+    "description": "$EXPERIMENT_NAME",
+    "request": {
+        "docker": {
+            "image": "$DOCKER_IMAGE",
+            "command": "$COMMAND",
+            "storage": [
+                {
+                    "containerPath": "$MOUNT_POINT"
+                }
+            ]
         },
-        "jobDataLocations": [
-            {
-                "mountPoint": "$MOUNT_POINT"
-            }
-        ],
-        "portMappings": []
+        "resources": {
+            "clusterId": $CLUSTER_ID,
+            "gpus": $GPUS,
+            "minCudaVersion": 10,
+            "cpus": $CPUS,
+            "cpuMemoryGb": $MEMORY
+        },
+        "scheduling": {
+            "reservationIds": [
+                "556e15ef-b18a-4d5a-b5e0-b8a95ceb2989",
+                "2a1a8cc8-a017-42d8-9a18-f7d68f098052"
+            ]
+        }
     }
 }

@@ -676,7 +676,8 @@ class ObjDecoder(Module):
     ):
         super().__init__()
         self._embed_dim = embed_dim
-        self._shapes = shapes
+        self._shapes = {**shapes}
+        self._shapes["segmentation"] = (1, *self._shapes["segmentation"][1:])
         self.cnn_keys = [
             k
             for k, v in shapes.items()
@@ -697,9 +698,9 @@ class ObjDecoder(Module):
         self._mlp_layers = mlp_layers
 
         self.instances_dim = (
-            self._shapes["segmentation"][0]
+            shapes["segmentation"][0]  # this didn't got modified above
             if len(self.cnn_keys) > 0
-            else self._shapes[self.mlp_keys[0]][0] + 1
+            else shapes[self.mlp_keys[0]][0] + 1
         )
 
         self.objects_dim = self.instances_dim - 1
@@ -729,9 +730,10 @@ class ObjDecoder(Module):
                 act, norm = self._act, self._norm
                 if i == len(self._cnn_kernels) - 1:
                     depth, act, norm = (
-                        sum(self.channels.values())
-                        - self.channels["segmentation"]
-                        + 1,  # for segmentation consider only 1 channel, and split object instances over batch
+                        sum(self.channels.values()),
+                        # Commented bc fixed above
+                        # - self.channels["segmentation"]
+                        # + 1,  # for segmentation consider only 1 channel per object, and then do the softmax over objects
                         nn.Identity(),
                         "none",
                     )
@@ -745,12 +747,12 @@ class ObjDecoder(Module):
 
             self._conv_model = nn.Sequential(*self._conv_model)
 
-            self.keys = [
-                x for x in list(self.channels.keys()) if x != "segmentation"
-            ]
-            self.chs = [
-                self.channels[x] * self.instances_dim for x in self.keys
-            ] + [self.instances_dim]
+            # self.keys = [
+            #     x for x in list(self.channels.keys()) if x != "segmentation"
+            # ]
+            # self.chs = [
+            #     self.channels[x] * self.instances_dim for x in self.keys
+            # ] + [self.instances_dim]
             # self.chs = (sum(self.channels.values()) - self.channels["segmentation"] + 1) * self.channels["segmentation"]
 
         if len(self.mlp_keys) > 0:
@@ -797,32 +799,49 @@ class ObjDecoder(Module):
 
         dists = {}
 
+        # x is extracted feat, feat is = (embed, obj_onehot)
         x, feat = self.object_latent_extractor(features, obj_onehot)
 
         x = x.reshape(
             [
-                -1,
-                32 * self._cnn_depth,
+                -1,  # batch_dim x batch_time x num_obj
+                32 * self._cnn_depth,  # object_extractor output dimension
+                # 1,1 to be an image
                 1,
                 1,
             ]
         )
         x = self._conv_model(x)
-
         x = x.reshape(
-            list(feat.shape[:-2]) + [sum(self.chs)] + list(x.shape[2:])
+            *features.shape[:2],
+            self.instances_dim,
+            sum(self.channels.values()),
+            *x.shape[-2:],
         )
-        means = torch.split(x, self.chs, 2)  # divide means per single channel
+        means = torch.split(x, list(self.channels.values()), dim=-3)
+
+        # x = x.reshape(
+        #     list(feat.shape[:-2]) + [sum(self.chs)] + list(x.shape[2:])
+        # )
+        # means = torch.split(x, self.chs, 2)  # divide means per single channel
 
         for key, mean in zip(self.channels.keys(), means):
             if key == "segmentation":
-                mean = mean.permute(
-                    0, 1, 3, 4, 2
-                )  # move seg channel to the last dimension
+                mean = mean.reshape(
+                    *features.shape[:2], self.instances_dim, *x.shape[-2:]
+                ).permute(0, 1, 3, 4, 2)
+                # mean = mean.permute(
+                #     0, 1, 3, 4, 2  # move obj channel to the last dimension
+                # )
                 dists[key] = D.Independent(
                     OneHotDist(mean), 2
                 )  # output is a binary mask
             else:
+                mean = mean.reshape(
+                    *features.shape[:2],
+                    self.instances_dim * self.channels[key],
+                    *x.shape[-2:],
+                )
                 if masks != None:
                     ch = int(mean.shape[2] / self.instances_dim)
                     mask = self.tile(masks, 2, ch)
@@ -835,8 +854,9 @@ class ObjDecoder(Module):
     def object_latent_extractor(self, features, obj_onehot, instances=None):
         instances = self.instances_dim if instances == None else instances
 
+        # TODO(pmazzagl) : batchify this loop
         for i in range(instances):
-            # concatenate one hot encoding of instance to the full embedding
+            # concatenate corresponding (index i) one-hot encoding of instance to the full embedding
             obj_feat = obj_onehot[..., i]
             if i == 0:
                 feat = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
@@ -846,9 +866,9 @@ class ObjDecoder(Module):
                     (feat, temp), dim=2
                 )  # concatenate all object dimension along a third batch dimension
 
-        x = self._object_extractor(feat)
+        extracted_feat = self._object_extractor(feat)
 
-        return x, feat
+        return extracted_feat, feat
 
     def _mlp(self, features, obj_onehot):
 

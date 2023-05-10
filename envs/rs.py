@@ -47,6 +47,14 @@ class PandaRoboSuite:
             -env_config.objects.spawn_range,
             env_config.objects.spawn_range,
         )
+
+        self.reward_shaping = env_config.reward_shaping
+
+        self.target_x = env_config.goal.x
+        self.target_y = env_config.goal.y
+        self.target_z = env_config.goal.z
+        self.point_goal = env_config.goal.point_goal
+
         self.objects_pixels = [0] * len(objs)
 
         self._obs_keys = [
@@ -67,7 +75,7 @@ class PandaRoboSuite:
         self.make()
 
     def get_object_pose(self):
-        if self.task == "CustomLift":
+        if self.task == "CustomLift" or self.task == "MoveTo":
             obj_pose = self._env.sim.data.body_xpos[self._env.cube_body_id]
         elif self.task == "CustomStack":
             obj_pose = self._env.sim.data.body_xpos[self._env.cubeA_body_id]
@@ -377,10 +385,10 @@ class PandaRoboSuite:
 
     def check_contact(self):
         contact = 0
-        for object in self.segmentation_instances:
+        for obj in self.segmentation_instances:
             contact += int(
                 self._env.check_contact(
-                    self._env.robots[0].robot_model, getattr(self._env, object)
+                    [self._env.robots[0].robot_model], getattr(self._env, obj)
                 )
             )
 
@@ -409,8 +417,8 @@ class PandaRoboSuite:
         contact = self.check_contact()
 
         new_true_obj_pose = self.get_object_pose()
-        true_displacement = np.sum(
-            ((new_true_obj_pose - self.true_obj_pose) ** 2)
+        true_displacement = np.sqrt(
+            np.sum(((new_true_obj_pose - self.true_obj_pose) ** 2))
         )
         self.true_obj_pose = new_true_obj_pose
 
