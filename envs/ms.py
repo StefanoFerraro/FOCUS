@@ -143,7 +143,7 @@ class PandaManiSkill:
 
         self._env = ContinuousTaskWrapper(self._env, self.horizon)
         if self.task == "TurnFaucet":
-            cameras = self._env.env.unwrapped._scene.get_cameras()
+            cameras = self._env.unwrapped._scene.get_cameras()
             for cam in cameras:
                 if cam.name == self.camera:
                     cam.set_pose(
@@ -434,7 +434,7 @@ class PandaManiSkill:
         return estimated_obj_pos
 
     def check_contact(self):
-        contacts = self._env.env.env._scene.get_contacts()
+        contacts = self._env.unwrapped._scene.get_contacts()
         excluded_actor_ids = [
             x
             for x in self._env.get_actors()
