@@ -19,7 +19,7 @@ env:
   objects:
     rgba: [1, 0, 0, 1]
     minsize: 0.04
-    spawn_range: 0.1
+    spawn_range: 0.001
   goal:
     x: None
     y: None

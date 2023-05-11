@@ -11,6 +11,8 @@ from envs.wrappers import PandaGymWrapper
 
 import custom_robosuite_tasks
 
+import pyquaternion as pq
+
 
 class PandaRoboSuite:
     def __init__(
@@ -76,11 +78,13 @@ class PandaRoboSuite:
 
     def get_object_pose(self):
         if self.task == "CustomLift" or self.task == "MoveTo":
-            obj_pose = self._env.sim.data.body_xpos[self._env.cube_body_id]
+            obj_pos = self._env.sim.data.body_xpos[self._env.cube_body_id]
+            obj_ori = self._env.sim.data.body_xquat[self._env.cube_body_id]
         elif self.task == "CustomStack":
-            obj_pose = self._env.sim.data.body_xpos[self._env.cubeA_body_id]
+            obj_pos = self._env.sim.data.body_xpos[self._env.cubeA_body_id]
+            obj_ori = self._env.sim.data.body_xquat[self._env.cubeA_body_id]
 
-        return obj_pose.copy()
+        return obj_pos.copy(), obj_ori.copy()
 
     def make(self):
         self._env = PandaGymWrapper(
@@ -102,7 +106,7 @@ class PandaRoboSuite:
         self.last_estimated_obj_pos = [[0, 0, 0]] * len(
             self.segmentation_instances
         )  # initialize to zero
-        self.true_obj_pose = self.get_object_pose()
+        self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
     def set_camera_pos(self):
 
@@ -386,12 +390,9 @@ class PandaRoboSuite:
     def check_contact(self):
         contact = 0
         for obj in self.segmentation_instances:
-            contact += int(
-                self._env.check_contact(
-                    [self._env.robots[0].robot_model], getattr(self._env, obj)
-                )
+            contact += self._env.check_contact(
+                self._env.robots[0].gripper, getattr(self._env, obj)
             )
-
         return contact > 0
 
     def step(self, action):
@@ -416,11 +417,17 @@ class PandaRoboSuite:
 
         contact = self.check_contact()
 
-        new_true_obj_pose = self.get_object_pose()
-        true_displacement = np.sqrt(
-            np.sum(((new_true_obj_pose - self.true_obj_pose) ** 2))
+        new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
+        true_pos_displacement = np.sqrt(
+            np.sum(((new_true_obj_pos - self.true_obj_pos) ** 2))
         )
-        self.true_obj_pose = new_true_obj_pose
+
+        true_ori_displacement = pq.Quaternion.absolute_distance(
+            pq.Quaternion(self.true_obj_ori), pq.Quaternion(new_true_obj_ori)
+        )
+
+        self.true_obj_pos = new_true_obj_pos
+        self.true_obj_ori = new_true_obj_ori
 
         seg = self.segmentation_channel_split(seg, self.include_background)
 
@@ -443,7 +450,8 @@ class PandaRoboSuite:
             "action": action,
             "success": bool(success),
             "contact": contact,
-            "displacement": true_displacement,
+            "pos_displacement": true_pos_displacement,
+            "ang_displacement": true_ori_displacement,
             "discount": 1,
         }
 
@@ -470,7 +478,7 @@ class PandaRoboSuite:
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
         seg = self.segmentation_channel_split(seg, self.include_background)
 
-        self.true_obj_pose = self.get_object_pose()
+        self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
         objects_pos = self.pixel_to_world(seg, depth)
 
@@ -488,7 +496,8 @@ class PandaRoboSuite:
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
             "contact": False,
-            "displacement": 0.0,
+            "pos_displacement": 0,
+            "ang_displacement": 0,
             "discount": 1,
         }
 

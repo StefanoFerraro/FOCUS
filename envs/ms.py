@@ -22,6 +22,7 @@ from mani_skill2.utils.sapien_utils import (
 )
 
 from sapien.core import Pose
+import pyquaternion as pq
 
 
 class PandaManiSkill:
@@ -126,12 +127,15 @@ class PandaManiSkill:
 
     def get_object_pose(self):
         if self.task == "CustomLift" or self.task == "MoveTo":
-            obj_pose = self._env.unwrapped.obj.get_pose().p
+            obj_pos = self._env.unwrapped.obj.get_pose().p
+            obj_ori = self._env.unwrapped.obj.get_pose().q
         elif self.task == "CustomStack":
-            obj_pose = self._env.unwrapped.cubeA.get_pose().p
+            obj_pos = self._env.unwrapped.cubeA.get_pose().p
+            obj_ori = self._env.unwrapped.cubeA.get_pose().q
         elif self.task == "TurnFaucet":
-            obj_pose = self._env.unwrapped.faucet.get_pose().p
-        return obj_pose
+            obj_pos = self._env.unwrapped.faucet.get_pose().p
+            obj_ori = self._env.unwrapped.faucet.get_qpos()[0]
+        return obj_pos, obj_ori
 
     def make(self):
 
@@ -152,11 +156,15 @@ class PandaManiSkill:
         obs = self._env.reset()
         self._env.render(mode="cameras")
         images = self._env.get_images()
-        self.target_object_actor_ids = [
-            x.id
-            for x in self._env.get_actors()
-            if x.name not in ["ground", "goal_site"]
-        ]
+        self.target_object_actor_ids = (
+            [
+                x.id
+                for x in self._env.get_actors()
+                if x.name not in ["ground", "goal_site"]
+            ]
+            if self.task != "TurnFaucet"
+            else [self._env.unwrapped.target_link.id]
+        )
 
         obs = {**obs, **images}
 
@@ -196,7 +204,7 @@ class PandaManiSkill:
 
         self.action_space = self._env.action_space
 
-        self.true_obj_pose = self.get_object_pose()
+        self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
     def segmentation_channel_split(self, seg, include_background=False):
 
@@ -432,11 +440,15 @@ class PandaManiSkill:
             for x in self._env.get_actors()
             if x.name not in self.segmentation_instances
         ]
-        objects_actor_ids = [
-            x
-            for x in self._env.get_actors()
-            if x.name in self.segmentation_instances
-        ]
+        objects_actor_ids = (
+            [
+                x
+                for x in self._env.get_actors()
+                if x.name in self.segmentation_instances
+            ]
+            if self.task != "TurnFaucet"
+            else [self._env.unwrapped.target_link]
+        )
 
         for contact in contacts:
             if (
@@ -473,11 +485,22 @@ class PandaManiSkill:
 
         contact = self.check_contact()
 
-        new_true_obj_pose = self.get_object_pose()
-        true_displacement = np.sqrt(
-            np.sum(((new_true_obj_pose - self.true_obj_pose) ** 2))
+        new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
+        true_pos_displacement = np.sqrt(
+            np.sum(((new_true_obj_pos - self.true_obj_pos) ** 2))
         )
-        self.true_obj_pose = new_true_obj_pose
+
+        true_ori_displacement = (
+            pq.Quaternion.absolute_distance(
+                pq.Quaternion(self.true_obj_ori),
+                pq.Quaternion(new_true_obj_ori),
+            )
+            if self.task != "TurnFaucet"
+            else abs(new_true_obj_ori - self.true_obj_ori)
+        )
+
+        self.true_obj_pos = new_true_obj_pos
+        self.true_obj_ori = new_true_obj_ori
 
         seg = self.segmentation_channel_split(seg, self.include_background)
 
@@ -497,7 +520,8 @@ class PandaManiSkill:
             "action": action,
             "success": success,
             "contact": contact,
-            "displacement": true_displacement,
+            "pos_displacement": true_pos_displacement,
+            "ang_displacement": true_ori_displacement,
             "discount": 1,
         }
 
@@ -512,7 +536,7 @@ class PandaManiSkill:
 
         objects_pos = self.pixel_to_world(seg, depth)
 
-        self.true_obj_pose = self.get_object_pose()
+        self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
         obs = {
             "reward": 0.0,
@@ -528,7 +552,8 @@ class PandaManiSkill:
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
             "contact": False,
-            "displacement": 0.0,
+            "pos_displacement": 0,
+            "ang_displacement": 0,
             "discount": 1,
         }
 
