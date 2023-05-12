@@ -204,7 +204,7 @@ class PandaManiSkill:
         self.observation_space = spaces.Box(low=low, high=high)
 
         self.action_space = self._env.action_space
-git sta
+
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
         # self._env = RecordEpisode(
         #     self._env,
