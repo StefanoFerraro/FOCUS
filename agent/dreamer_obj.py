@@ -205,9 +205,9 @@ class DreamerObjAgent(Module):
 
         mets = {}
 
-        for key, val in self.rw_dict.items():
-            rw_norm, met = self.task_rewnorm(val)
-            mets.update(met)
+        rw_norm, met = self.task_rewnorm(rw)
+        met = {f"task_rw_{k}": v for k, v in met.items()}
+        mets.update(met)
 
         return rw_norm, mets
 

@@ -112,14 +112,14 @@ class Workspace:
             cfg.seed,
             cfg.env,
         )
-        # self.eval_env = make(
-        #     task,
-        #     cfg.obs_type,
-        #     frame_stack,
-        #     cfg.action_repeat,
-        #     cfg.seed,
-        #     cfg.env,
-        # )
+        self.eval_env = make(
+            task,
+            cfg.obs_type,
+            frame_stack,
+            cfg.action_repeat,
+            cfg.seed,
+            cfg.env,
+        )
 
         os.chdir(self.workdir)
 
@@ -207,31 +207,33 @@ class Workspace:
 
     def eval(self):
         # To save time, we don't eval during training by default. Feel free to uncomment.
-        return
-        # step, episode, total_reward = 0, 0, 0
-        # eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
-        # meta = self.agent.init_meta()
-        # while eval_until_episode(episode):
-        #     dreamer_obs = self.eval_env.reset()
-        #     agent_state = None
-        #     while not bool(dreamer_obs['is_last']):
-        #         with torch.no_grad(), utils.eval_mode(self.agent):
-        #             action, agent_state = self.agent.act(dreamer_obs,
-        #                                     meta,
-        #                                     self.global_step,
-        #                                     eval_mode=True,
-        #                                     state=agent_state)
-        #         dreamer_obs = self.eval_env.step(action)
-        #         total_reward += dreamer_obs['reward']
-        #         step += 1
+        # return
+        step, episode, total_reward = 0, 0, 0
+        self.agent.is_finetune = True # set to True to use task_behaviour, one_shot performance
+        
+        eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
+        meta = self.agent.init_meta()
+        while eval_until_episode(episode):
+            dreamer_obs = self.eval_env.reset()
+            agent_state = None
+            while not bool(dreamer_obs['is_last']):
+                with torch.no_grad(), utils.eval_mode(self.agent):
+                    action, agent_state = self.agent.act(dreamer_obs,
+                                            meta,
+                                            self.global_step,
+                                            eval_mode=True,
+                                            state=agent_state)
+                dreamer_obs = self.eval_env.step(action)
+                total_reward += dreamer_obs['reward']
+                step += 1
 
-        #     episode += 1
+            episode += 1
 
-        # with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
-        #     log('episode_reward', total_reward / episode)
-        #     log('episode_length', step * self.cfg.action_repeat / episode)
-        #     log('episode', self.global_episode)
-        #     log('step', self.global_step)
+        with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
+            log('episode_reward', total_reward / episode)
+            log('episode_length', step * self.cfg.action_repeat / episode)
+            log('episode', self.global_episode)
+            log('step', self.global_step)
 
     def train(self):
         # predicates

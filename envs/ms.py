@@ -39,8 +39,9 @@ class PandaManiSkill:
         os.environ["DISPLAY"] = ":0"
         os.environ["MUJOCO_GL"] = "egl"
 
+        non_cube_envs = ["TurnFaucet", "PickSingleYCB"]
         self.env_id = (
-            task + "Cube-v0" if task != "TurnFaucet" else task + "-v0"
+            task + "Cube-v0" if task not in non_cube_envs else task + "-v0"
         )
         self.obs_mode = "state_dict"  # ['image', 'pointcloud', 'rgbd', 'state_dict', 'state']
         self.reward_mode = (
@@ -60,6 +61,8 @@ class PandaManiSkill:
             -env_config.objects.spawn_range,
             env_config.objects.spawn_range,
         )
+        self.object_name = env_config.objects.name
+
         self.target_x = env_config.goal.x
         self.target_y = env_config.goal.y
         self.target_z = env_config.goal.z
@@ -127,7 +130,11 @@ class PandaManiSkill:
         return np.concatenate(ob_lst)
 
     def get_object_pose(self):
-        if self.task == "CustomLift" or self.task == "MoveTo":
+        if (
+            self.task == "CustomLift"
+            or self.task == "MoveTo"
+            or self.task == "PickSingleYCB"
+        ):
             obj_pos = self._env.unwrapped.obj.get_pose().p
             obj_ori = self._env.unwrapped.obj.get_pose().q
         elif self.task == "CustomStack":

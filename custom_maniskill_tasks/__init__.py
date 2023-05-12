@@ -42,6 +42,12 @@ def make(task, env_args):
             model_ids="5007",
             **kwargs,
         )
+    elif task == "PickSingleYCB-v0":
+        return gym.make(
+            task,
+            model_ids=env_args.object_name,
+            **kwargs,
+        )
         
     else:
         return gym.make(
