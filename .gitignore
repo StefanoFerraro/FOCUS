@@ -155,3 +155,7 @@ cython_debug/
 # VSCode
 .vscode/
 
+exp_local
+data
+models
+# notebooks

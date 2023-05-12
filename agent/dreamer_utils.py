@@ -885,7 +885,7 @@ class ObjDecoder(Module):
             lin = getattr(self, f"dense_{key}")
             means = lin._out(x)
 
-            dists[key] = D.Independent(D.Normal(means, 1.0), 3)
+            dists[key] = D.Independent(D.Normal(means, 1.0), 1)
 
         return dists
 

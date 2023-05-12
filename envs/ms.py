@@ -23,6 +23,7 @@ from mani_skill2.utils.sapien_utils import (
 
 from sapien.core import Pose
 import pyquaternion as pq
+from mani_skill2.utils.wrappers import RecordEpisode
 
 
 class PandaManiSkill:
@@ -203,8 +204,14 @@ class PandaManiSkill:
         self.observation_space = spaces.Box(low=low, high=high)
 
         self.action_space = self._env.action_space
-
+git sta
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
+        # self._env = RecordEpisode(
+        #     self._env,
+        #     output_dir=f"train_trajs",
+        #     info_on_video=True,
+        #     render_mode="cameras",
+        # )
 
     def segmentation_channel_split(self, seg, include_background=False):
 

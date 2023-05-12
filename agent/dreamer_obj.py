@@ -16,7 +16,7 @@ Module = nn.Module
 
 
 class DreamerObjAgent(Module):
-    def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
+    def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
         super().__init__()
         self.name = name
         self.cfg = cfg
@@ -24,22 +24,30 @@ class DreamerObjAgent(Module):
         self.cfg.update(**kwargs)
         self.obs_space = obs_space
         self.act_spec = act_spec
+        self.is_finetune = is_finetune
+
         self.tfstep = None
         self._use_amp = cfg.precision == 16
         self.device = cfg.device
         self.act_dim = act_spec.shape[0]
 
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
+        self._expl_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
         self.reward_coeff = cfg.reward_coeff
         self.rw_dict = {"rw_sup", "rw_mov", "rw_dist_obj", "rw_intr"}
+
         self.rewnorm_dict = {}
         for k in self.rw_dict:
             self.rewnorm_dict[k] = common.StreamNorm(
                 **self.cfg.reward_norm, device=self.device
             )
+
+        self.task_rewnorm = common.StreamNorm(
+            **self.cfg.reward_norm, device=self.device
+        )
 
         rms = utils.RMS(self.device)
         self.pbe = utils.PBE(
@@ -69,12 +77,20 @@ class DreamerObjAgent(Module):
             latent, action, embed, obs["is_first"], should_sample
         )
         feat = self.wm.rssm.get_feat(latent)
+
+        policy = (
+            self._task_behavior.actor
+            if self.is_finetune
+            else self._expl_behavior.actor
+        )
+
         if eval_mode:
-            actor = self._task_behavior.actor(feat)
+            actor = policy(feat)
             action = actor.mean
         else:
-            actor = self._task_behavior.actor(feat)
+            actor = policy(feat)
             action = actor.sample()
+
         new_state = (latent, action)
         return action.cpu().numpy()[0], new_state
 
@@ -96,11 +112,24 @@ class DreamerObjAgent(Module):
             return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
 
-        metrics.update(
-            self._task_behavior.update(
-                self.wm, start, data["is_terminal"], self.reward_fn
+        if self.is_finetune:
+            metrics.update(
+                self._task_behavior.update(
+                    self.wm, start, data["is_terminal"], self.task_reward_fn
+                )
             )
-        )
+        else:
+            metrics.update(
+                self._expl_behavior.update(
+                    self.wm, start, data["is_terminal"], self.expl_reward_fn
+                )
+            )
+
+            metrics.update(
+                self._task_behavior.update(
+                    self.wm, start, data["is_terminal"], self.task_reward_fn
+                )
+            )
         return state, metrics
 
     def compute_intr_reward(self, seq):
@@ -111,7 +140,7 @@ class DreamerObjAgent(Module):
         reward = reward.reshape(B, T, 1)
         return reward
 
-    def reward_fn(self, seq):
+    def expl_reward_fn(self, seq):
 
         obj_id = 0
         obj_poses = self.wm.heads["object_decoder"](
@@ -132,9 +161,11 @@ class DreamerObjAgent(Module):
             -1
         )  # reward for moving cubeA right (positive position)
 
-        rw_dist_obj = torch.sum(
-            ((gripper_pos - obj_pos) ** 2), dim=2
-        ).unsqueeze(-1)
+        rw_dist_obj = (
+            (torch.sum(((gripper_pos - obj_pos) ** 2), dim=2))
+            .pow(0.5)
+            .unsqueeze(-1)
+        )
 
         instances = obj_poses.shape[2]
         obj_onehot = torch.eye(
@@ -167,6 +198,18 @@ class DreamerObjAgent(Module):
             rw += self.reward_coeff[key] * val
 
         return rw, mets
+
+    def task_reward_fn(self, seq):
+
+        rw = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+
+        mets = {}
+
+        for key, val in self.rw_dict.items():
+            rw_norm, met = self.task_rewnorm(val)
+            mets.update(met)
+
+        return rw_norm, mets
 
     def report(self, data):
         report = {}
@@ -223,16 +266,26 @@ class DreamerObjAgent(Module):
             utils.hard_update_params(
                 other._task_behavior.actor, self._task_behavior.actor
             )
+            utils.hard_update_params(
+                other._expl_behavior.actor, self._expl_behavior.actor
+            )
 
         if init_critic:
             print(f"Copying the pretrained critic")
             utils.hard_update_params(
                 other._task_behavior.critic, self._task_behavior.critic
             )
+            utils.hard_update_params(
+                other._expl_behavior.critic, self._expl_behavior.critic
+            )
             if self.cfg.slow_target:
                 utils.hard_update_params(
                     other._task_behavior._target_critic,
                     self._task_behavior._target_critic,
+                )
+                utils.hard_update_params(
+                    other._expl_behavior._target_critic,
+                    self._expl_behavior._target_critic,
                 )
 
     @torch.no_grad()

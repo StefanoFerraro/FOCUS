@@ -43,7 +43,11 @@ def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
     cur_config = deepcopy(cur_config)
     del cur_config.agent
     return hydra.utils.instantiate(
-        cfg, cfg=cur_config, obs_space=obs_space, act_spec=action_spec
+        cfg,
+        cfg=cur_config,
+        obs_space=obs_space,
+        act_spec=action_spec,
+        is_finetune=False,
     )
 
 
@@ -108,14 +112,14 @@ class Workspace:
             cfg.seed,
             cfg.env,
         )
-        self.eval_env = make(
-            task,
-            cfg.obs_type,
-            frame_stack,
-            cfg.action_repeat,
-            cfg.seed,
-            cfg.env,
-        )
+        # self.eval_env = make(
+        #     task,
+        #     cfg.obs_type,
+        #     frame_stack,
+        #     cfg.action_repeat,
+        #     cfg.seed,
+        #     cfg.env,
+        # )
 
         os.chdir(self.workdir)
 
