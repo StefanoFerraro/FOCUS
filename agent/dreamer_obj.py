@@ -195,6 +195,7 @@ class DreamerObjAgent(Module):
 
         rw = 0
         for key, val in rw_norm.items():
+            print(key)
             rw += self.reward_coeff[key] * val
 
         return rw, mets
