@@ -192,11 +192,17 @@ class MoveTo(SingleArmEnv):
 
         self.target_x = target_x
         self.target_y = target_y
-        self.target_z = target_z + 0.8 # add table height
+        self.target_z = (
+            target_z + 0.8 if target_z != "None" else target_z
+        )  # add table height
         self.point_goal = point_goal
         self.goal_thresh = 0.01
 
-        if self.target_x != "None" and self.target_y != "None" and self.target_z != "None":
+        if (
+            self.target_x != "None"
+            and self.target_y != "None"
+            and self.target_z != "None"
+        ):
             self.goal_pos = np.hstack(
                 [self.target_x, self.target_y, self.target_z]
             )
