@@ -457,18 +457,18 @@ class MoveTo(SingleArmEnv):
                 gripper=self.robots[0].gripper, target=self.cube
             )
 
-    def _check_success(self):
-        """
-        Check if cube has been lifted.
+    # def _check_success(self):
+    #     """
+    #     Check if cube has been lifted.
 
-        Returns:
-            bool: True if cube has been lifted
-        """
-        cube_height = self.sim.data.body_xpos[self.cube_body_id][2]
-        table_height = self.model.mujoco_arena.table_offset[2]
+    #     Returns:
+    #         bool: True if cube has been lifted
+    #     """
+    #     cube_height = self.sim.data.body_xpos[self.cube_body_id][2]
+    #     table_height = self.model.mujoco_arena.table_offset[2]
 
-        # cube is higher than the table top above a margin
-        return cube_height > table_height + 0.04
+    #     # cube is higher than the table top above a margin
+    #     return cube_height > table_height + 0.04
 
     def check_obj_placed(self):
         return (
@@ -477,6 +477,10 @@ class MoveTo(SingleArmEnv):
             )
             <= self.goal_thresh
         )
+
+    @staticmethod
+    def is_in_area(val, target):
+        return abs(val) > abs(target) and np.sign(val) == np.sign(target)
 
     def check_obj_in_area(self):
 
@@ -487,11 +491,11 @@ class MoveTo(SingleArmEnv):
         obj_pose = self.sim.data.body_xpos[self.cube_body_id]
 
         if self.target_x != "None":
-            x_in_goal = abs(obj_pose[0]) > abs(self.target_x)
+            x_in_goal = self.is_in_area(obj_pose[0], self.target_x)
         if self.target_y != "None":
-            y_in_goal = abs(obj_pose[1]) > abs(self.target_y)
+            y_in_goal = self.is_in_area(obj_pose[1], self.target_y)
         if self.target_z != "None":
-            z_in_goal = abs(obj_pose[2]) > abs(self.target_z)
+            z_in_goal = self.is_in_area(obj_pose[2], self.target_z)
 
         return x_in_goal and y_in_goal and z_in_goal
 

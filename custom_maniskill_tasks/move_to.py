@@ -68,6 +68,10 @@ class MoveToEnv(LiftCubeEnv):
     def check_obj_placed(self):
         return np.linalg.norm(self.goal_pos - self.obj.pose.p) <= self.goal_thresh
 
+    @staticmethod
+    def is_in_area(val, target):
+        return abs(val) > abs(target) and np.sign(val) == np.sign(target)
+
     def check_obj_in_area(self):
         
         x_in_goal = True
@@ -75,12 +79,12 @@ class MoveToEnv(LiftCubeEnv):
         z_in_goal = True
         
         if self.target_x != "None":
-                x_in_goal = abs(self.obj.pose.p[0]) > abs(self.target_x)
+            x_in_goal = self.is_in_area(self.obj.pose.p[0], self.target_x)
         if self.target_y != "None":
-                y_in_goal =  abs(self.obj.pose.p[1]) > abs(self.target_y)
+            y_in_goal = self.is_in_area(self.obj.pose.p[1], self.target_y)
         if self.target_z != "None":
-                z_in_goal = abs(self.obj.pose.p[2]) > abs(self.target_z)
-        
+            z_in_goal = self.is_in_area(self.obj.pose.p[2], self.target_z)
+            
         return x_in_goal and y_in_goal and z_in_goal
 
     def evaluate(self, **kwargs):

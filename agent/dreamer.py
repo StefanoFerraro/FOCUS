@@ -28,6 +28,7 @@ class DreamerAgent(Module):
         self.act_dim = act_spec.shape[0]
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
+
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
@@ -88,7 +89,7 @@ class DreamerAgent(Module):
     def report(self, data):
         report = {}
         text = {}
-        
+
         data = self.wm.preprocess(data)
         for key in self.wm.heads["decoder"].cnn_keys:
             name = key.replace("/", "_")
