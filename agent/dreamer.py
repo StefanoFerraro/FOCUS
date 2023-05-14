@@ -29,6 +29,10 @@ class DreamerAgent(Module):
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
 
+        self.task_rewnorm = common.StreamNorm(
+            **self.cfg.reward_norm, device=self.device
+        )
+
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
@@ -66,6 +70,17 @@ class DreamerAgent(Module):
         metrics.update(mets)
         return state, outputs, metrics
 
+    def reward_fn(self, seq):
+        rw = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+
+        mets = {}
+
+        rw_norm, met = self.task_rewnorm(rw)
+        met = {f"task_rw_{k}": v for k, v in met.items()}
+        mets.update(met)
+
+        return rw_norm, mets
+
     def update(self, data, step):
         state, outputs, metrics = self.update_wm(data, step)
 
@@ -76,12 +91,10 @@ class DreamerAgent(Module):
         ):
             return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
-        reward_fn = lambda seq: self.wm.heads["reward"](
-            seq["feat"]
-        ).mean  # .mode()
+
         metrics.update(
             self._task_behavior.update(
-                self.wm, start, data["is_terminal"], reward_fn
+                self.wm, start, data["is_terminal"], self.reward_fn
             )
         )
         return state, metrics
@@ -587,9 +600,8 @@ class ActorCritic(Module):
         with common.RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = world_model.imagine(self.actor, start, is_terminal, hor)
-                reward = reward_fn(seq)
-                seq["reward"], mets1 = self.rewnorm(reward)
-                mets1 = {f"reward_{k}": v for k, v in mets1.items()}
+                seq["reward"], mets1 = reward_fn(seq)
+
                 target, mets2 = self.target(seq)
                 actor_loss, mets3 = self.actor_loss(seq, target)
             metrics.update(self.actor_opt(actor_loss, self.actor.parameters()))

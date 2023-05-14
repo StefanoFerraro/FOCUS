@@ -228,6 +228,8 @@ class Workspace:
                 step += 1
 
             episode += 1
+        
+        self.agent.is_finetune = False 
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
             log('episode_reward', total_reward / episode)

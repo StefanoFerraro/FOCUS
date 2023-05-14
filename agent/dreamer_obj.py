@@ -260,6 +260,9 @@ class DreamerObjAgent(Module):
         utils.hard_update_params(
             other.wm.heads["decoder"], self.wm.heads["decoder"]
         )
+        utils.hard_update_params(
+            other.wm.heads["object_decoder"], self.wm.heads["object_decoder"]
+        )
 
         if init_actor:
             print(f"Copying the pretrained actor")
