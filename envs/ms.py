@@ -492,8 +492,9 @@ class PandaManiSkill:
             env_state, rew, done, info = self._env.step(action)
             success += float(info["success"])
             reward += float(rew)
-        success = min(success, 1.0)
-        assert success in [0.0, 1.0]
+        success = (
+            min(success, 1.0) and done
+        )  # success only assigned at last step
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
@@ -532,7 +533,7 @@ class PandaManiSkill:
             "segmentation": seg,
             "state": self._flatten_obs(state),
             "action": action,
-            "success": success,
+            "success": bool(success),
             "contact": contact,
             "pos_displacement": true_pos_displacement,
             "ang_displacement": true_ori_displacement,

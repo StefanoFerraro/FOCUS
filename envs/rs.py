@@ -410,8 +410,9 @@ class PandaRoboSuite:
             env_state, rew, done, info = self._env.step(action)
             success = self._env.check_success()
             reward += float(rew)
-        success = min(success, 1.0)
-        assert success in [0.0, 1.0]
+        success = (
+            min(success, 1.0) and done
+        )  # success only assigned at last step
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 

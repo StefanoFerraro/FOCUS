@@ -8,7 +8,7 @@ replay.capacity: 5e5
 # env param
 env:
   horizon: 250
-  controller: "OSC_POSE" # "pd_ee_delta_pos" #     
+  controller: "OSC_POSE" # "pd_ee_delta_pos" #  
   renderer:
     fps: 30
     size: [64, 64]
