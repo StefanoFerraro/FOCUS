@@ -29,9 +29,9 @@ class DreamerAgent(Module):
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
 
-        self.task_rewnorm = common.StreamNorm(
-            **self.cfg.reward_norm, device=self.device
-        )
+        # self.task_rewnorm = common.StreamNorm(
+        #     **self.cfg.reward_norm, device=self.device
+        # )
 
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
@@ -72,14 +72,9 @@ class DreamerAgent(Module):
 
     def reward_fn(self, seq):
         rw = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+        met = {"task_rw_mean": rw.mean(), "task_rw_svd": rw.std()}
 
-        mets = {}
-
-        rw_norm, met = self.task_rewnorm(rw)
-        met = {f"task_rw_{k}": v for k, v in met.items()}
-        mets.update(met)
-
-        return rw_norm, mets
+        return rw, met
 
     def update(self, data, step):
         state, outputs, metrics = self.update_wm(data, step)
