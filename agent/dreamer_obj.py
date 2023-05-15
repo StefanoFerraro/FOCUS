@@ -21,6 +21,7 @@ class DreamerObjAgent(Module):
         self.name = name
         self.cfg = cfg
         self.env = self.cfg["task"][:2]
+        self.task = self.cfg["task"].split("_")[1]
         self.cfg.update(**kwargs)
         self.obs_space = obs_space
         self.act_spec = act_spec
@@ -44,10 +45,6 @@ class DreamerObjAgent(Module):
             self.rewnorm_dict[k] = common.StreamNorm(
                 **self.cfg.reward_norm, device=self.device
             )
-
-        self.task_rewnorm = common.StreamNorm(
-            **self.cfg.reward_norm, device=self.device
-        )
 
         rms = utils.RMS(self.device)
         self.pbe = utils.PBE(
@@ -195,22 +192,15 @@ class DreamerObjAgent(Module):
 
         rw = 0
         for key, val in rw_norm.items():
-            print(key)
             rw += self.reward_coeff[key] * val
 
         return rw, mets
 
     def task_reward_fn(self, seq):
-
         rw = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+        met = {"task_rw_mean": rw.mean(), "task_rw_svd": rw.std()}
 
-        mets = {}
-
-        rw_norm, met = self.task_rewnorm(rw)
-        met = {f"task_rw_{k}": v for k, v in met.items()}
-        mets.update(met)
-
-        return rw_norm, mets
+        return rw, met
 
     def report(self, data):
         report = {}

@@ -82,6 +82,10 @@ class PandaManiSkill:
 
         self.controller = env_config.controller
 
+        self.area_target = 0.3
+        self.height_target = 0.1
+        self.area_threshold = 0.4
+
         self.make()
 
     def _filter_obs(self, obs, keys):
@@ -483,6 +487,22 @@ class PandaManiSkill:
 
         return False
 
+    def is_in_area(self, val, target):
+        return abs(target) < abs(val) < self.area_threshold and np.sign(
+            val
+        ) == np.sign(target)
+
+    def min_max_areas(self, val):
+        max = self.is_in_area(val, self.area_target)
+        min = self.is_in_area(val, -self.area_target)
+        return min, max
+
+    def check_in_areas(self, obj_pos):
+        left, right = self.min_max_areas(obj_pos[1])
+        close, far = self.min_max_areas(obj_pos[0])
+        up = self.height_target < obj_pos[2] < self.height_target + 0.1
+        return [left, right, close, far, up]
+
     def step(self, action):
         # assert np.isfinite(action["action"]).all(), action["action"]
         # TODO: check state match with observation
@@ -514,6 +534,15 @@ class PandaManiSkill:
             else abs(new_true_obj_ori - self.true_obj_ori)
         )
 
+        if self.task == "TurnFaucet":
+            q_min = self._env.unwrapped.init_angle
+            q_max = self._env.unwrapped.target_angle
+            q_median = (q_min + q_max) / 2
+            over_half_turn = new_true_obj_ori > q_median
+            reward = new_true_obj_ori - q_median if over_half_turn else 0
+
+        in_areas = self.check_in_areas(new_true_obj_pos)
+
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori
 
@@ -534,6 +563,7 @@ class PandaManiSkill:
             "state": self._flatten_obs(state),
             "action": action,
             "success": bool(success),
+            "in_areas": in_areas,
             "contact": contact,
             "pos_displacement": true_pos_displacement,
             "ang_displacement": true_ori_displacement,
@@ -566,6 +596,7 @@ class PandaManiSkill:
             "state": self._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
+            "in_areas": [False, False, False, False, False],
             "contact": False,
             "pos_displacement": 0,
             "ang_displacement": 0,

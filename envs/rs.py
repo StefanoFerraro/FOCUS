@@ -74,6 +74,11 @@ class PandaRoboSuite:
 
         self.controller = env_config.controller
 
+        self.area_target = 0.3
+        self.table_height = 0.8
+        self.height_target = 0.1 + self.table_height
+        self.area_threshold = 0.4
+
         self.make()
 
     def get_object_pose(self):
@@ -395,6 +400,22 @@ class PandaRoboSuite:
             )
         return contact > 0
 
+    def is_in_area(self, val, target):
+        return abs(target) < abs(val) < self.area_threshold and np.sign(
+            val
+        ) == np.sign(target)
+
+    def min_max_areas(self, val):
+        max = self.is_in_area(val, self.area_target)
+        min = self.is_in_area(val, -self.area_target)
+        return min, max
+
+    def check_in_areas(self, obj_pos):
+        left, right = self.min_max_areas(obj_pos[1])
+        close, far = self.min_max_areas(obj_pos[0])
+        up = self.height_target < obj_pos[2] < self.area_threshold + self.table_height
+        return [left, right, close, far, up]
+
     def step(self, action):
 
         if self.controller == "OSC_POSE":
@@ -422,6 +443,7 @@ class PandaRoboSuite:
         true_pos_displacement = np.sqrt(
             np.sum(((new_true_obj_pos - self.true_obj_pos) ** 2))
         )
+        in_areas = self.check_in_areas(new_true_obj_pos)
 
         true_ori_displacement = pq.Quaternion.absolute_distance(
             pq.Quaternion(self.true_obj_ori), pq.Quaternion(new_true_obj_ori)
@@ -450,6 +472,7 @@ class PandaRoboSuite:
             "state": self._env._flatten_obs(state),
             "action": action,
             "success": bool(success),
+            "in_areas": in_areas,
             "contact": contact,
             "pos_displacement": true_pos_displacement,
             "ang_displacement": true_ori_displacement,
@@ -463,16 +486,6 @@ class PandaRoboSuite:
         self._env.reset()  # reset environment
 
         self.set_camera_pos()  # move camera closer to the robot
-
-        # move starting location of robot closer to object (task Lift)
-        # init_qpos = [-0.075, 0.85, 0, -2.05799388, 0, 2.94159265, 0.78539816]
-        # if self.cube_minsize == 0.025:
-        #     init_qpos = [-0.1, 0.85, 0, -2.2, 0, 3, 0.75]
-        # else:
-        #     init_qpos = [-0.3, 0.85, 0, -2.2, 0, 3, 0.75]
-        # self._env.robots[0].set_robot_joint_positions(init_qpos)
-        # self._env.robots[0].controller.update_initial_joints(init_qpos)
-        # self._env.robots[0].controller.reset_goal()
 
         env_state = self._env._get_observations(force_update=True)
 
@@ -496,6 +509,7 @@ class PandaRoboSuite:
             "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),
             "success": False,
+            "in_areas": [False, False, False, False, False],
             "contact": False,
             "pos_displacement": 0,
             "ang_displacement": 0,

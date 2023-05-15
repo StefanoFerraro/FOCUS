@@ -17,7 +17,7 @@ eval_every_frames: 10000
 num_eval_episodes: 10
 # snapshot
 snapshots: [100000, 500000, 1000000, 2000000] 
-snapshot_dir: ../../../models/${obs_type}/${domain}/${agent.name}/${seed}
+snapshot_dir: ../../../models/${task}/${agent.name}/${seed}
 # replay buffer
 replay_buffer_size: 500000
 replay_buffer_num_workers: 4
@@ -41,7 +41,7 @@ hydra:
   run:
     dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
   sweep:
-    dir: ./exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
+    dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300

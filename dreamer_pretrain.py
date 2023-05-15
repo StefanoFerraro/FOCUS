@@ -280,6 +280,7 @@ class Workspace:
         self.replay_storage.add(data, meta)
         metrics = None
         contact_count = 0
+        in_areas = [0, 0, 0, 0, 0]
         cumm_pos_displacement = 0
         cumm_ang_displacement = 0
 
@@ -305,14 +306,32 @@ class Workspace:
                         log("step", self.global_step)
                         log("success", dreamer_obs["success"])
                         log("contact", float(contact_count / episode_frame))
+                        log(
+                            "left_placement",
+                            float(in_areas[0] / episode_frame),
+                        )
+                        log(
+                            "right_placement",
+                            float(in_areas[1] / episode_frame),
+                        )
+                        log(
+                            "close_placement",
+                            float(in_areas[2] / episode_frame),
+                        )
+                        log(
+                            "far_placement", float(in_areas[3] / episode_frame)
+                        )
+                        log("up_placement", float(in_areas[4] / episode_frame))
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
                 contact_count = 0
+                in_areas = [0, 0, 0, 0, 0]
                 cumm_pos_displacement = 0
                 cumm_ang_displacement = 0
 
                 # save last model
-                self.save_last_model()
+                if self.global_step % 10000 == 0:
+                    self.save_last_model()
 
                 # reset env
                 dreamer_obs = self.reset(self.train_env)
@@ -375,6 +394,7 @@ class Workspace:
             episode_step += 1
             self._global_step += 1
             contact_count += dreamer_obs["contact"]
+            in_areas += dreamer_obs["in_areas"]
             cumm_pos_displacement += dreamer_obs["pos_displacement"]
             cumm_ang_displacement += dreamer_obs["ang_displacement"]
 
