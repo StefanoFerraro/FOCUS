@@ -73,7 +73,7 @@ class APTDreamerAgent(DreamerAgent):
 
         mets = {}
 
-        rw_norm, met = self.task_rewnorm(reward)
+        rw_norm, met = self.expl_rewnorm(reward)
         met = {f"rw_intr_{k}": v for k, v in met.items()}
         mets.update(met)
 

@@ -155,7 +155,7 @@ class Plan2Explore(DreamerAgent):
 
         mets = {}
 
-        rw_norm, met = self.task_rewnorm(intr_rew)
+        rw_norm, met = self.expl_rewnorm(intr_rew)
         met = {f"rw_intr_{k}": v for k, v in met.items()}
         mets.update(met)
 
