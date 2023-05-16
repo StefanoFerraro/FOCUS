@@ -177,6 +177,7 @@ class Workspace:
         self.timer = utils.Timer()
         self._global_step = 0
         self._global_episode = 0
+        self._horizon = cfg.env.horizon
 
     def reset(self, func):
         os.chdir(
@@ -208,10 +209,10 @@ class Workspace:
     def eval(self):
         # To save time, we don't eval during training by default. Feel free to uncomment.
         # return
-        step, episode, total_reward, avg_success = 0, 0, 0, 0
-        self.agent.is_finetune = (
-            True  # set to True to use task_behaviour, one_shot performance
-        )
+        step, episode, total_reward, total_success = 0, 0, 0, 0
+
+        # set to True to use task_behaviour, zero_shot performance
+        self.agent.is_finetune = True
 
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         meta = self.agent.init_meta()
@@ -229,16 +230,16 @@ class Workspace:
                     )
                 dreamer_obs = self.eval_env.step(action)
                 total_reward += dreamer_obs["reward"]
-                avg_success += dreamer_obs["success"]
                 step += 1
 
+            total_success += dreamer_obs["success"]
             episode += 1
 
         self.agent.is_finetune = False
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
             log("episode_reward", total_reward / episode)
-            log("avg_success", avg_success / episode)
+            log("avg_success", total_success / episode)
             log("episode_length", step * self.cfg.action_repeat / episode)
             log("episode", self.global_episode)
             log("step", self.global_step)
@@ -268,7 +269,7 @@ class Workspace:
             self.cfg.recon_every_frames, self.cfg.action_repeat
         )
 
-        episode_step, episode_reward = 0, 0
+        episode_step, step_to_success, episode_reward = 0, self._horizon, 0
         try:
             _, dreamer_obs = self.reset(self.train_env)
         except:
@@ -305,7 +306,9 @@ class Workspace:
                         log("buffer_size", len(self.replay_storage))
                         log("step", self.global_step)
                         log("success", dreamer_obs["success"])
+                        log("step_to_success", step_to_success)
                         log("contact", float(contact_count / episode_frame))
+                        # TODO: for the future, put everything in a dict and cycle through the keys
                         log(
                             "left_placement",
                             float(in_areas[0] / episode_frame),
@@ -324,6 +327,7 @@ class Workspace:
                         log("up_placement", float(in_areas[4] / episode_frame))
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
+
                 contact_count = 0
                 in_areas = [0, 0, 0, 0, 0]
                 cumm_pos_displacement = 0
@@ -345,6 +349,7 @@ class Workspace:
                     self.save_snapshot()
                 episode_step = 0
                 episode_reward = 0
+                step_to_success = self._horizon
 
             # try to evaluate
             if eval_every_step(self.global_step):
@@ -392,6 +397,9 @@ class Workspace:
             data = dreamer_obs
             self.replay_storage.add(data, meta)
             episode_step += 1
+            # Hacky way to say that step_to_success was set
+            if step_to_success == self._horizon and dreamer_obs["success"]:
+                step_to_success = episode_step
             self._global_step += 1
             contact_count += dreamer_obs["contact"]
             in_areas += dreamer_obs["in_areas"]

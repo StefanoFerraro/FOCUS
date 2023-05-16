@@ -13,6 +13,12 @@ import custom_robosuite_tasks
 
 import pyquaternion as pq
 
+_LEFT = 0
+_RIGHT = 1
+_CLOSE = 2
+_FAR = 3
+_UP = 4
+
 
 class PandaRoboSuite:
     def __init__(
@@ -77,7 +83,7 @@ class PandaRoboSuite:
 
         self.area_target = 0.35
         self.table_height = 0.8
-        self.height_target = 0.05 + self.table_height
+        self.height_target = 0.05 + self.table_height  # + self.obj_init_height
         self.area_threshold = 0.4
 
         self.lift_norm = 3  # min 0 max 0.35 -> normalized 1.05
@@ -405,7 +411,7 @@ class PandaRoboSuite:
         return contact > 0
 
     def is_in_area(self, val, target):
-        return abs(target) < abs(val) < self.area_threshold and np.sign(
+        return abs(target) <= abs(val) <= self.area_threshold and np.sign(
             val
         ) == np.sign(target)
 
@@ -419,8 +425,8 @@ class PandaRoboSuite:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            < obj_pos[2]
-            < self.area_threshold + self.table_height
+            <= obj_pos[2]
+            <= self.area_threshold + self.table_height # + self.obj_init_height
         )
         return [left, right, close, far, up]
 
@@ -439,9 +445,9 @@ class PandaRoboSuite:
             env_state, rew, done, info = self._env.step(action)
             success = self._env.check_success()
             reward += float(rew)
-        success = (
-            min(success, 1.0) and done
-        )  # success only assigned at last step
+        # success = (
+        #     min(success, 1.0) and done
+        # )  # success only assigned at last step
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
@@ -458,22 +464,22 @@ class PandaRoboSuite:
         )
 
         if self.task_reward == "lift":
+            success = in_areas[_UP]  # and done
             reward = (
                 (new_true_obj_pos[2] - self.height_target) * self.lift_norm
-                if in_areas[-1]
+                if success
                 else 0
             )
-            success = in_areas[-1] and done
-            
         elif self.task_reward == "push":
+            success = in_areas[_RIGHT]  # and done
             reward = (
                 (new_true_obj_pos[1] - self.area_target) * self.push_norm
-                if in_areas[1]
+                if success
                 else 0
             )
-            success = in_areas[1] and done
         else:
-            reward = reward
+            # do not update reward or success
+            pass
 
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori

@@ -74,7 +74,9 @@ class Plan2Explore(DreamerAgent):
         )
         self.disagreement.train()
 
-        self._expl_behavior = ActorCritic(self.cfg, self.act_spec, self.tfstep)
+        self._expl_behavior = ActorCritic(
+            self.cfg, self.act_spec, self.tfstep, name="expl"
+        )
 
         self.expl_rewnorm = common.StreamNorm(
             **self.cfg.reward_norm, device=self.device
@@ -124,9 +126,7 @@ class Plan2Explore(DreamerAgent):
         metrics = dict()
 
         error = self.disagreement(obs, action, next_obs)
-
         loss = error.mean()
-
         metrics.update(
             self.disagreement_opt(loss, self.disagreement.parameters())
         )
@@ -136,6 +136,7 @@ class Plan2Explore(DreamerAgent):
         return metrics
 
     def compute_intr_reward(self, seq):
+        mets = {}
         obs, action = seq["feat"][:-1], stop_gradient(seq["action"][1:])
         intr_rew = torch.zeros(
             list(seq["action"].shape[:-1]) + [1], device=self.device
@@ -153,8 +154,7 @@ class Plan2Explore(DreamerAgent):
             )
         intr_rew[1:] = reward
 
-        mets = {}
-
+        # Normalize and rename for logging
         rw_norm, met = self.expl_rewnorm(intr_rew)
         met = {f"rw_intr_{k}": v for k, v in met.items()}
         mets.update(met)
@@ -168,6 +168,7 @@ class Plan2Explore(DreamerAgent):
         metrics.update(mets)
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
+
         if self.is_finetune:
             metrics.update(
                 self._task_behavior.update(

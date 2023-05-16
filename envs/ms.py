@@ -25,6 +25,12 @@ from sapien.core import Pose
 import pyquaternion as pq
 from mani_skill2.utils.wrappers import RecordEpisode
 
+_LEFT = 0
+_RIGHT = 1
+_CLOSE = 2
+_FAR = 3
+_UP = 4
+
 
 class PandaManiSkill:
     def __init__(
@@ -492,7 +498,7 @@ class PandaManiSkill:
         return False
 
     def is_in_area(self, val, target):
-        return abs(target) < abs(val) < self.area_threshold and np.sign(
+        return abs(target) <= abs(val) <= self.area_threshold and np.sign(
             val
         ) == np.sign(target)
 
@@ -504,7 +510,7 @@ class PandaManiSkill:
     def check_in_areas(self, obj_pos):
         left, right = self.min_max_areas(obj_pos[1])
         close, far = self.min_max_areas(obj_pos[0])
-        up = self.height_target < obj_pos[2] < self.height_target + 0.1
+        up = self.height_target <= obj_pos[2] <= self.height_target + 0.1
         return [left, right, close, far, up]
 
     def step(self, action):
@@ -514,12 +520,8 @@ class PandaManiSkill:
         success = 0.0
         for _ in range(self._action_repeat):
             env_state, rew, done, info = self._env.step(action)
-            success += float(info["success"])
             reward += float(rew)
-        success = (
-            min(success, 1.0) and done
-        )  # success only assigned at last step
-
+            success = float(info["success"])
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
         contact = self.check_contact()
@@ -540,28 +542,30 @@ class PandaManiSkill:
 
         in_areas = self.check_in_areas(new_true_obj_pos)
 
-        if self.task == "TurnFaucet":
-            q_min = self._env.unwrapped.init_angle
-            q_max = self._env.unwrapped.target_angle
-            q_median = (q_min + q_max) / 2
-            over_half_turn = new_true_obj_ori > q_median
-            reward = new_true_obj_ori - q_median if over_half_turn else 0
-
+        # if self.task == "TurnFaucet":  # TODO comment out?
+        #     q_min = self._env.unwrapped.init_angle
+        #     q_max = self._env.unwrapped.target_angle
+        #     q_median = (q_min + q_max) / 2
+        #     over_half_turn = new_true_obj_ori > q_median
+        #     reward = new_true_obj_ori - q_median if over_half_turn else 0
+        # else:
+        if self.task_reward == "lift":
+            success = in_areas[_UP]
+            reward = (
+                (new_true_obj_pos[2] - self.height_target) * self.lift_norm
+                if success
+                else 0
+            )
+        elif self.task_reward == "push":
+            success = in_areas[_RIGHT]
+            reward = (
+                (new_true_obj_pos[1] - self.area_target) * self.push_norm
+                if success
+                else 0
+            )
         else:
-            if self.task_reward == "lift":
-                reward = (
-                    (new_true_obj_pos[2] - self.height_target) * self.lift_norm
-                    if in_areas[-1]
-                    else 0
-                )
-            elif self.task_reward == "push":
-                reward = (
-                    (new_true_obj_pos[1] - self.area_target) * self.push_norm
-                    if in_areas[1]
-                    else 0
-                )
-            else:
-                reward = reward
+            # Do not change success or reward, use original
+            pass
 
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori

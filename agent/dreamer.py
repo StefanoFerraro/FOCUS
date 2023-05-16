@@ -27,7 +27,9 @@ class DreamerAgent(Module):
         self.device = cfg.device
         self.act_dim = act_spec.shape[0]
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
-        self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
+        self._task_behavior = ActorCritic(
+            cfg, self.act_spec, self.tfstep, name="task"
+        )
 
         # self.task_rewnorm = common.StreamNorm(
         #     **self.cfg.reward_norm, device=self.device
@@ -71,9 +73,8 @@ class DreamerAgent(Module):
         return state, outputs, metrics
 
     def reward_fn(self, seq):
-        rw = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+        rw = self.wm.heads["reward"](seq["feat"]).mean
         met = {"task_rw_mean": rw.mean(), "task_rw_svd": rw.std()}
-
         return rw, met
 
     def update(self, data, step):
@@ -548,7 +549,7 @@ class WorldModel(Module):
 
 
 class ActorCritic(Module):
-    def __init__(self, config, act_spec, tfstep):
+    def __init__(self, config, act_spec, tfstep, name="default"):
         super().__init__()
         self.cfg = config
         self.act_spec = act_spec
@@ -569,13 +570,13 @@ class ActorCritic(Module):
         else:
             self._target_critic = self.critic
         self.actor_opt = common.Optimizer(
-            "actor",
+            f"{name}_actor",
             self.actor.parameters(),
             **self.cfg.actor_opt,
             use_amp=self._use_amp,
         )
         self.critic_opt = common.Optimizer(
-            "critic",
+            f"{name}_critic",
             self.critic.parameters(),
             **self.cfg.critic_opt,
             use_amp=self._use_amp,
@@ -596,7 +597,6 @@ class ActorCritic(Module):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = world_model.imagine(self.actor, start, is_terminal, hor)
                 seq["reward"], mets1 = reward_fn(seq)
-
                 target, mets2 = self.target(seq)
                 actor_loss, mets3 = self.actor_loss(seq, target)
             metrics.update(self.actor_opt(actor_loss, self.actor.parameters()))

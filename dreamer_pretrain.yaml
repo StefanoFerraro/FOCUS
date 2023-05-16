@@ -41,7 +41,7 @@ hydra:
   run:
     dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
   sweep:
-    dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
+    dir: /exp_sweep//${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300

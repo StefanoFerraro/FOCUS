@@ -7,6 +7,8 @@ import agent.dreamer_utils as common
 from collections import OrderedDict
 import numpy as np
 
+from agent.dreamer import ActorCritic
+
 
 def stop_gradient(x):
     return x.detach()
@@ -33,9 +35,14 @@ class DreamerObjAgent(Module):
         self.act_dim = act_spec.shape[0]
 
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
-        self._expl_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
-        self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep)
+        self._expl_behavior = ActorCritic(
+            cfg, self.act_spec, self.tfstep, name="expl"
+        )
+        self._task_behavior = ActorCritic(
+            cfg, self.act_spec, self.tfstep, name="task"
+        )
         self.to(cfg.device)
+
         self.requires_grad_(requires_grad=False)
         self.reward_coeff = cfg.reward_coeff
         self.rw_dict = {"rw_sup", "rw_mov", "rw_dist_obj", "rw_intr"}
@@ -102,11 +109,6 @@ class DreamerObjAgent(Module):
         state, outputs, metrics = self.update_wm(data, step)
 
         start = outputs["post"]
-        # Don't train the policy/value if just using MPC
-        if getattr(self.cfg, "mpc", False) and (
-            not self.cfg.mpc_opt.use_value
-        ):
-            return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
 
         if self.is_finetune:
@@ -175,7 +177,7 @@ class DreamerObjAgent(Module):
 
         rw_intr = 0
         for i in range(instances):
-            rw_intr += self.compute_intr_reward(x[:, :, obj_id])
+            rw_intr += self.compute_intr_reward(x[:, :, i])
         # rw_intr = self.compute_intr_reward(obj_pos)
 
         self.rw_dict = {
@@ -284,175 +286,6 @@ class DreamerObjAgent(Module):
                     self._expl_behavior._target_critic,
                 )
 
-    @torch.no_grad()
-    def estimate_value(self, start, actions, horizon):
-        """Estimate value of a trajectory starting at latent state z and executing given actions."""
-        flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
-        start = {k: flatten(v) for k, v in start.items()}
-        start["feat"] = self.wm.rssm.get_feat(start)
-        start["action"] = torch.zeros_like(actions[0], device=self.device)
-        seq = {k: [v] for k, v in start.items()}
-        for t in range(horizon):
-            action = actions[t]
-            state = self.wm.rssm.img_step(
-                {k: v[-1] for k, v in seq.items()}, action
-            )
-            feat = self.wm.rssm.get_feat(state)
-            for key, value in {
-                **state,
-                "action": action,
-                "feat": feat,
-            }.items():
-                seq[key].append(value)
-
-        seq = {k: torch.stack(v, 0) for k, v in seq.items()}
-        reward = self.wm.heads["reward"](seq["feat"]).mean
-        if self.cfg.mpc_opt.use_value:
-            value = self._task_behavior._target_critic(seq["feat"]).mean
-        else:
-            value = torch.zeros_like(reward, device=self.device)
-        disc = self.cfg.discount * torch.ones(
-            list(seq["feat"].shape[:-1]) + [1], device=self.device
-        )
-
-        lambda_ret = common.lambda_return(
-            reward[:-1],
-            value[:-1],
-            disc[:-1],
-            bootstrap=value[-1],
-            lambda_=self.cfg.discount_lambda,
-            axis=0,
-        )
-
-        # First step is lost because the reward is from the start state
-        return lambda_ret[1]
-
-    @torch.no_grad()
-    def plan(self, obs, meta, step, eval_mode, state, t0=True):
-        """
-        Plan next action using Dyna-MPC.
-        We thank the authors of TD-MPC (https://github.com/nicklashansen/tdmpc), to provide a good reference for implementing our planning strategy.
-        """
-
-        # Get Dreamer's state and features
-        obs = {
-            k: torch.as_tensor(np.copy(v), device=self.device).unsqueeze(0)
-            for k, v in obs.items()
-        }
-        if state is None:
-            latent = self.wm.rssm.initial(len(obs["reward"]))
-            action = torch.zeros(
-                (len(obs["reward"]),) + self.act_spec.shape, device=self.device
-            )
-        else:
-            latent, action = state
-        embed = self.wm.encoder(self.wm.preprocess(obs))
-        should_sample = (not eval_mode) or (not self.cfg.eval_state_mean)
-        post, prior = self.wm.rssm.obs_step(
-            latent, action, embed, obs["is_first"], should_sample
-        )
-        feat = self.wm.rssm.get_feat(post)
-
-        # Sample policy trajectories
-        num_pi_trajs = int(
-            self.cfg.mpc_opt.mixture_coef * self.cfg.mpc_opt.num_samples
-        )
-        if num_pi_trajs > 0:
-            start = {
-                k: v.repeat(num_pi_trajs, *list([1] * len(v.shape)))
-                for k, v in post.items()
-            }
-            seq = self.wm.imagine(
-                self._task_behavior.actor,
-                start,
-                None,
-                self.cfg.mpc_opt.horizon,
-            )
-            pi_actions = seq["action"][1:]
-
-        # Initialize state and parameters
-        start = {
-            k: v.repeat(
-                self.cfg.mpc_opt.num_samples + num_pi_trajs,
-                *list([1] * len(v.shape)),
-            )
-            for k, v in post.items()
-        }
-        mean = torch.zeros(
-            self.cfg.mpc_opt.horizon, self.act_dim, device=self.device
-        )
-        std = 2 * torch.ones(
-            self.cfg.mpc_opt.horizon, self.act_dim, device=self.device
-        )
-        if not t0 and hasattr(self, "_prev_mean"):
-            mean[:-1] = self._prev_mean[1:]
-
-        # Iterate CEM
-        for i in range(self.cfg.mpc_opt.iterations):
-            actions = torch.clamp(
-                mean.unsqueeze(1)
-                + std.unsqueeze(1)
-                * torch.randn(
-                    self.cfg.mpc_opt.horizon,
-                    self.cfg.mpc_opt.num_samples,
-                    self.act_dim,
-                    device=std.device,
-                ),
-                -1,
-                1,
-            )
-            if num_pi_trajs > 0:
-                actions = torch.cat([actions, pi_actions], dim=1)
-
-            # Compute elite actions
-            value = self.estimate_value(
-                start, actions, self.cfg.mpc_opt.horizon
-            )
-            elite_idxs = torch.topk(
-                value.squeeze(1), self.cfg.mpc_opt.num_elites, dim=0
-            ).indices
-            elite_value, elite_actions = (
-                value[elite_idxs],
-                actions[:, elite_idxs],
-            )
-
-            # Update parameters
-            max_value = elite_value.max(0)[0]
-            score = torch.exp(
-                self.cfg.mpc_opt.temperature * (elite_value - max_value)
-            )
-            score /= score.sum(0)
-            _mean = torch.sum(score.unsqueeze(0) * elite_actions, dim=1) / (
-                score.sum(0) + 1e-9
-            )
-            _std = torch.sqrt(
-                torch.sum(
-                    score.unsqueeze(0)
-                    * (elite_actions - _mean.unsqueeze(1)) ** 2,
-                    dim=1,
-                )
-                / (score.sum(0) + 1e-9)
-            )
-            _std = _std.clamp_(self.cfg.mpc_opt.min_std, 2)
-            mean, std = (
-                self.cfg.mpc_opt.momentum * mean
-                + (1 - self.cfg.mpc_opt.momentum) * _mean,
-                _std,
-            )
-
-        # Outputs
-        score = score.squeeze(1).cpu().numpy()
-        actions = elite_actions[
-            :, np.random.choice(np.arange(score.shape[0]), p=score)
-        ]
-        self._prev_mean = mean
-        mean, std = actions[0], _std[0]
-        a = mean
-        if not eval_mode:
-            a += std * torch.randn(self.act_dim, device=std.device)
-        new_state = (post, a.unsqueeze(0))
-        return a.cpu().numpy(), new_state
-
 
 class WorldModel(Module):
     def __init__(self, config, obs_space, act_dim, tfstep):
@@ -549,6 +382,7 @@ class WorldModel(Module):
                 elif key == "objects_pos":
                     # for el in range(data[key].shape[2]):
                     like = dist.log_prob(data[key])
+
                 elif key == "rgb" or key == "depth":
                     masks = data["segmentation"]
                     chs = data[key].shape[2]
@@ -924,170 +758,3 @@ class WorldModel(Module):
             video = torch.cat([truth_out, model, error], 3)
 
         return video
-
-
-class ActorCritic(Module):
-    def __init__(self, config, act_spec, tfstep):
-        super().__init__()
-        self.cfg = config
-        self.act_spec = act_spec
-        self.tfstep = tfstep
-        self._use_amp = config.precision == 16
-        self.device = config.device
-
-        inp_size = config.rssm.deter
-        if config.rssm.discrete:
-            inp_size += config.rssm.stoch * config.rssm.discrete
-        else:
-            inp_size += config.rssm.stoch
-        self.actor = common.MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
-        self.critic = common.MLP(inp_size, (1,), **self.cfg.critic)
-        if self.cfg.slow_target:
-            self._target_critic = common.MLP(inp_size, (1,), **self.cfg.critic)
-            self._updates = 0
-        else:
-            self._target_critic = self.critic
-        self.actor_opt = common.Optimizer(
-            "actor",
-            self.actor.parameters(),
-            **self.cfg.actor_opt,
-            use_amp=self._use_amp,
-        )
-        self.critic_opt = common.Optimizer(
-            "critic",
-            self.critic.parameters(),
-            **self.cfg.critic_opt,
-            use_amp=self._use_amp,
-        )
-        self.rewnorm = common.StreamNorm(
-            **self.cfg.reward_norm, device=self.device
-        )
-
-    def update(self, world_model, start, is_terminal, reward_fn):
-        metrics = {}
-        hor = self.cfg.imag_horizon
-        # The weights are is_terminal flags for the imagination start states.
-        # Technically, they should multiply the losses from the second trajectory
-        # step onwards, which is the first imagined step. However, we are not
-        # training the action that led into the first step anyway, so we can use
-        # them to scale the whole sequence.
-        with common.RequiresGrad(self.actor):
-            with torch.cuda.amp.autocast(enabled=self._use_amp):
-                seq = world_model.imagine(self.actor, start, is_terminal, hor)
-                seq["reward"], mets0 = reward_fn(seq)
-
-                mets1 = {}
-                mets1["mean"] = seq["reward"].mean()
-                mets1["std"] = seq["reward"].std()
-                mets1 = {f"reward_{k}": v for k, v in mets1.items()}
-
-                target, mets2 = self.target(seq)
-                actor_loss, mets3 = self.actor_loss(seq, target)
-            metrics.update(self.actor_opt(actor_loss, self.actor.parameters()))
-        with common.RequiresGrad(self.critic):
-            with torch.cuda.amp.autocast(enabled=self._use_amp):
-                seq = {k: stop_gradient(v) for k, v in seq.items()}
-                critic_loss, mets4 = self.critic_loss(seq, target)
-            metrics.update(
-                self.critic_opt(critic_loss, self.critic.parameters())
-            )
-        metrics.update(**mets0, **mets1, **mets2, **mets3, **mets4)
-        self.update_slow_target()  # Variables exist after first forward pass.
-        return metrics
-
-    def actor_loss(self, seq, target):  # , step):
-        # Actions:      0   [a1]  [a2]   a3
-        #                  ^  |  ^  |  ^  |
-        #                 /   v /   v /   v
-        # States:     [z0]->[z1]-> z2 -> z3
-        # Targets:     t0   [t1]  [t2]
-        # Baselines:  [v0]  [v1]   v2    v3
-        # Entropies:        [e1]  [e2]
-        # Weights:    [ 1]  [w1]   w2    w3
-        # Loss:              l1    l2
-        metrics = {}
-        # Two states are lost at the end of the trajectory, one for the boostrap
-        # value prediction and one because the corresponding action does not lead
-        # anywhere anymore. One target is lost at the start of the trajectory
-        # because the initial state comes from the replay buffer.
-        policy = self.actor(stop_gradient(seq["feat"][:-2]))
-        if self.cfg.actor_grad == "dynamics":
-            objective = target[1:]
-        elif self.cfg.actor_grad == "reinforce":
-            baseline = self._target_critic(seq["feat"][:-2]).mean  # .mode()
-            advantage = stop_gradient(target[1:] - baseline)
-            objective = (
-                policy.log_prob(stop_gradient(seq["action"][1:-1]))[:, :, None]
-                * advantage
-            )
-        elif self.cfg.actor_grad == "both":
-            baseline = self._target_critic(seq["feat"][:-2]).mean  # .mode()
-            advantage = stop_gradient(target[1:] - baseline)
-            objective = (
-                policy.log_prob(stop_gradient(seq["action"][1:-1]))[:, :, None]
-                * advantage
-            )
-            mix = utils.schedule(self.cfg.actor_grad_mix, self.tfstep)
-            objective = mix * target[1:] + (1 - mix) * objective
-            metrics["actor_grad_mix"] = mix
-        else:
-            raise NotImplementedError(self.cfg.actor_grad)
-        ent = policy.entropy()[:, :, None]
-        ent_scale = utils.schedule(self.cfg.actor_ent, self.tfstep)
-        objective += ent_scale * ent
-        weight = stop_gradient(seq["weight"])
-        actor_loss = -(weight[:-2] * objective).mean()
-        metrics["actor_ent"] = ent.mean()
-        metrics["actor_ent_scale"] = ent_scale
-        return actor_loss, metrics
-
-    def critic_loss(self, seq, target):
-        # States:     [z0]  [z1]  [z2]   z3
-        # Rewards:    [r0]  [r1]  [r2]   r3
-        # Values:     [v0]  [v1]  [v2]   v3
-        # Weights:    [ 1]  [w1]  [w2]   w3
-        # Targets:    [t0]  [t1]  [t2]
-        # Loss:        l0    l1    l2
-        dist = self.critic(seq["feat"][:-1])
-        target = stop_gradient(target)
-        weight = stop_gradient(seq["weight"])
-        critic_loss = -(dist.log_prob(target)[:, :, None] * weight[:-1]).mean()
-        metrics = {"critic": dist.mean.mean()}  # .mode().mean()}
-        return critic_loss, metrics
-
-    def target(self, seq):
-        # States:     [z0]  [z1]  [z2]  [z3]
-        # Rewards:    [r0]  [r1]  [r2]   r3
-        # Values:     [v0]  [v1]  [v2]  [v3]
-        # Discount:   [d0]  [d1]  [d2]   d3
-        # Targets:     t0    t1    t2
-        reward = seq["reward"]
-        disc = seq["discount"]
-        value = self._target_critic(seq["feat"]).mean  # .mode()
-        # Skipping last time step because it is used for bootstrapping.
-        target = common.lambda_return(
-            reward[:-1],
-            value[:-1],
-            disc[:-1],
-            bootstrap=value[-1],
-            lambda_=self.cfg.discount_lambda,
-            axis=0,
-        )
-        metrics = {}
-        metrics["critic_slow"] = value.mean()
-        metrics["critic_target"] = target.mean()
-        return target, metrics
-
-    def update_slow_target(self):
-        if self.cfg.slow_target:
-            if self._updates % self.cfg.slow_target_update == 0:
-                mix = (
-                    1.0
-                    if self._updates == 0
-                    else float(self.cfg.slow_target_fraction)
-                )
-                for s, d in zip(
-                    self.critic.parameters(), self._target_critic.parameters()
-                ):
-                    d.data = mix * s.data + (1 - mix) * d.data
-            self._updates += 1

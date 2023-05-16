@@ -19,7 +19,7 @@ class APTDreamerAgent(DreamerAgent):
         self.pbe = utils.PBE(
             rms, knn_clip, knn_k, knn_avg, knn_rms, self.device
         )
-        self._expl_behavior = ActorCritic(self.cfg, self.act_spec, self.tfstep)
+        self._expl_behavior = ActorCritic(self.cfg, self.act_spec, self.tfstep, name='expl')
 
         self.expl_rewnorm = common.StreamNorm(
             **self.cfg.reward_norm, device=self.device
@@ -65,18 +65,20 @@ class APTDreamerAgent(DreamerAgent):
         return action.cpu().numpy()[0], new_state
 
     def expl_reward_fn(self, seq):
+        mets = {}
+        # Compute reward
         rep = stop_gradient(seq["deter"])
         B, T, _ = rep.shape
         rep = rep.reshape(B * T, -1)
         reward = self.pbe(rep, cdist=True)
         reward = reward.reshape(B, T, 1)
 
-        mets = {}
-
+        # Normalize reward
         rw_norm, met = self.expl_rewnorm(reward)
+
+        # Just for renaming the logging
         met = {f"rw_intr_{k}": v for k, v in met.items()}
         mets.update(met)
-
         return rw_norm, mets
 
     def update(self, data, step):
@@ -102,7 +104,6 @@ class APTDreamerAgent(DreamerAgent):
                     self.wm, start, data["is_terminal"], self.expl_reward_fn
                 )
             )
-
             metrics.update(
                 self._task_behavior.update(
                     self.wm, start, data["is_terminal"], self.reward_fn

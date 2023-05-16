@@ -29,7 +29,9 @@ class CustomStackCubeEnv(StackCubeEnv):
 
         super().__init__(*args, **kwargs)
 
-        self.box_half_size = np.array(box_half_size, np.float32) # reset for avoiding confilict with parent init
+        self.box_half_size = np.array(
+            box_half_size, np.float32
+        )  # reset for avoiding confilict with parent init
 
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
