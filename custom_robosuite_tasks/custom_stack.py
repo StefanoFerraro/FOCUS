@@ -501,37 +501,37 @@ class CustomStack(SingleArmEnv):
 
         return observables
 
-    @staticmethod
-    def is_in_area(val, target):
-        return abs(val) > abs(target) and np.sign(val) == np.sign(target)
- 
-    def check_obj_in_area(self):
+    # @staticmethod
+    # def is_in_area(val, target):
+    #     return abs(val) > abs(target) and np.sign(val) == np.sign(target)
 
-        x_in_goal = True
-        y_in_goal = True
-        z_in_goal = True
+    # def check_obj_in_area(self):
 
-        obj_pose = self.sim.data.body_xpos[self.cube_body_id]
+    #     x_in_goal = True
+    #     y_in_goal = True
+    #     z_in_goal = True
 
-        if self.target_x != "None":
-            x_in_goal = self.is_in_area(obj_pose[0], self.target_x)
-        if self.target_y != "None":
-            y_in_goal = self.is_in_area(obj_pose[1], self.target_y)
-        if self.target_z != "None":
-            z_in_goal = self.is_in_area(obj_pose[2], self.target_z)
+    #     obj_pose = self.sim.data.body_xpos[self.cube_body_id]
 
-        return x_in_goal and y_in_goal and z_in_goal
+    #     if self.target_x != "None":
+    #         x_in_goal = self.is_in_area(obj_pose[0], self.target_x)
+    #     if self.target_y != "None":
+    #         y_in_goal = self.is_in_area(obj_pose[1], self.target_y)
+    #     if self.target_z != "None":
+    #         z_in_goal = self.is_in_area(obj_pose[2], self.target_z)
 
-    def _check_success(self):
-        if self.point_goal:
-            is_obj_placed = self.check_obj_placed()
-            # is_robot_static = self.check_robot_static()
-        else:
-            is_obj_placed = self.check_obj_in_area()
-            # is_robot_static = True # not relevant for this task
+    #     return x_in_goal and y_in_goal and z_in_goal
 
-        return is_obj_placed
-    
+    # def _check_success(self):
+    #     if self.point_goal:
+    #         is_obj_placed = self.check_obj_placed()
+    #         # is_robot_static = self.check_robot_static()
+    #     else:
+    #         is_obj_placed = self.check_obj_in_area()
+    #         # is_robot_static = True # not relevant for this task
+
+    #     return is_obj_placed
+
     def _check_success(self):
         """
         Check if blocks are stacked correctly.

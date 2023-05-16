@@ -173,7 +173,9 @@ class DreamerObjAgent(Module):
             seq["feat"], obj_onehot
         )
 
-        rw_intr = self.compute_intr_reward(x[:, :, obj_id])
+        rw_intr = 0
+        for i in range(instances):
+            rw_intr += self.compute_intr_reward(x[:, :, obj_id])
         # rw_intr = self.compute_intr_reward(obj_pos)
 
         self.rw_dict = {

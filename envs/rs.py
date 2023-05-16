@@ -51,6 +51,7 @@ class PandaRoboSuite:
         )
 
         self.reward_shaping = env_config.reward_shaping
+        self.task_reward = env_config.task_reward
 
         self.target_x = env_config.goal.x
         self.target_y = env_config.goal.y
@@ -74,10 +75,13 @@ class PandaRoboSuite:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.3
+        self.area_target = 0.35
         self.table_height = 0.8
-        self.height_target = 0.1 + self.table_height
+        self.height_target = 0.05 + self.table_height
         self.area_threshold = 0.4
+
+        self.lift_norm = 3  # min 0 max 0.35 -> normalized 1.05
+        self.push_norm = 7  # min 0 max 0.15 -> normalized 1.05
 
         self.make()
 
@@ -413,7 +417,11 @@ class PandaRoboSuite:
     def check_in_areas(self, obj_pos):
         left, right = self.min_max_areas(obj_pos[1])
         close, far = self.min_max_areas(obj_pos[0])
-        up = self.height_target < obj_pos[2] < self.area_threshold + self.table_height
+        up = (
+            self.height_target
+            < obj_pos[2]
+            < self.area_threshold + self.table_height
+        )
         return [left, right, close, far, up]
 
     def step(self, action):
@@ -448,6 +456,24 @@ class PandaRoboSuite:
         true_ori_displacement = pq.Quaternion.absolute_distance(
             pq.Quaternion(self.true_obj_ori), pq.Quaternion(new_true_obj_ori)
         )
+
+        if self.task_reward == "lift":
+            reward = (
+                (new_true_obj_pos[2] - self.height_target) * self.lift_norm
+                if in_areas[-1]
+                else 0
+            )
+            success = in_areas[-1] and done
+            
+        elif self.task_reward == "push":
+            reward = (
+                (new_true_obj_pos[1] - self.area_target) * self.push_norm
+                if in_areas[1]
+                else 0
+            )
+            success = in_areas[1] and done
+        else:
+            reward = reward
 
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori

@@ -47,6 +47,7 @@ class PandaManiSkill:
         self.reward_mode = (
             "dense" if env_config.reward_shaping else "sparse"
         )  # @param can be one of ['sparse', 'dense']
+        self.task_reward = env_config.task_reward
 
         self.size = tuple(env_config.renderer.size)
 
@@ -82,9 +83,12 @@ class PandaManiSkill:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.3
-        self.height_target = 0.1
+        self.area_target = 0.25
+        self.height_target = 0.05
         self.area_threshold = 0.4
+
+        self.lift_norm = 3  # min 0 max 0.35 -> normalized 1.05
+        self.push_norm = 7  # min 0 max 0.15 -> normalized 1.05
 
         self.make()
 
@@ -534,6 +538,8 @@ class PandaManiSkill:
             else abs(new_true_obj_ori - self.true_obj_ori)
         )
 
+        in_areas = self.check_in_areas(new_true_obj_pos)
+
         if self.task == "TurnFaucet":
             q_min = self._env.unwrapped.init_angle
             q_max = self._env.unwrapped.target_angle
@@ -541,7 +547,21 @@ class PandaManiSkill:
             over_half_turn = new_true_obj_ori > q_median
             reward = new_true_obj_ori - q_median if over_half_turn else 0
 
-        in_areas = self.check_in_areas(new_true_obj_pos)
+        else:
+            if self.task_reward == "lift":
+                reward = (
+                    (new_true_obj_pos[2] - self.height_target) * self.lift_norm
+                    if in_areas[-1]
+                    else 0
+                )
+            elif self.task_reward == "push":
+                reward = (
+                    (new_true_obj_pos[1] - self.area_target) * self.push_norm
+                    if in_areas[1]
+                    else 0
+                )
+            else:
+                reward = reward
 
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori
