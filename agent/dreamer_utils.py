@@ -774,7 +774,9 @@ class ObjDecoder(Module):
         outputs = {}
         obj_onehot = torch.eye(
             self.instances_dim, device=features.device
-        ).repeat(*features.shape[:2], 1, 1)
+        ).repeat(
+            *features.shape[:2], 1, 1
+        )  # last dim is obj idx
 
         if self.cnn_keys and not only_mlp:
             outputs.update(self._cnn(features, obj_onehot, masks))
@@ -848,6 +850,12 @@ class ObjDecoder(Module):
                     mean = (
                         mean * mask
                     )  # mask means to avoid reconstruction in pixels out of objects
+                mean = mean.reshape(
+                    *mean.shape[:2],
+                    self.instances_dim,
+                    self.channels[key],
+                    *mean.shape[-2:],
+                )
                 dists[key] = D.Independent(D.Normal(mean, 1), 3)
         return dists
 
@@ -855,16 +863,12 @@ class ObjDecoder(Module):
         instances = self.instances_dim if instances == None else instances
 
         # TODO(pmazzagl) : batchify this loop
+        feat = []
         for i in range(instances):
             # concatenate corresponding (index i) one-hot encoding of instance to the full embedding
-            obj_feat = obj_onehot[..., i]
-            if i == 0:
-                feat = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
-            else:
-                temp = torch.cat((features, obj_feat), dim=-1).unsqueeze(2)
-                feat = torch.cat(
-                    (feat, temp), dim=2
-                )  # concatenate all object dimension along a third batch dimension
+            obj_feat = obj_onehot[..., i, :]
+            feat.append(torch.cat((features, obj_feat), dim=-1))
+        feat = torch.stack(feat, dim=2)
 
         extracted_feat = self._object_extractor(feat)
 

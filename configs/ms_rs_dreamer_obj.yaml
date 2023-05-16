@@ -20,7 +20,7 @@ env:
   objects:
     rgba: [1, 0, 0, 1]
     minsize: 0.04
-    spawn_range: 0.2
+    spawn_range: 0.25
     name: "035_power_drill" # "003_cracker_box" 
   goal:
     x: None

@@ -144,19 +144,24 @@ class PandaManiSkill:
         return np.concatenate(ob_lst)
 
     def get_object_pose(self):
-        if (
-            self.task == "CustomLift"
-            or self.task == "MoveTo"
-            or self.task == "PickSingleYCB"
-        ):
-            obj_pos = self._env.unwrapped.obj.get_pose().p
-            obj_ori = self._env.unwrapped.obj.get_pose().q
-        elif self.task == "CustomStack":
-            obj_pos = self._env.unwrapped.cubeA.get_pose().p
-            obj_ori = self._env.unwrapped.cubeA.get_pose().q
-        elif self.task == "TurnFaucet":
-            obj_pos = self._env.unwrapped.faucet.get_pose().p
-            obj_ori = self._env.unwrapped.faucet.get_qpos()[0]
+        obj_pos = {}
+        obj_ori = {}
+
+        for obj in self.segmentation_instances:
+            if (
+                self.task == "CustomLift"
+                or self.task == "MoveTo"
+                or self.task == "PickSingleYCB"
+            ):
+                obj_pos[obj] = self._env.unwrapped.obj.get_pose().p
+                obj_ori[obj] = self._env.unwrapped.obj.get_pose().q
+            elif self.task == "CustomStack":
+                obj_attr = getattr(obj)
+                obj_pos[obj] = self._env.unwrapped.obj_attr.get_pose().p
+                obj_ori[obj] = self._env.unwrapped.obj_attr.get_pose().q
+            elif self.task == "TurnFaucet":
+                obj_pos[obj] = self._env.unwrapped.faucet.get_pose().p
+                obj_ori[obj] = self._env.unwrapped.faucet.get_qpos()[0]
         return obj_pos, obj_ori
 
     def make(self):
@@ -507,7 +512,7 @@ class PandaManiSkill:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            <= obj_pos[2] - self.init_obj_pos[2]
+            <= obj_pos[2] - self.init_obj_pos[self.segmentation_instances[0]][2]
             <= self.area_threshold
         )
         return [left, right, close, far, up]
@@ -526,28 +531,24 @@ class PandaManiSkill:
         contact = self.check_contact()
 
         new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
-        true_pos_displacement = np.sqrt(
-            np.sum(((new_true_obj_pos - self.true_obj_pos) ** 2))
-        )
-
-        true_ori_displacement = (
-            pq.Quaternion.absolute_distance(
-                pq.Quaternion(self.true_obj_ori),
-                pq.Quaternion(new_true_obj_ori),
+        true_pos_displacement = 0
+        true_ori_displacement = 0
+        for obj in self.segmentation_instances:
+            true_pos_displacement += np.sqrt(
+                np.sum(((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2))
             )
-            if self.task != "TurnFaucet"
-            else abs(new_true_obj_ori - self.true_obj_ori)
-        )
 
-        in_areas = self.check_in_areas(new_true_obj_pos)
+            true_ori_displacement += (
+                pq.Quaternion.absolute_distance(
+                    pq.Quaternion(self.true_obj_ori[obj]),
+                    pq.Quaternion(new_true_obj_ori[obj]),
+                )
+                if self.task != "TurnFaucet"
+                else abs(new_true_obj_ori - self.true_obj_ori)
+            )
 
-        # if self.task == "TurnFaucet":  # TODO comment out?
-        #     q_min = self._env.unwrapped.init_angle
-        #     q_max = self._env.unwrapped.target_angle
-        #     q_median = (q_min + q_max) / 2
-        #     over_half_turn = new_true_obj_ori > q_median
-        #     reward = new_true_obj_ori - q_median if over_half_turn else 0
-        # else:
+        in_areas = self.check_in_areas(new_true_obj_pos[self.segmentation_instances[0]])
+
         if self.task_reward == "lift":
             success = in_areas[_UP]
             reward = (

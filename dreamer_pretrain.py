@@ -207,6 +207,8 @@ class Workspace:
         return self._replay_iter
 
     def eval(self):
+        if self.global_step == 0:
+            return
         # To save time, we don't eval during training by default. Feel free to uncomment.
         # return
         step, episode, total_reward, total_success = 0, 0, 0, 0

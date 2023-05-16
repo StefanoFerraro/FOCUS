@@ -91,12 +91,16 @@ class PandaRoboSuite:
         self.make()
 
     def get_object_pose(self):
-        if self.task == "CustomLift" or self.task == "MoveTo":
-            obj_pos = self._env.sim.data.body_xpos[self._env.cube_body_id]
-            obj_ori = self._env.sim.data.body_xquat[self._env.cube_body_id]
-        elif self.task == "CustomStack":
-            obj_pos = self._env.sim.data.body_xpos[self._env.cubeA_body_id]
-            obj_ori = self._env.sim.data.body_xquat[self._env.cubeA_body_id]
+        obj_pos = {}
+        obj_ori = {}
+        for obj in self.segmentation_instances:
+            obj_id = getattr(self._env, obj + "_body_id")
+            if self.task == "CustomLift" or self.task == "MoveTo":
+                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id]
+                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id]
+            elif self.task == "CustomStack":
+                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id]
+                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id]
 
         return obj_pos.copy(), obj_ori.copy()
 
@@ -425,7 +429,7 @@ class PandaRoboSuite:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            <= obj_pos[2] - self.init_obj_pos[2]
+            <= obj_pos[2] - self.init_obj_pos[self.segmentation_instances[0]][2]
             <= self.area_threshold
         )
         return [left, right, close, far, up]
@@ -452,16 +456,23 @@ class PandaRoboSuite:
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
         contact = self.check_contact()
-
+        
+        # get objects position and orientation
         new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
-        true_pos_displacement = np.sqrt(
-            np.sum(((new_true_obj_pos - self.true_obj_pos) ** 2))
-        )
-        in_areas = self.check_in_areas(new_true_obj_pos)
 
-        true_ori_displacement = pq.Quaternion.absolute_distance(
-            pq.Quaternion(self.true_obj_ori), pq.Quaternion(new_true_obj_ori)
-        )
+        true_pos_displacement = 0
+        true_ori_displacement = 0
+        for obj in self.segmentation_instances:
+            true_pos_displacement += np.sqrt(
+                np.sum(((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2))
+            )
+
+            true_ori_displacement += pq.Quaternion.absolute_distance(
+                pq.Quaternion(self.true_obj_ori[obj]),
+                pq.Quaternion(new_true_obj_ori[obj]),
+            )
+
+        in_areas = self.check_in_areas(new_true_obj_pos[self.segmentation_instances[0]])
 
         if self.task_reward == "lift":
             success = in_areas[_UP]  # and done

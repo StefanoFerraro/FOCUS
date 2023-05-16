@@ -394,22 +394,12 @@ class WorldModel(Module):
                     like = dist.log_prob(data[key])
 
                 elif key == "rgb" or key == "depth":
-                    masks = data["segmentation"]
-                    chs = data[key].shape[2]
-                    for i in range(masks.shape[2]):
-                        if i == 0:
-                            images = (
-                                masks[:, :, i]
-                                .unsqueeze(2)
-                                .repeat(1, 1, chs, 1, 1)
-                            ) * data[key]
-                        else:
-                            m = (
-                                masks[:, :, i]
-                                .unsqueeze(2)
-                                .repeat(1, 1, chs, 1, 1)
-                            ) * data[key]
-                            images = torch.cat((images, m), dim=2)
+                    instances_dim = dist.mean.shape[2]
+                    images = (
+                        data[key]
+                        .unsqueeze(2)
+                        .repeat(1, 1, instances_dim, 1, 1, 1)
+                    )
                     like = dist.log_prob(images)
                 else:
                     like = dist.log_prob(data[key])
@@ -727,10 +717,19 @@ class WorldModel(Module):
 
             # truth = truth_out
             # divide model output
-            model = torch.cat(torch.split(model, chs, 2), dim=4)
-            model_unmasked = torch.cat(
-                torch.split(model_unmasked, chs, 2), dim=4
+            model = model.permute(0, 1, 3, 4, 2, 5).reshape(
+                *model.shape[:2],
+                *model.shape[3:-1],
+                model.shape[2] * model.shape[-1],
             )
+            model_unmasked = model_unmasked.permute(0, 1, 3, 4, 2, 5).reshape(
+                *model_unmasked.shape[:2],
+                *model_unmasked.shape[3:-1],
+                model_unmasked.shape[2] * model_unmasked.shape[-1],
+            )
+            # model_unmasked = torch.cat(
+            #     torch.split(model_unmasked, chs, 2), dim=4
+            # )
 
             video = torch.cat([truth_out, model, model_unmasked], 3)
 

@@ -186,7 +186,7 @@ class CustomStack(SingleArmEnv):
         self.placement_initializer = placement_initializer
         self.spawn_range = spawn_range
 
-                    # Loop through all objects and reset their positions
+        # Loop through all objects and reset their positions
         self.reset_pos_objects = {}
         self.reset_quat_objects = {}
 
@@ -199,7 +199,7 @@ class CustomStack(SingleArmEnv):
         self.reset_quat_objects["cubeB"] = np.array(
             [0.81250834, 0.0, 0.0, 0.58294957]
         )
-        
+
         super().__init__(
             robots=robots,
             env_configuration=env_configuration,
