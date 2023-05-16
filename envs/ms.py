@@ -227,12 +227,7 @@ class PandaManiSkill:
         self.action_space = self._env.action_space
 
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
-        # self._env = RecordEpisode(
-        #     self._env,
-        #     output_dir=f"train_trajs",
-        #     info_on_video=True,
-        #     render_mode="cameras",
-        # )
+        self.init_obj_pos = self.true_obj_pos.copy()
 
     def segmentation_channel_split(self, seg, include_background=False):
 
@@ -510,7 +505,11 @@ class PandaManiSkill:
     def check_in_areas(self, obj_pos):
         left, right = self.min_max_areas(obj_pos[1])
         close, far = self.min_max_areas(obj_pos[0])
-        up = self.height_target <= obj_pos[2] <= self.height_target + 0.1
+        up = (
+            self.height_target
+            <= obj_pos[2] - self.init_obj_pos[2]
+            <= self.area_threshold
+        )
         return [left, right, close, far, up]
 
     def step(self, action):

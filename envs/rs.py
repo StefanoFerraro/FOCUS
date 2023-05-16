@@ -81,9 +81,8 @@ class PandaRoboSuite:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.35
-        self.table_height = 0.8
-        self.height_target = 0.05 + self.table_height  # + self.obj_init_height
+        self.area_target = 0.25
+        self.height_target = 0.05
         self.area_threshold = 0.4
 
         self.lift_norm = 3  # min 0 max 0.35 -> normalized 1.05
@@ -122,6 +121,7 @@ class PandaRoboSuite:
             self.segmentation_instances
         )  # initialize to zero
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
+        self.init_obj_pos = self.true_obj_pos.copy()
 
     def set_camera_pos(self):
 
@@ -425,8 +425,8 @@ class PandaRoboSuite:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            <= obj_pos[2]
-            <= self.area_threshold + self.table_height # + self.obj_init_height
+            <= obj_pos[2] - self.init_obj_pos[2]
+            <= self.area_threshold
         )
         return [left, right, close, far, up]
 
