@@ -436,6 +436,8 @@ class PandaRoboSuite:
 
     def step(self, action):
 
+        target_obj = self.segmentation_instances[0]
+        
         if self.controller == "OSC_POSE":
             action = np.insert(
                 action, 3, [0, 0, 0]
@@ -471,7 +473,6 @@ class PandaRoboSuite:
                 pq.Quaternion(self.true_obj_ori[obj]),
                 pq.Quaternion(new_true_obj_ori[obj]),
             )
-        target_obj = [self.segmentation_instances[0]]
 
         in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
         if self.task_reward == "lift":

@@ -521,6 +521,7 @@ class PandaManiSkill:
     def step(self, action):
         # assert np.isfinite(action["action"]).all(), action["action"]
         # TODO: check state match with observation
+        target_obj = self.segmentation_instances[0]
         reward = 0.0
         success = 0.0
         for _ in range(self._action_repeat):
@@ -545,10 +546,11 @@ class PandaManiSkill:
                     pq.Quaternion(new_true_obj_ori[obj]),
                 )
                 if self.task != "TurnFaucet"
-                else abs(new_true_obj_ori - self.true_obj_ori)
+                else abs(
+                    new_true_obj_ori[target_obj]
+                    - self.true_obj_ori[target_obj]
+                )
             )
-
-        target_obj = [self.segmentation_instances[0]]
 
         in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
 
