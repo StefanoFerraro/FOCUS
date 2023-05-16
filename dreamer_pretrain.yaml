@@ -35,7 +35,7 @@ project_name: RSS_benchmark
 
 # log settings
 log_every_frames: 1000
-recon_every_frames: 50000 # edit for debug
+recon_every_frames: 25000 # edit for debug
 
 hydra:
   run:
