@@ -512,7 +512,8 @@ class PandaManiSkill:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            <= obj_pos[2] - self.init_obj_pos[self.segmentation_instances[0]][2]
+            <= obj_pos[2]
+            - self.init_obj_pos[self.segmentation_instances[0]][2]
             <= self.area_threshold
         )
         return [left, right, close, far, up]
@@ -547,19 +548,23 @@ class PandaManiSkill:
                 else abs(new_true_obj_ori - self.true_obj_ori)
             )
 
-        in_areas = self.check_in_areas(new_true_obj_pos[self.segmentation_instances[0]])
+        target_obj = [self.segmentation_instances[0]]
+
+        in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
 
         if self.task_reward == "lift":
             success = in_areas[_UP]
             reward = (
-                (new_true_obj_pos[2] - self.height_target) * self.lift_norm
+                (new_true_obj_pos[target_obj][2] - self.height_target)
+                * self.lift_norm
                 if success
                 else 0
             )
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]
             reward = (
-                (new_true_obj_pos[1] - self.area_target) * self.push_norm
+                (new_true_obj_pos[target_obj][1] - self.area_target)
+                * self.push_norm
                 if success
                 else 0
             )

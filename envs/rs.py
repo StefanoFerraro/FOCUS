@@ -471,20 +471,20 @@ class PandaRoboSuite:
                 pq.Quaternion(self.true_obj_ori[obj]),
                 pq.Quaternion(new_true_obj_ori[obj]),
             )
+        target_obj = [self.segmentation_instances[0]]
 
-        in_areas = self.check_in_areas(new_true_obj_pos[self.segmentation_instances[0]])
-
+        in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
         if self.task_reward == "lift":
             success = in_areas[_UP]  # and done
             reward = (
-                (new_true_obj_pos[2] - self.height_target) * self.lift_norm
+                (new_true_obj_pos[target_obj][2] - self.height_target) * self.lift_norm
                 if success
                 else 0
             )
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]  # and done
             reward = (
-                (new_true_obj_pos[1] - self.area_target) * self.push_norm
+                (new_true_obj_pos[target_obj][1] - self.area_target) * self.push_norm
                 if success
                 else 0
             )
