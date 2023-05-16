@@ -31,7 +31,7 @@ use_wandb: true
 
 # experiment
 experiment: pt
-project_name: ???
+project_name: RSS_benchmark
 
 # log settings
 log_every_frames: 1000

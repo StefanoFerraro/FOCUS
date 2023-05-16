@@ -186,6 +186,20 @@ class CustomStack(SingleArmEnv):
         self.placement_initializer = placement_initializer
         self.spawn_range = spawn_range
 
+                    # Loop through all objects and reset their positions
+        self.reset_pos_objects = {}
+        self.reset_quat_objects = {}
+
+        self.reset_pos_objects["cubeA"] = np.array([-0.189, 0.027, 0.85])
+        self.reset_pos_objects["cubeB"] = np.array([0.023, -0.057, 0.85])
+
+        self.reset_quat_objects["cubeA"] = np.array(
+            [0.25688207, 0.0, 0.0, 0.96644276]
+        )
+        self.reset_quat_objects["cubeB"] = np.array(
+            [0.81250834, 0.0, 0.0, 0.58294957]
+        )
+        
         super().__init__(
             robots=robots,
             env_configuration=env_configuration,
@@ -411,11 +425,18 @@ class CustomStack(SingleArmEnv):
             # Sample from the placement initializer for all objects
             object_placements = self.placement_initializer.sample()
 
+            objects_name = ["cubeA", "cubeB"]
+
             # Loop through all objects and reset their positions
             for obj_pos, obj_quat, obj in object_placements.values():
                 self.sim.data.set_joint_qpos(
                     obj.joints[0],
-                    np.concatenate([np.array(obj_pos), np.array(obj_quat)]),
+                    np.concatenate(
+                        [
+                            self.reset_pos_objects[obj.name],
+                            self.reset_quat_objects[obj.name],
+                        ]
+                    ),
                 )
 
     def _setup_observables(self):

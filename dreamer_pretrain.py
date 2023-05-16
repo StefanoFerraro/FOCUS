@@ -499,7 +499,7 @@ def main(cfg):
 
     root_dir = Path.cwd()
     # cfg.use_wandb = False
-    cfg.project_name = "ObjChoreo"
+    # cfg.project_name = "ObjChoreo"
 
     workspace = W(cfg)
     workspace.root_dir = root_dir

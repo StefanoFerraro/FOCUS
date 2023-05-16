@@ -141,6 +141,11 @@ class DreamerObjAgent(Module):
 
     def expl_reward_fn(self, seq):
 
+        if self.reward_coeff["rw_sup"] > 0:
+            rw_sup = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+        else:
+            rw_sup = torch.Tensor([0.0]).to(self.device)
+
         obj_id = 0
         obj_poses = self.wm.heads["object_decoder"](
             seq["feat"], only_mlp=True
@@ -148,23 +153,28 @@ class DreamerObjAgent(Module):
 
         obj_pos = obj_poses[:, :, obj_id]
 
-        # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
-        id_eef = 21 if self.env == "rs" else 18
-        gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
-            :, :, id_eef : id_eef + 3
-        ]
+        if (
+            self.reward_coeff["rw_mov"] > 0
+            or self.reward_coeff["rw_dist_obj"] > 0
+        ):
+            # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
+            id_eef = 21 if self.env == "rs" else 18
+            gripper_pos = self.wm.heads["decoder"](seq["feat"])[
+                "proprio"
+            ].mean[:, :, id_eef : id_eef + 3]
 
-        rw_sup = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+            rw_mov = obj_pos[:, :, 1].unsqueeze(
+                -1
+            )  # reward for moving cubeA right (positive position)
 
-        rw_mov = obj_pos[:, :, 1].unsqueeze(
-            -1
-        )  # reward for moving cubeA right (positive position)
-
-        rw_dist_obj = (
-            (torch.sum(((gripper_pos - obj_pos) ** 2), dim=2))
-            .pow(0.5)
-            .unsqueeze(-1)
-        )
+            rw_dist_obj = (
+                (torch.sum(((gripper_pos - obj_pos) ** 2), dim=2))
+                .pow(0.5)
+                .unsqueeze(-1)
+            )
+        else:
+            rw_mov = torch.Tensor([0.0]).to(self.device)
+            rw_dist_obj = torch.Tensor([0.0]).to(self.device)
 
         instances = obj_poses.shape[2]
         obj_onehot = torch.eye(
@@ -196,7 +206,7 @@ class DreamerObjAgent(Module):
 
         rw = 0
         for key, val in rw_norm.items():
-            rw += self.reward_coeff[key] * val
+            rw = rw + self.reward_coeff[key] * val
 
         return rw, mets
 
