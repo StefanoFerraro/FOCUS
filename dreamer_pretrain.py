@@ -212,6 +212,7 @@ class Workspace:
         # To save time, we don't eval during training by default. Feel free to uncomment.
         # return
         step, episode, total_reward, total_success = 0, 0, 0, 0
+        step_to_success = self._horizon
 
         # set to True to use task_behaviour, zero_shot performance
         self.agent.is_finetune = True
@@ -233,6 +234,9 @@ class Workspace:
                 dreamer_obs = self.eval_env.step(action)
                 total_reward += dreamer_obs["reward"]
                 step += 1
+                # Hacky way to say that step_to_success was set
+                if step_to_success == self._horizon and dreamer_obs["success"]:
+                    step_to_success = step
 
             total_success += dreamer_obs["success"]
             episode += 1
@@ -243,6 +247,7 @@ class Workspace:
             log("episode_reward", total_reward / episode)
             log("avg_success", total_success / episode)
             log("episode_length", step * self.cfg.action_repeat / episode)
+            log("step_to_success", step_to_success)
             log("episode", self.global_episode)
             log("step", self.global_step)
 
@@ -283,9 +288,10 @@ class Workspace:
         self.replay_storage.add(data, meta)
         metrics = None
         contact_count = 0
-        in_areas = [0, 0, 0, 0, 0]
+        in_areas = np.array([0, 0, 0, 0, 0])
         cumm_pos_displacement = 0
         cumm_ang_displacement = 0
+        cumm_vertical_displacement = 0
 
         while train_until_step(self.global_step):
             if bool(dreamer_obs["is_last"]):
@@ -329,14 +335,16 @@ class Workspace:
                         log("up_placement", float(in_areas[4] / episode_frame))
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
+                        log("vertical_displacement", cumm_ang_displacement)
 
                 contact_count = 0
-                in_areas = [0, 0, 0, 0, 0]
+                in_areas = np.array([0, 0, 0, 0, 0])
                 cumm_pos_displacement = 0
                 cumm_ang_displacement = 0
+                cumm_vertical_displacement = 0
 
                 # save last model
-                if self.global_step % 10000 == 0:
+                if self.global_step % 100000 == 0:
                     self.save_last_model()
 
                 # reset env
@@ -404,9 +412,10 @@ class Workspace:
                 step_to_success = episode_step
             self._global_step += 1
             contact_count += dreamer_obs["contact"]
-            in_areas += dreamer_obs["in_areas"]
+            in_areas += np.array(dreamer_obs["in_areas"])
             cumm_pos_displacement += dreamer_obs["pos_displacement"]
             cumm_ang_displacement += dreamer_obs["ang_displacement"]
+            cumm_vertical_displacement += dreamer_obs["vertical_displacement"]
 
     @utils.retry
     def save_snapshot(self):

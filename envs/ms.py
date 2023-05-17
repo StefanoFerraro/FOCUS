@@ -537,6 +537,8 @@ class PandaManiSkill:
         new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
         true_pos_displacement = 0
         true_ori_displacement = 0
+        true_vertical_displacement = 0
+        
         for obj in self.segmentation_instances:
             true_pos_displacement += np.sqrt(
                 np.sum(((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2))
@@ -552,6 +554,9 @@ class PandaManiSkill:
                     new_true_obj_ori[target_obj]
                     - self.true_obj_ori[target_obj]
                 )
+            )
+            true_vertical_displacement += (
+                new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2]
             )
 
         in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
@@ -600,6 +605,7 @@ class PandaManiSkill:
             "contact": contact,
             "pos_displacement": true_pos_displacement,
             "ang_displacement": true_ori_displacement,
+            "vertical_displacement": true_vertical_displacement,
             "discount": 1,
         }
 
@@ -633,6 +639,7 @@ class PandaManiSkill:
             "contact": False,
             "pos_displacement": 0,
             "ang_displacement": 0,
+            "vertical_displacement": 0,
             "discount": 1,
         }
 

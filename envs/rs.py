@@ -81,12 +81,12 @@ class PandaRoboSuite:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.25
+        self.area_target = 0.4
         self.height_target = 0.05
-        self.area_threshold = 0.4
+        self.area_threshold = 0.5
 
-        self.lift_norm = 3  # min 0 max 0.35 -> normalized 1.05
-        self.push_norm = 7  # min 0 max 0.15 -> normalized 1.05
+        self.lift_norm = 3  # min 0 max 0.45 -> normalized 1.35
+        self.push_norm = 10  # min 0 max 0.1 -> normalized 1.05
 
         self.make()
 
@@ -465,6 +465,7 @@ class PandaRoboSuite:
 
         true_pos_displacement = 0
         true_ori_displacement = 0
+        true_vertical_displacement = 0
         for obj in self.segmentation_instances:
             true_pos_displacement += np.sqrt(
                 np.sum(((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2))
@@ -473,6 +474,9 @@ class PandaRoboSuite:
             true_ori_displacement += pq.Quaternion.absolute_distance(
                 pq.Quaternion(self.true_obj_ori[obj]),
                 pq.Quaternion(new_true_obj_ori[obj]),
+            )
+            true_vertical_displacement += (
+                new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2]
             )
 
         in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
@@ -523,6 +527,7 @@ class PandaRoboSuite:
             "contact": contact,
             "pos_displacement": true_pos_displacement,
             "ang_displacement": true_ori_displacement,
+            "vertical_displacement": true_vertical_displacement,
             "discount": 1,
         }
 
@@ -560,6 +565,7 @@ class PandaRoboSuite:
             "contact": False,
             "pos_displacement": 0,
             "ang_displacement": 0,
+            "vertical_displacement": 0,
             "discount": 1,
         }
 
