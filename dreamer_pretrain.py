@@ -335,7 +335,9 @@ class Workspace:
                         log("up_placement", float(in_areas[4] / episode_frame))
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
-                        log("vertical_displacement", cumm_ang_displacement)
+                        log(
+                            "vertical_displacement", cumm_vertical_displacement
+                        )
 
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
