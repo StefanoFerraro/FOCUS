@@ -13,7 +13,7 @@ domain: walker # primal task will be infered in runtime
 num_train_frames: 2000010
 num_seed_frames: 4000
 # eval
-eval_every_frames: 10000
+eval_every_frames: 50000
 num_eval_episodes: 10
 # snapshot
 snapshots: [100000, 500000, 1000000, 2000000] 
@@ -36,12 +36,13 @@ project_name: RSS_benchmark
 # log settings
 log_every_frames: 1000
 recon_every_frames: 25000 # edit for debug
+root_log_dir: ~/../../project_scratch/sferraro/choreographer/
 
 hydra:
   run:
-    dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
+    dir: ${root_log_dir}/exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
   sweep:
-    dir: /exp_sweep//${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
+    dir: ${root_log_dir}/exp_sweep/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300

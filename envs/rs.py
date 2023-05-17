@@ -96,11 +96,11 @@ class PandaRoboSuite:
         for obj in self.segmentation_instances:
             obj_id = getattr(self._env, obj + "_body_id")
             if self.task == "CustomLift" or self.task == "MoveTo":
-                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id]
-                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id]
+                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy()
+                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
             elif self.task == "CustomStack":
-                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id]
-                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id]
+                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy()
+                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
 
         return obj_pos.copy(), obj_ori.copy()
 
@@ -429,7 +429,8 @@ class PandaRoboSuite:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            <= obj_pos[2] - self.init_obj_pos[self.segmentation_instances[0]][2]
+            <= obj_pos[2]
+            - self.init_obj_pos[self.segmentation_instances[0]][2]
             <= self.area_threshold
         )
         return [left, right, close, far, up]
@@ -437,7 +438,7 @@ class PandaRoboSuite:
     def step(self, action):
 
         target_obj = self.segmentation_instances[0]
-        
+
         if self.controller == "OSC_POSE":
             action = np.insert(
                 action, 3, [0, 0, 0]
@@ -458,7 +459,7 @@ class PandaRoboSuite:
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
         contact = self.check_contact()
-        
+
         # get objects position and orientation
         new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
 
@@ -478,14 +479,16 @@ class PandaRoboSuite:
         if self.task_reward == "lift":
             success = in_areas[_UP]  # and done
             reward = (
-                (new_true_obj_pos[target_obj][2] - self.height_target) * self.lift_norm
+                (new_true_obj_pos[target_obj][2] - self.height_target)
+                * self.lift_norm
                 if success
                 else 0
             )
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]  # and done
             reward = (
-                (new_true_obj_pos[target_obj][1] - self.area_target) * self.push_norm
+                (new_true_obj_pos[target_obj][1] - self.area_target)
+                * self.push_norm
                 if success
                 else 0
             )
