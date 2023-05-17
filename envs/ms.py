@@ -78,7 +78,9 @@ class PandaManiSkill:
         self.objects_pixels = [0] * len(objs)
         self._obs_keys = {"base_camera": ["Color", "Position", "Segmentation"]}
 
-        self.segmentation_instances = objs
+        self.segmentation_instances = (
+            objs if task != "PickSingleYCB" else [self.object_name]
+        )
         self.include_background = True
         self.segmentation_level = env_config.renderer.segmentation_level
         self.horizon = env_config.horizon
