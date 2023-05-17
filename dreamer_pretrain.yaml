@@ -51,4 +51,4 @@ hydra:
     tasks_per_node: 1
     mem_gb: 160
     nodes: 1
-    submitit_folder: ./exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}/.slurm
+    submitit_folder: ${root_log_dir}/exp_sweep/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}/.slurm
