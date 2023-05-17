@@ -81,11 +81,14 @@ class PandaRoboSuite:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.4
+        self.area_target = 0.3
         self.height_target = 0.05
-        self.area_threshold = 0.5
+        self.area_threshold = 0.4
+        self.height_offset = (
+            0.8 + self.cube_minsize[2]
+        )  # table height + cube height
 
-        self.lift_norm = 3  # min 0 max 0.45 -> normalized 1.35
+        self.lift_norm = 4  # min 0 max 0.45 -> normalized 1.35
         self.push_norm = 10  # min 0 max 0.1 -> normalized 1.05
 
         self.make()
@@ -125,7 +128,6 @@ class PandaRoboSuite:
             self.segmentation_instances
         )  # initialize to zero
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
-        self.init_obj_pos = self.true_obj_pos.copy()
 
     def set_camera_pos(self):
 
@@ -429,8 +431,7 @@ class PandaRoboSuite:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            <= obj_pos[2]
-            - self.init_obj_pos[self.segmentation_instances[0]][2]
+            <= obj_pos[2] - self.height_offset
             <= self.area_threshold
         )
         return [left, right, close, far, up]
@@ -466,24 +467,37 @@ class PandaRoboSuite:
         true_pos_displacement = 0
         true_ori_displacement = 0
         true_vertical_displacement = 0
-        for obj in self.segmentation_instances:
-            true_pos_displacement += np.sqrt(
-                np.sum(((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2))
-            )
+        if not self.is_first:
+            for obj in self.segmentation_instances:
+                true_pos_displacement += np.sqrt(
+                    np.sum(
+                        ((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2)
+                    )
+                )
 
-            true_ori_displacement += pq.Quaternion.absolute_distance(
-                pq.Quaternion(self.true_obj_ori[obj]),
-                pq.Quaternion(new_true_obj_ori[obj]),
-            )
-            true_vertical_displacement += (
-                new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2]
-            )
+                true_ori_displacement += pq.Quaternion.absolute_distance(
+                    pq.Quaternion(self.true_obj_ori[obj]),
+                    pq.Quaternion(new_true_obj_ori[obj]),
+                )
+                true_vertical_displacement += abs(
+                    new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2]
+                )
+        else:
+            (
+                true_pos_displacement,
+                true_ori_displacement,
+                true_vertical_displacement,
+            ) = (0, 0, 0)
 
         in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
         if self.task_reward == "lift":
             success = in_areas[_UP]  # and done
             reward = (
-                (new_true_obj_pos[target_obj][2] - self.height_target)
+                (
+                    new_true_obj_pos[target_obj][2]
+                    - self.height_offset
+                    - self.height_target
+                )
                 * self.lift_norm
                 if success
                 else 0
@@ -491,7 +505,11 @@ class PandaRoboSuite:
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]  # and done
             reward = (
-                (new_true_obj_pos[target_obj][1] - self.area_target)
+                (
+                    new_true_obj_pos[target_obj][1]
+                    - self.height_offset
+                    - self.area_target
+                )
                 * self.push_norm
                 if success
                 else 0
@@ -499,6 +517,10 @@ class PandaRoboSuite:
         else:
             # do not update reward or success
             pass
+
+        reward = (
+            max(reward, 0.01) if reward > 0 else 0
+        )  # avoid small rewards to help the predictor learning
 
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori
@@ -510,9 +532,11 @@ class PandaRoboSuite:
             action, [3, 4, 5]
         )  # remove dummy orientation values
 
+        self.is_first = False
+
         obs = {
             "reward": reward,
-            "is_first": False,
+            "is_first": self.is_first,
             "is_last": done,  # will be handled by timelimit wrapper
             "is_terminal": False,  # will be handled by per_episode function
             "rgb": rgb,
@@ -548,9 +572,11 @@ class PandaRoboSuite:
 
         objects_pos = self.pixel_to_world(seg, depth)
 
+        self.is_first = True
+
         obs = {
             "reward": 0.0,
-            "is_first": True,
+            "is_first": self.is_first,
             "is_last": False,
             "is_terminal": False,
             "rgb": rgb,

@@ -213,6 +213,7 @@ class Workspace:
         # return
         step, episode, total_reward, total_success = 0, 0, 0, 0
         step_to_success = self._horizon
+        step_to_success_list = []
 
         # set to True to use task_behaviour, zero_shot performance
         self.agent.is_finetune = True
@@ -236,9 +237,13 @@ class Workspace:
                 step += 1
                 # Hacky way to say that step_to_success was set
                 if step_to_success == self._horizon and dreamer_obs["success"]:
-                    step_to_success = step
+                    step_to_success = (step * self.cfg.action_repeat) - (
+                        episode * self._horizon
+                    )
 
             total_success += dreamer_obs["success"]
+            step_to_success_list += [step_to_success]
+            step_to_success = self._horizon
             episode += 1
 
         self.agent.is_finetune = False
@@ -247,7 +252,7 @@ class Workspace:
             log("episode_reward", total_reward / episode)
             log("avg_success", total_success / episode)
             log("episode_length", step * self.cfg.action_repeat / episode)
-            log("step_to_success", step_to_success)
+            log("avg_step_to_success", sum(step_to_success_list) / episode)
             log("episode", self.global_episode)
             log("step", self.global_step)
 

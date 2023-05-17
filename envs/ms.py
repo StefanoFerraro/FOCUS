@@ -538,7 +538,7 @@ class PandaManiSkill:
         true_pos_displacement = 0
         true_ori_displacement = 0
         true_vertical_displacement = 0
-        
+
         for obj in self.segmentation_instances:
             true_pos_displacement += np.sqrt(
                 np.sum(((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2))
@@ -555,7 +555,7 @@ class PandaManiSkill:
                     - self.true_obj_ori[target_obj]
                 )
             )
-            true_vertical_displacement += (
+            true_vertical_displacement += abs(
                 new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2]
             )
 
@@ -580,6 +580,10 @@ class PandaManiSkill:
         else:
             # Do not change success or reward, use original
             pass
+
+        reward = (
+            max(reward, 0.01) if reward > 0 else 0
+        )  # avoid small rewards to help the predictor learning
 
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori

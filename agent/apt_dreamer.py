@@ -64,6 +64,7 @@ class APTDreamerAgent(DreamerAgent):
         new_state = (latent, action)
         return action.cpu().numpy()[0], new_state
 
+    
     def expl_reward_fn(self, seq):
         mets = {}
         # Compute reward
