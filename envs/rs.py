@@ -441,6 +441,14 @@ class PandaRoboSuite:
         )
         return [left, right, close, far, up]
 
+    def check_inside_table(self, obj_pos):
+
+        # check if object is inside che edge of the table
+        return not (
+            abs(obj_pos[0]) > self.area_threshold
+            or abs(obj_pos[1]) > self.area_threshold
+        )
+
     def step(self, action):
 
         target_obj = self.segmentation_instances[0]
@@ -474,9 +482,31 @@ class PandaRoboSuite:
         true_vertical_displacement = 0
         if not self.is_first:
             for obj in self.segmentation_instances:
-                true_pos_displacement += np.sqrt(
-                    np.sum(
-                        ((new_true_obj_pos[obj] - self.true_obj_pos[obj]) ** 2)
+                true_pos_displacement += (
+                    np.sqrt(
+                        np.sum(
+                            (
+                                (
+                                    new_true_obj_pos[obj]
+                                    - self.true_obj_pos[obj]
+                                )
+                                ** 2
+                            )
+                        )
+                    )
+                    if self.check_inside_table(
+                        new_true_obj_pos[target_obj]
+                    )  # do not consider the vertical dimension in case the object is not inside the table
+                    else np.sqrt(
+                        np.sum(
+                            (
+                                (
+                                    new_true_obj_pos[obj][:2]
+                                    - self.true_obj_pos[obj][:2]
+                                )
+                                ** 2
+                            )
+                        )
                     )
                 )
 
@@ -484,8 +514,10 @@ class PandaRoboSuite:
                     pq.Quaternion(self.true_obj_ori[obj]),
                     pq.Quaternion(new_true_obj_ori[obj]),
                 )
-                true_vertical_displacement += abs(
-                    new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2]
+                true_vertical_displacement += (
+                    abs(new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2])
+                    if self.check_inside_table(new_true_obj_pos[target_obj])
+                    else 0
                 )
         else:
             (
