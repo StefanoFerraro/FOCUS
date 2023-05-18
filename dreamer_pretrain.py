@@ -521,6 +521,7 @@ def main(cfg):
 
     workspace = W(cfg)
     workspace.root_dir = root_dir
+    print("ROOT DIR: ", root_dir)
     snapshot = workspace.root_dir / "last_snapshot.pt"
     if snapshot.exists():
         print(f"resuming: {snapshot}")
