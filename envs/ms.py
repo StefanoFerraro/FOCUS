@@ -94,11 +94,11 @@ class PandaManiSkill:
         self.controller = env_config.controller
 
         self.area_target = 0.4
-        self.height_target = 0.001
+        self.height_target = 0.1
         self.area_threshold = 0.5
 
         self.lift_norm = int(
-            abs(1 / (self.area_threshold - self.height_target) + 1)
+            abs(1 / (self.area_threshold) + 1)
         )  # min 0 max 0.35 -> normalized 1.05
         self.push_norm = int(
             abs(1 / (self.area_threshold - self.area_target) + 1)
@@ -582,11 +582,10 @@ class PandaManiSkill:
                 self.target_obj_attr
             )
 
-            success = in_areas[_UP] and reward_grasp
+            success = reward_grasp
 
             reward_lift = (
-                (new_true_obj_pos[target_obj][2] - self.height_target)
-                * self.lift_norm
+                (new_true_obj_pos[target_obj][2]) * self.lift_norm
                 if success
                 else 0
             )

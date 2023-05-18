@@ -84,15 +84,13 @@ class PandaRoboSuite:
         self.controller = env_config.controller
 
         self.area_target = 0.2
-        self.height_target = 0.001
+        self.height_target = 0.05
         self.area_threshold = 0.4
         self.height_offset = (
             0.8 + self.cube_minsize[2]
         )  # table height + cube height
 
-        self.lift_norm = int(
-            abs(1 / (self.area_threshold - self.height_target)) + 1
-        )
+        self.lift_norm = int(abs(1 / (self.area_threshold)) + 1)
         self.push_norm = int(
             abs(1 / (self.area_threshold - self.area_target)) + 1
         )
@@ -519,6 +517,7 @@ class PandaRoboSuite:
                     if self.check_inside_table(new_true_obj_pos[target_obj])
                     else 0
                 )
+            in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
         else:
             (
                 true_pos_displacement,
@@ -526,7 +525,8 @@ class PandaRoboSuite:
                 true_vertical_displacement,
             ) = (0, 0, 0)
 
-        in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
+            in_areas = [0, 0, 0, 0, 0]
+
         if self.task_reward == "lift":
 
             reward_grasp = self._env._check_grasp(
@@ -534,13 +534,9 @@ class PandaRoboSuite:
                 object_geoms=self.target_obj_attr,
             )
 
-            success = in_areas[_UP] and reward_grasp
+            success = reward_grasp
             reward_lift = (
-                (
-                    new_true_obj_pos[target_obj][2]
-                    - self.height_offset
-                    - self.height_target
-                )
+                (new_true_obj_pos[target_obj][2] - self.height_offset)
                 * self.lift_norm
                 if success
                 else 0
