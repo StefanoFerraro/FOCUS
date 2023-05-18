@@ -483,15 +483,14 @@ class Workspace:
                 cfg = self.cfg
                 exp_name = "_".join(
                     [
-                        cfg.experiment,
                         cfg.agent.name,
-                        cfg.domain,
-                        cfg.obs_type,
-                        str(cfg.seed),
+                        cfg.task,
+                        cfg.env.renderer.camera,
+                        str(cfg.comment),
                     ]
                 )
                 wandb.init(
-                    project=cfg.project_name + "_pretrain",
+                    project=cfg.project_name,
                     group=cfg.agent.name,
                     name=exp_name,
                     id=v,
