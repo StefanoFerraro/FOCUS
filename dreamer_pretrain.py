@@ -494,7 +494,7 @@ class Workspace:
                     group=cfg.agent.name,
                     name=exp_name,
                     id=v,
-                    resume="must",
+                    resume=True,
                 )
 
     def get_snapshot_dir(self):
