@@ -71,6 +71,8 @@ class PandaRoboSuite:
             self.camera + "_depth",
         ]
         self.segmentation_instances = objs
+        self.target_obj = self.segmentation_instances[0]
+
         self.include_background = True
         self.segmentation_level = env_config.renderer.segmentation_level
         self.horizon = env_config.horizon
@@ -81,15 +83,19 @@ class PandaRoboSuite:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.3
-        self.height_target = 0.05
+        self.area_target = 0.2
+        self.height_target = 0.001
         self.area_threshold = 0.4
         self.height_offset = (
             0.8 + self.cube_minsize[2]
         )  # table height + cube height
 
-        self.lift_norm = 4  # min 0 max 0.45 -> normalized 1.35
-        self.push_norm = 10  # min 0 max 0.1 -> normalized 1.05
+        self.lift_norm = int(
+            abs(1 / (self.area_threshold - self.height_target)) + 1
+        )
+        self.push_norm = int(
+            abs(1 / (self.area_threshold - self.area_target)) + 1
+        )
 
         self.make()
 
@@ -98,12 +104,8 @@ class PandaRoboSuite:
         obj_ori = {}
         for obj in self.segmentation_instances:
             obj_id = getattr(self._env, obj + "_body_id")
-            if self.task == "CustomLift" or self.task == "MoveTo":
-                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy()
-                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
-            elif self.task == "CustomStack":
-                obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy()
-                obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
+            obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy()
+            obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
 
         return obj_pos.copy(), obj_ori.copy()
 
@@ -128,6 +130,9 @@ class PandaRoboSuite:
             self.segmentation_instances
         )  # initialize to zero
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
+
+        self.target_attr_name = self.target_obj
+        self.target_obj_attr = getattr(self._env, self.target_attr_name)
 
     def set_camera_pos(self):
 
@@ -491,8 +496,14 @@ class PandaRoboSuite:
 
         in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
         if self.task_reward == "lift":
-            success = in_areas[_UP]  # and done
-            reward = (
+
+            reward_grasp = self._env._check_grasp(
+                gripper=self._env.robots[0].gripper,
+                object_geoms=self.target_obj_attr,
+            )
+
+            success = in_areas[_UP] and reward_grasp
+            reward_lift = (
                 (
                     new_true_obj_pos[target_obj][2]
                     - self.height_offset
@@ -502,6 +513,9 @@ class PandaRoboSuite:
                 if success
                 else 0
             )
+
+            reward = reward_grasp + reward_lift
+
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]  # and done
             reward = (

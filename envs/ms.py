@@ -81,6 +81,8 @@ class PandaManiSkill:
         self.segmentation_instances = (
             objs if task != "PickSingleYCB" else [self.object_name]
         )
+
+        self.target_obj = self.segmentation_instances[0]
         self.include_background = True
         self.segmentation_level = env_config.renderer.segmentation_level
         self.horizon = env_config.horizon
@@ -91,12 +93,16 @@ class PandaManiSkill:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.25
-        self.height_target = 0.05
-        self.area_threshold = 0.4
+        self.area_target = 0.4
+        self.height_target = 0.001
+        self.area_threshold = 0.5
 
-        self.lift_norm = 3  # min 0 max 0.35 -> normalized 1.05
-        self.push_norm = 7  # min 0 max 0.15 -> normalized 1.05
+        self.lift_norm = int(
+            abs(1 / (self.area_threshold - self.height_target) + 1)
+        )  # min 0 max 0.35 -> normalized 1.05
+        self.push_norm = int(
+            abs(1 / (self.area_threshold - self.area_target) + 1)
+        )  # min 0 max 0.15 -> normalized 1.05
 
         self.make()
 
@@ -135,7 +141,7 @@ class PandaManiSkill:
             obs_dict (OrderedDict): ordered dictionary of observations
             verbose (bool): Whether to print out to console as observation keys are processed
         Returns:
-            np.array: observations flattened into a 1d array
+            np.array: observationsself.target_obj flattened into a 1d array
         """
         ob_lst = []
         for key in self.keys:
@@ -158,9 +164,9 @@ class PandaManiSkill:
                 obj_pos[obj] = self._env.unwrapped.obj.get_pose().p
                 obj_ori[obj] = self._env.unwrapped.obj.get_pose().q
             elif self.task == "CustomStack":
-                obj_attr = getattr(obj)
-                obj_pos[obj] = self._env.unwrapped.obj_attr.get_pose().p
-                obj_ori[obj] = self._env.unwrapped.obj_attr.get_pose().q
+                obj_attr = getattr(self._env.unwrapped, obj)
+                obj_pos[obj] = obj_attr.get_pose().p
+                obj_ori[obj] = obj_attr.get_pose().q
             elif self.task == "TurnFaucet":
                 obj_pos[obj] = self._env.unwrapped.faucet.get_pose().p
                 obj_ori[obj] = self._env.unwrapped.faucet.get_qpos()[0]
@@ -193,6 +199,15 @@ class PandaManiSkill:
             ]
             if self.task != "TurnFaucet"
             else [self._env.unwrapped.target_link.id]
+        )
+
+        self.target_attr_name = (
+            self.target_obj
+            if self.task not in ["MoveTo", "CustomLift", "PickSingleYCB"]
+            else "obj"
+        )
+        self.target_obj_attr = getattr(
+            self._env.unwrapped, self.target_attr_name
         )
 
         obs = {**obs, **images}
@@ -562,13 +577,22 @@ class PandaManiSkill:
         in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
 
         if self.task_reward == "lift":
-            success = in_areas[_UP]
-            reward = (
+
+            reward_grasp = self._env.unwrapped.agent.check_grasp(
+                self.target_obj_attr
+            )
+
+            success = in_areas[_UP] and reward_grasp
+
+            reward_lift = (
                 (new_true_obj_pos[target_obj][2] - self.height_target)
                 * self.lift_norm
                 if success
                 else 0
             )
+
+            reward = reward_grasp + reward_lift
+
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]
             reward = (
