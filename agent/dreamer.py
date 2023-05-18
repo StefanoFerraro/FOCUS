@@ -359,6 +359,8 @@ class WorldModel(Module):
             **config.model_opt,
             use_amp=self._use_amp,
         )
+        for p in self.heads["reward"]._out.parameters():
+            p.data.fill_(0.0)
 
     def update(self, data, state=None):
         with common.RequiresGrad(self):
@@ -584,6 +586,10 @@ class ActorCritic(Module):
         self.rewnorm = common.StreamNorm(
             **self.cfg.reward_norm, device=self.device
         )
+        for p in self.critic._out.parameters():
+            p.data.fill_(0.0)
+        for p in self._target_critic._out.parameters():
+            p.data.fill_(0.0)
 
     def update(self, world_model, start, is_terminal, reward_fn):
         metrics = {}

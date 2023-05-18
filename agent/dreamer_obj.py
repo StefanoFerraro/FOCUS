@@ -348,6 +348,8 @@ class WorldModel(Module):
             **config.model_opt,
             use_amp=self._use_amp,
         )
+        for p in self.heads["reward"]._out.parameters():
+            p.data.fill_(0.0)
 
     def update(self, data, state=None):
         with common.RequiresGrad(self):

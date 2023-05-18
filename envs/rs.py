@@ -83,7 +83,7 @@ class PandaRoboSuite:
 
         self.controller = env_config.controller
 
-        self.area_target = 0.2
+        self.area_target = 0.25
         self.height_target = 0.05
         self.area_threshold = 0.4
         self.height_offset = (
@@ -534,25 +534,25 @@ class PandaRoboSuite:
                 object_geoms=self.target_obj_attr,
             )
 
-            success = reward_grasp
-            reward_lift = (
-                (new_true_obj_pos[target_obj][2] - self.height_offset)
+            success = in_areas[_UP] and reward_grasp
+            reward = (
+                (
+                    new_true_obj_pos[target_obj][2]
+                    - self.height_offset
+                    - self.height_target
+                )
                 * self.lift_norm
+                + reward_grasp
                 if success
                 else 0
             )
 
-            reward = reward_grasp + reward_lift
-
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]  # and done
             reward = (
-                (
-                    new_true_obj_pos[target_obj][1]
-                    - self.height_offset
-                    - self.area_target
-                )
+                (new_true_obj_pos[target_obj][1] - self.area_target)
                 * self.push_norm
+                + success
                 if success
                 else 0
             )

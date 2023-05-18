@@ -250,6 +250,9 @@ class PandaManiSkill:
 
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
         self.init_obj_pos = self.true_obj_pos.copy()
+        self.height_offset = self.init_obj_pos[self.segmentation_instances[0]][
+            2
+        ]
 
     def segmentation_channel_split(self, seg, include_background=False):
 
@@ -529,8 +532,7 @@ class PandaManiSkill:
         close, far = self.min_max_areas(obj_pos[0])
         up = (
             self.height_target
-            <= obj_pos[2]
-            - self.init_obj_pos[self.segmentation_instances[0]][2]
+            <= obj_pos[2] - self.height_offset
             <= self.area_threshold
         )
         return [left, right, close, far, up]
@@ -582,21 +584,26 @@ class PandaManiSkill:
                 self.target_obj_attr
             )
 
-            success = reward_grasp
+            success = in_areas[_UP] and reward_grasp
 
-            reward_lift = (
-                (new_true_obj_pos[target_obj][2]) * self.lift_norm
+            reward = (
+                (
+                    new_true_obj_pos[target_obj][2]
+                    - self.height_target
+                    - self.height_offset
+                )
+                * self.lift_norm
+                + reward_grasp
                 if success
                 else 0
             )
-
-            reward = reward_grasp + reward_lift
 
         elif self.task_reward == "push":
             success = in_areas[_RIGHT]
             reward = (
                 (new_true_obj_pos[target_obj][1] - self.area_target)
                 * self.push_norm
+                + success
                 if success
                 else 0
             )
