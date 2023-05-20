@@ -12,6 +12,17 @@ class CustomLiftYCBEnv(PickSingleYCBEnv):
         super().__init__(*args, **kwargs)
         self.goal_height = 0.2
 
+    def evaluate(self, **kwargs):
+        obj_to_goal_dist = self.goal_height - self.obj_pose.p[2]
+        is_obj_placed = self.goal_height < self.obj_pose.p[2]
+        is_robot_static = self.check_robot_static()
+        return dict(
+            obj_to_goal_pos=obj_to_goal_dist,
+            is_obj_placed=is_obj_placed,
+            is_robot_static=is_robot_static,
+            success=is_obj_placed and is_robot_static,
+        )
+
     def compute_dense_reward(self, info, **kwargs):
 
         # Sep. 14, 2022:
