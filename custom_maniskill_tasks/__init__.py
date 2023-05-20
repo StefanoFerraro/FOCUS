@@ -1,6 +1,8 @@
 from custom_maniskill_tasks.custom_lift import CustomLiftCubeEnv
 from custom_maniskill_tasks.custom_stack import CustomStackCubeEnv
 from custom_maniskill_tasks.move_to import MoveToEnv
+from custom_maniskill_tasks.custom_liftYCB import CustomLiftYCBEnv
+
 import gym
 
 def make(task, env_args):
@@ -42,7 +44,7 @@ def make(task, env_args):
             model_ids="5007",
             **kwargs,
         )
-    elif task == "PickSingleYCB-v0":
+    elif task in ["PickSingleYCB-v0", "CustomLiftYCB-v0"]:
         return gym.make(
             task,
             model_ids=env_args.object_name,

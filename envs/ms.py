@@ -45,7 +45,7 @@ class PandaManiSkill:
         os.environ["DISPLAY"] = ":0"
         os.environ["MUJOCO_GL"] = "egl"
 
-        non_cube_envs = ["TurnFaucet", "PickSingleYCB"]
+        non_cube_envs = ["TurnFaucet", "PickSingleYCB", "CustomLiftYCB"]
         self.env_id = (
             task + "Cube-v0" if task not in non_cube_envs else task + "-v0"
         )
@@ -79,7 +79,7 @@ class PandaManiSkill:
         self._obs_keys = {"base_camera": ["Color", "Position", "Segmentation"]}
 
         self.segmentation_instances = (
-            objs if task != "PickSingleYCB" else [self.object_name]
+            objs if task not in ["PickSingleYCB", "CustomLiftYCB"] else [self.object_name]
         )
 
         self.target_obj = self.segmentation_instances[0]
@@ -98,7 +98,7 @@ class PandaManiSkill:
         self.area_threshold = 0.5
 
         self.lift_norm = int(
-            abs(1 / (self.area_threshold) + 1)
+            abs(1 / (self.area_threshold - self.height_target) + 1)
         )  # min 0 max 0.35 -> normalized 1.05
         self.push_norm = int(
             abs(1 / (self.area_threshold - self.area_target) + 1)
@@ -157,9 +157,7 @@ class PandaManiSkill:
 
         for obj in self.segmentation_instances:
             if (
-                self.task == "CustomLift"
-                or self.task == "MoveTo"
-                or self.task == "PickSingleYCB"
+                self.task in ["CustomLift", "MoveTo", "PickSingleYCB", "CustomLiftYCB"]
             ):
                 obj_pos[obj] = self._env.unwrapped.obj.get_pose().p
                 obj_ori[obj] = self._env.unwrapped.obj.get_pose().q
@@ -203,7 +201,7 @@ class PandaManiSkill:
 
         self.target_attr_name = (
             self.target_obj
-            if self.task not in ["MoveTo", "CustomLift", "PickSingleYCB"]
+            if self.task not in ["MoveTo", "CustomLift", "PickSingleYCB", "CustomLiftYCB"]
             else "obj"
         )
         self.target_obj_attr = getattr(
@@ -587,12 +585,15 @@ class PandaManiSkill:
             success = in_areas[_UP] and reward_grasp
 
             reward = (
-                (
-                    new_true_obj_pos[target_obj][2]
-                    - self.height_target
-                    - self.height_offset
+                max(
+                    (
+                        new_true_obj_pos[target_obj][2]
+                        - self.height_target
+                        - self.height_offset
+                    )
+                    * self.lift_norm,
+                    0,
                 )
-                * self.lift_norm
                 + reward_grasp
                 if success
                 else 0

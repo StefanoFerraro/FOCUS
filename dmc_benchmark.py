@@ -40,6 +40,7 @@ MS_PANDA_TASKS_OBJ = {
     "CustomLift": ["cube"],
     "TurnFaucet": ["faucet"],
     "PickSingleYCB": ["obj"],
+    "CustomLiftYCB": ["obj"],
 }
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS
