@@ -29,6 +29,9 @@ save_train_video: true
 use_tb: false
 use_wandb: true
 
+#finetune
+is_finetune: True
+
 # experiment
 experiment: pt
 project_name: RSS_benchmark

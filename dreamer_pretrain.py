@@ -47,7 +47,7 @@ def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
         cfg=cur_config,
         obs_space=obs_space,
         act_spec=action_spec,
-        is_finetune=False,
+        is_finetune=cur_config.is_finetune,
     )
 
 
@@ -246,7 +246,7 @@ class Workspace:
             step_to_success = self._horizon
             episode += 1
 
-        self.agent.is_finetune = False
+        self.agent.is_finetune = False if not self.cfg.is_finetune else True
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
             log("episode_reward", total_reward / episode)
