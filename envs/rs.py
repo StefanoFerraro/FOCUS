@@ -55,6 +55,7 @@ class PandaRoboSuite:
             -env_config.objects.spawn_range,
             env_config.objects.spawn_range,
         )
+        self.random_placement = env_config.objects.random_placement
 
         self.reward_shaping = env_config.reward_shaping
         self.task_reward = env_config.task_reward

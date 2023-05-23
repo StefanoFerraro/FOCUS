@@ -44,6 +44,7 @@ def make(task, env_args):
             cube_rgba=env_args.cube_rgba,
             cube_minsize=env_args.cube_minsize,
             spawn_range=env_args.spawn_range,
+            random_placement=env_args.random_placement,
         )
     elif task == "MoveTo":
         return MoveTo(

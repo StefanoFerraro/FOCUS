@@ -28,6 +28,7 @@ class CustomStack(SingleArmEnv):
         cube_minsize=(0.025, 0.025, 0.025),
         reward_scale=1.0,
         spawn_range=(-0.03, 0.03),
+        random_placement=False,
         reward_shaping=False,
         placement_initializer=None,
         has_renderer=False,
@@ -65,6 +66,7 @@ class CustomStack(SingleArmEnv):
         # object placement initializer
         self.placement_initializer = placement_initializer
         self.spawn_range = spawn_range
+        self.random_placement = random_placement
 
         # Loop through all objects and reset their positions
         self.reset_pos_objects = {}
@@ -278,14 +280,18 @@ class CustomStack(SingleArmEnv):
 
             # Loop through all objects and reset their positions
             for obj_pos, obj_quat, obj in object_placements.values():
-                self.sim.data.set_joint_qpos(
-                    obj.joints[0],
-                    np.concatenate(
+                if self.random_placement:
+                    pose = np.concatenate([obj_pos, obj_quat])
+                else:
+                    pose = np.concatenate(
                         [
                             self.reset_pos_objects[obj.name],
                             self.reset_quat_objects[obj.name],
                         ]
-                    ),
+                    )
+                self.sim.data.set_joint_qpos(
+                    obj.joints[0],
+                    pose,
                 )
 
     def _setup_observables(self):
