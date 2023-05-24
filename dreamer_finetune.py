@@ -525,6 +525,7 @@ class Workspace:
         cfg = self.cfg
         exp_name = "_".join(
             [
+                "Finetune",
                 cfg.agent.name,
                 cfg.task,
                 cfg.env.renderer.camera,
