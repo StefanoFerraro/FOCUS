@@ -429,15 +429,20 @@ class Workspace:
             cumm_pos_displacement += dreamer_obs["pos_displacement"]
             cumm_ang_displacement += dreamer_obs["ang_displacement"]
             cumm_vertical_displacement += dreamer_obs["vertical_displacement"]
+        if self.cfg.save_ft_model:
+            self.save_finetuned_model()
 
     def load_snapshot(self):
-        snapshot_base_dir = Path(self.cfg.snapshot_base_dir)
-        domain, _ = self.cfg.task.split("_", 1)
+        snapshot_base_dir = Path(
+            hydra.utils.get_original_cwd() + self.cfg.snapshot_base_dir
+        )
+        domain, task = self.cfg.task.split("_", 1)
+        # models/${task}/${comment}/${agent.name}/${seed}
         snapshot_dir = (
             snapshot_base_dir
-            / self.cfg.obs_type
-            / domain
+            / self.cfg.task
             / self.cfg.agent.name
+            / self.cfg.seed
         )
         if self.cfg.custom_snap_dir != "none":
             snapshot_dir = Path(self.cfg.custom_snap_dir)

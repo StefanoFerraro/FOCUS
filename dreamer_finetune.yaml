@@ -18,7 +18,7 @@ num_eval_episodes: 10
 # pretrained
 snapshot_ts: 500000
 custom_snap_dir: /srv/sferraro/choreographer/models/dreamer_obj_msPanda_PickSingleYCB_011_banana-push
-snapshot_base_dir: ./models
+snapshot_base_dir: /exp_sweep/models
 # snapshot
 snapshots: [100000, 500000, 1000000, 2000000] 
 snapshot_dir: ../../../models/${task}/${comment}/${agent.name}/${seed}
