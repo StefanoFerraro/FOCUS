@@ -438,12 +438,7 @@ class Workspace:
         )
         domain, task = self.cfg.task.split("_", 1)
         # models/${task}/${comment}/${agent.name}/${seed}
-        snapshot_dir = (
-            snapshot_base_dir
-            / self.cfg.task
-            / self.cfg.agent.name
-            / self.cfg.seed
-        )
+        snapshot_dir = snapshot_base_dir / self.cfg.task / self.cfg.agent.name
         if self.cfg.custom_snap_dir != "none":
             snapshot_dir = Path(self.cfg.custom_snap_dir)
         snapshot = (
