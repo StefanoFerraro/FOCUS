@@ -357,8 +357,8 @@ class Workspace:
                 cumm_vertical_displacement = 0
 
                 # save last model
-                if self.global_step % 100000 == 0:
-                    self.save_last_model()
+                # if self.global_step % 100000 == 0:
+                #     self.save_last_model()
 
                 # reset env
                 dreamer_obs = self.reset(self.train_env)
@@ -368,8 +368,8 @@ class Workspace:
                 data = dreamer_obs
                 self.replay_storage.add(data, meta)
                 # try to save snapshot
-                if self.global_frame in self.cfg.snapshots:
-                    self.save_snapshot()
+                # if self.global_frame in self.cfg.snapshots:
+                #     self.save_snapshot()
                 episode_step = 0
                 episode_reward = 0
                 step_to_success = self._horizon
@@ -438,7 +438,12 @@ class Workspace:
         )
         domain, task = self.cfg.task.split("_", 1)
         # models/${task}/${comment}/${agent.name}/${seed}
-        snapshot_dir = snapshot_base_dir / self.cfg.task / self.cfg.comment / self.cfg.agent.name
+        snapshot_dir = (
+            snapshot_base_dir
+            / self.cfg.task
+            / self.cfg.comment
+            / self.cfg.agent.name
+        )
         if self.cfg.custom_snap_dir != "none":
             snapshot_dir = Path(self.cfg.custom_snap_dir)
         snapshot = (
