@@ -46,6 +46,9 @@ log_every_frames: 1000
 recon_every_frames: 25000 # edit for debug
 root_log_dir: '.'
 
+# Fine-tuning ablation
+save_ft_model: true
+
 hydra:
   run:
     dir: ${root_log_dir}/exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
