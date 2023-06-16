@@ -27,9 +27,9 @@ class DreamerAgent(Module):
         self.device = cfg.device
         self.act_dim = act_spec.shape[0]
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
-        self._task_behavior = ActorCritic(
-            cfg, self.act_spec, self.tfstep, name="task"
-        )
+        self.wm.model_init()
+
+        self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep, name="task")
 
         # self.task_rewnorm = common.StreamNorm(
         #     **self.cfg.reward_norm, device=self.device
@@ -82,9 +82,7 @@ class DreamerAgent(Module):
 
         start = outputs["post"]
         # Don't train the policy/value if just using MPC
-        if getattr(self.cfg, "mpc", False) and (
-            not self.cfg.mpc_opt.use_value
-        ):
+        if getattr(self.cfg, "mpc", False) and (not self.cfg.mpc_opt.use_value):
             return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
 
@@ -122,9 +120,7 @@ class DreamerAgent(Module):
         print(f"Copying the pretrained world model")
         utils.hard_update_params(other.wm.rssm, self.wm.rssm)
         utils.hard_update_params(other.wm.encoder, self.wm.encoder)
-        utils.hard_update_params(
-            other.wm.heads["decoder"], self.wm.heads["decoder"]
-        )
+        utils.hard_update_params(other.wm.heads["decoder"], self.wm.heads["decoder"])
 
         if init_actor:
             print(f"Copying the pretrained actor")
@@ -153,9 +149,7 @@ class DreamerAgent(Module):
         seq = {k: [v] for k, v in start.items()}
         for t in range(horizon):
             action = actions[t]
-            state = self.wm.rssm.img_step(
-                {k: v[-1] for k, v in seq.items()}, action
-            )
+            state = self.wm.rssm.img_step({k: v[-1] for k, v in seq.items()}, action)
             feat = self.wm.rssm.get_feat(state)
             for key, value in {
                 **state,
@@ -213,9 +207,7 @@ class DreamerAgent(Module):
         feat = self.wm.rssm.get_feat(post)
 
         # Sample policy trajectories
-        num_pi_trajs = int(
-            self.cfg.mpc_opt.mixture_coef * self.cfg.mpc_opt.num_samples
-        )
+        num_pi_trajs = int(self.cfg.mpc_opt.mixture_coef * self.cfg.mpc_opt.num_samples)
         if num_pi_trajs > 0:
             start = {
                 k: v.repeat(num_pi_trajs, *list([1] * len(v.shape)))
@@ -237,12 +229,8 @@ class DreamerAgent(Module):
             )
             for k, v in post.items()
         }
-        mean = torch.zeros(
-            self.cfg.mpc_opt.horizon, self.act_dim, device=self.device
-        )
-        std = 2 * torch.ones(
-            self.cfg.mpc_opt.horizon, self.act_dim, device=self.device
-        )
+        mean = torch.zeros(self.cfg.mpc_opt.horizon, self.act_dim, device=self.device)
+        std = 2 * torch.ones(self.cfg.mpc_opt.horizon, self.act_dim, device=self.device)
         if not t0 and hasattr(self, "_prev_mean"):
             mean[:-1] = self._prev_mean[1:]
 
@@ -264,9 +252,7 @@ class DreamerAgent(Module):
                 actions = torch.cat([actions, pi_actions], dim=1)
 
             # Compute elite actions
-            value = self.estimate_value(
-                start, actions, self.cfg.mpc_opt.horizon
-            )
+            value = self.estimate_value(start, actions, self.cfg.mpc_opt.horizon)
             elite_idxs = torch.topk(
                 value.squeeze(1), self.cfg.mpc_opt.num_elites, dim=0
             ).indices
@@ -277,17 +263,14 @@ class DreamerAgent(Module):
 
             # Update parameters
             max_value = elite_value.max(0)[0]
-            score = torch.exp(
-                self.cfg.mpc_opt.temperature * (elite_value - max_value)
-            )
+            score = torch.exp(self.cfg.mpc_opt.temperature * (elite_value - max_value))
             score /= score.sum(0)
             _mean = torch.sum(score.unsqueeze(0) * elite_actions, dim=1) / (
                 score.sum(0) + 1e-9
             )
             _std = torch.sqrt(
                 torch.sum(
-                    score.unsqueeze(0)
-                    * (elite_actions - _mean.unsqueeze(1)) ** 2,
+                    score.unsqueeze(0) * (elite_actions - _mean.unsqueeze(1)) ** 2,
                     dim=1,
                 )
                 / (score.sum(0) + 1e-9)
@@ -301,9 +284,7 @@ class DreamerAgent(Module):
 
         # Outputs
         score = score.squeeze(1).cpu().numpy()
-        actions = elite_actions[
-            :, np.random.choice(np.arange(score.shape[0]), p=score)
-        ]
+        actions = elite_actions[:, np.random.choice(np.arange(score.shape[0]), p=score)]
         self._prev_mean = mean
         mean, std = actions[0], _std[0]
         a = mean
@@ -316,14 +297,14 @@ class DreamerAgent(Module):
 class WorldModel(Module):
     def __init__(self, config, obs_space, act_dim, tfstep):
         super().__init__()
-        shapes = {k: tuple(v.shape) for k, v in obs_space.items()}
+        self.shapes = {k: tuple(v.shape) for k, v in obs_space.items()}
         self.cfg = config
         self.device = config.device
         self.tfstep = tfstep
-        self.encoder = common.Encoder(shapes, **config.encoder)
+        self.encoder = common.Encoder(self.shapes, **config.encoder)
         # Computing embed dim
         with torch.no_grad():
-            zeros = {k: torch.zeros((1,) + v) for k, v in shapes.items()}
+            zeros = {k: torch.zeros((1,) + v) for k, v in self.shapes.items()}
             outs = self.encoder(zeros)
             embed_dim = outs.shape[1]
         self.embed_dim = embed_dim
@@ -335,28 +316,30 @@ class WorldModel(Module):
         )
         self.heads = {}
         self._use_amp = config.precision == 16
-        inp_size = config.rssm.deter
+        self.inp_size = config.rssm.deter
         if config.rssm.discrete:
-            inp_size += config.rssm.stoch * config.rssm.discrete
+            self.inp_size += config.rssm.stoch * config.rssm.discrete
         else:
-            inp_size += config.rssm.stoch
-        self.inp_size = inp_size
+            self.inp_size += config.rssm.stoch
+        self.inp_size = self.inp_size
         self.heads["decoder"] = common.Decoder(
-            shapes, **config.decoder, embed_dim=inp_size
+            self.shapes, **config.decoder, embed_dim=self.inp_size
         )
-        self.heads["reward"] = common.MLP(inp_size, (1,), **config.reward_head)
+        self.heads["reward"] = common.MLP(self.inp_size, (1,), **config.reward_head)
         if config.pred_discount:
             self.heads["discount"] = common.MLP(
-                inp_size, (1,), **config.discount_head
+                self.inp_size, (1,), **config.discount_head
             )
-        for name in config.grad_heads:
+
+    def model_init(self):
+        for name in self.cfg.grad_heads:
             assert name in self.heads, name
-        self.grad_heads = config.grad_heads
+        self.grad_heads = self.cfg.grad_heads
         self.heads = nn.ModuleDict(self.heads)
         self.model_opt = common.Optimizer(
             "model",
             self.parameters(),
-            **config.model_opt,
+            **self.cfg.model_opt,
             use_amp=self._use_amp,
         )
         for p in self.heads["reward"]._out.parameters():
@@ -372,9 +355,7 @@ class WorldModel(Module):
     def loss(self, data, state=None):
         data = self.preprocess(data)
         embed = self.encoder(data)
-        post, prior = self.rssm.observe(
-            embed, data["action"], data["is_first"], state
-        )
+        post, prior = self.rssm.observe(embed, data["action"], data["is_first"], state)
         kl_loss, kl_value = self.rssm.kl_loss(post, prior, **self.cfg.kl)
         assert len(kl_loss.shape) == 0 or (
             len(kl_loss.shape) == 1 and kl_loss.shape[0] == 1
@@ -443,9 +424,7 @@ class WorldModel(Module):
                 if not eval_policy
                 else policy(stop_gradient(inp)).mean
             )
-            state = self.rssm.img_step(
-                {k: v[-1] for k, v in seq.items()}, action
-            )
+            state = self.rssm.img_step({k: v[-1] for k, v in seq.items()}, action)
             feat = self.rssm.get_feat(state)
             for key, value in {
                 **state,
@@ -473,9 +452,7 @@ class WorldModel(Module):
         # Shift discount factors because they imply whether the following state
         # will be valid, not whether the current state is valid.
         seq["weight"] = torch.cumprod(
-            torch.cat(
-                [torch.ones_like(disc[:1], device=self.device), disc[:-1]], 0
-            ),
+            torch.cat([torch.ones_like(disc[:1], device=self.device), disc[:-1]], 0),
             0,
         )
         return seq
@@ -485,8 +462,18 @@ class WorldModel(Module):
         for key, value in obs.items():
             if key.startswith("log_"):
                 continue
-            if value.dtype in [np.uint8, torch.uint8]:
+            if value.dtype in [np.uint8, torch.uint8] and "rgb" in key:
                 value = value / 255.0 - 0.5
+
+            # normalization and scalling of depth based on observed max value over entire set
+            if key == "depth":
+                value = (
+                    value / value.max() - 0.5
+                )  # ASSUME that camera is static and that max depth is fixed
+
+            if key == "segmentation":
+                value = value * 1.0
+
             obs[key] = value
         obs["reward"] = {
             "identity": nn.Identity(),
@@ -510,9 +497,7 @@ class WorldModel(Module):
         init = {k: v[:, -1] for k, v in states.items()}
         prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
         prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
-        model = torch.clip(
-            torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
-        )
+        model = torch.clip(torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1)
         error = (model - truth + 1) / 2
 
         if getattr(self, "recon_skills", False):
@@ -525,9 +510,7 @@ class WorldModel(Module):
                 z_q, _ = self.skill_module.emb(z_e, weight_sg=True)
                 latent_skills = z_q.reshape(B, T, -1)
             else:
-                latent_skills = self.skill_module.skill_encoder(
-                    prior["deter"]
-                ).mean
+                latent_skills = self.skill_module.skill_encoder(prior["deter"]).mean
                 latent_skills = latent_skills / torch.norm(
                     latent_skills, dim=-1, keepdim=True
                 )
@@ -583,9 +566,7 @@ class ActorCritic(Module):
             **self.cfg.critic_opt,
             use_amp=self._use_amp,
         )
-        self.rewnorm = common.StreamNorm(
-            **self.cfg.reward_norm, device=self.device
-        )
+        self.rewnorm = common.StreamNorm(**self.cfg.reward_norm, device=self.device)
         for p in self.critic._out.parameters():
             p.data.fill_(0.0)
         for p in self._target_critic._out.parameters():
@@ -610,9 +591,7 @@ class ActorCritic(Module):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = {k: stop_gradient(v) for k, v in seq.items()}
                 critic_loss, mets4 = self.critic_loss(seq, target)
-            metrics.update(
-                self.critic_opt(critic_loss, self.critic.parameters())
-            )
+            metrics.update(self.critic_opt(critic_loss, self.critic.parameters()))
         metrics.update(**mets1, **mets2, **mets3, **mets4)
         self.update_slow_target()  # Variables exist after first forward pass.
         return metrics
@@ -704,9 +683,7 @@ class ActorCritic(Module):
         if self.cfg.slow_target:
             if self._updates % self.cfg.slow_target_update == 0:
                 mix = (
-                    1.0
-                    if self._updates == 0
-                    else float(self.cfg.slow_target_fraction)
+                    1.0 if self._updates == 0 else float(self.cfg.slow_target_fraction)
                 )
                 for s, d in zip(
                     self.critic.parameters(), self._target_critic.parameters()

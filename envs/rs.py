@@ -12,6 +12,8 @@ from envs.wrappers import PandaGymWrapper
 import custom_robosuite_tasks
 
 import pyquaternion as pq
+from .utils import *
+from .base_env import BaseEnv
 
 _LEFT = 0
 _RIGHT = 1
@@ -20,7 +22,7 @@ _FAR = 3
 _UP = 4
 
 
-class PandaRoboSuite:
+class PandaRoboSuite(BaseEnv):
     def __init__(
         self,
         env_config,
@@ -29,7 +31,7 @@ class PandaRoboSuite:
         seed=None,
         action_repeat=1,
     ):
-        os.environ["MUJOCO_GL"] = "egl"
+        super().__init__(env_config, task, objs, seed, action_repeat)
 
         if env_config.renderer.camera == "agentview1":
             self.camera = "agentview"
@@ -44,17 +46,9 @@ class PandaRoboSuite:
             self.camera = "agentview"
             self.camera_posmove = [0.0, 0.0, 0.0]
 
-        self.size = tuple(env_config.renderer.size)
-
         self._proprio_keys = ["robot0_proprio-state"]
-        # self._proprio_keys = ["robot0_joint_pos_cos"]
         self._object_keys = ["object-state"]
-        self.cube_rgba = env_config.objects.rgba
-        self.cube_minsize = tuple([env_config.objects.minsize] * 3)  # cube
-        self.spawn_range = (
-            -env_config.objects.spawn_range,
-            env_config.objects.spawn_range,
-        )
+
         self.random_placement = env_config.objects.random_placement
 
         self.reward_shaping = env_config.reward_shaping
@@ -74,27 +68,13 @@ class PandaRoboSuite:
         self.segmentation_instances = objs
         self.target_obj = self.segmentation_instances[0]
 
-        self.include_background = True
-        self.segmentation_level = env_config.renderer.segmentation_level
-        self.horizon = env_config.horizon
-
-        self._action_repeat = action_repeat
-        self._seed = seed
-        self.task = task
-
-        self.controller = env_config.controller
-
         self.area_target = 0.25
         self.height_target = 0.05
         self.area_threshold = 0.4
-        self.height_offset = (
-            0.8 + self.cube_minsize[2]
-        )  # table height + cube height
+        self.height_offset = 0.8 + self.cube_minsize[2]  # table height + cube height
 
         self.lift_norm = int(abs(1 / (self.area_threshold)) + 1)
-        self.push_norm = int(
-            abs(1 / (self.area_threshold - self.area_target)) + 1
-        )
+        self.push_norm = int(abs(1 / (self.area_threshold - self.area_target)) + 1)
 
         self.make()
 
@@ -134,7 +114,6 @@ class PandaRoboSuite:
         self.target_obj_attr = getattr(self._env, self.target_attr_name)
 
     def set_camera_pos(self):
-
         # move camera closer to robot
         self.cam_mover = CM(self._env, camera=self.camera)
         (
@@ -166,9 +145,7 @@ class PandaRoboSuite:
         if "Panda0" in self.segmentation_instances:
             panda_idx = self.segmentation_instances.index("Panda0")
             non_panda_idx = [
-                x
-                for x in range(len(self.segmentation_instances))
-                if x != panda_idx
+                x for x in range(len(self.segmentation_instances)) if x != panda_idx
             ]
             panda_median_layer = cv2.medianBlur(
                 seg_map[panda_idx], 3
@@ -184,111 +161,33 @@ class PandaRoboSuite:
 
         return seg_map
 
-    @staticmethod
-    def image_segmentation(image, seg):
-        """
-        Segmentation of image based on segmentation mask, works both with rgb and depth images.
-        seg: (dim1, dim2, channels)
-        image: (dim1, dim2, 1/3)
-
-        Return:
-        seg_image: (dim1, dim2, 1/3, channels)
-        """
-
-        seg_chs, _, _ = seg.shape
-        image_chs, _, _ = image.shape
-
-        seg_mask = np.repeat(np.expand_dims(seg, axis=1), image_chs, 1)
-        seg_image = np.zeros((seg_chs, *image.shape), dtype=image.dtype)
-
-        for ch in range(seg_chs):
-            seg_image[ch] = image * seg_mask[ch]
-
-        return seg_image
-
-    def rgb_spec(
-        self,
-    ):
-        v = self.obs_space["rgb"]
-        return specs.BoundedArray(
-            name="rgb",
-            shape=v.shape,
-            dtype=v.dtype,
-            minimum=v.low,
-            maximum=v.high,
+    @property
+    def obs_space(self):
+        spaces = common_obs_space(
+            self.size, self.segmentation_instances, self.include_background
         )
-
-    def depth_spec(
-        self,
-    ):
-        v = self.obs_space["depth"]
-        return specs.BoundedArray(
-            name="depth",
-            shape=v.shape,
-            dtype=v.dtype,
-            minimum=v.low,
-            maximum=v.high,
+        spaces.update(
+            {
+                "proprio": gym.spaces.Box(
+                    -5,
+                    5,
+                    self._env.modality_dims["robot0_proprio-state"],
+                    dtype=np.float32,
+                ),
+                "state": self._env.observation_space,
+            }
         )
+        return spaces
 
-    def proprio_spec(
-        self,
-    ):
-        v = self.obs_space["proprio"]
-        return specs.BoundedArray(
-            name="proprio",
-            shape=v.shape,
-            dtype=v.dtype,
-            minimum=v.low,
-            maximum=v.high,
-        )
+    @property
+    def act_space(self):
+        action = self._env.action_space
+        if self.controller == "OSC_POSE":
+            action = gym.spaces.Box(-1, 1, (4,), dtype=np.float32)
+        return {"action": action}
 
-    def objects_pos_spec(
-        self,
-    ):
-        v = self.obs_space["objects_pos"]
-        return specs.BoundedArray(
-            name="objects_pos",
-            shape=v.shape,
-            dtype=v.dtype,
-            minimum=v.low,
-            maximum=v.high,
-        )
-
-    def segmentation_spec(
-        self,
-    ):
-        v = self.obs_space["segmentation"]
-        return specs.BoundedArray(
-            name="segmentation",
-            shape=v.shape,
-            dtype=v.dtype,
-            minimum=v.low,
-            maximum=v.high,
-        )
-
-    def seg_rgb_spec(
-        self,
-    ):
-        v = self.obs_space["seg_rgb"]
-        return specs.BoundedArray(
-            name="seg_rgb",
-            shape=v.shape,
-            dtype=v.dtype,
-            minimum=v.low,
-            maximum=v.high,
-        )
-
-    def seg_depth_spec(
-        self,
-    ):
-        v = self.obs_space["seg_depth"]
-        return specs.BoundedArray(
-            name="seg_depth",
-            shape=v.shape,
-            dtype=v.dtype,
-            minimum=v.low,
-            maximum=v.high,
-        )
+    def obs_specs(self):
+        return obs_specs(self.obs_space)
 
     def action_spec(
         self,
@@ -307,51 +206,6 @@ class PandaRoboSuite:
             maximum=action_space.high,
         )
 
-    @property
-    def obs_space(self):
-        spaces = {
-            "rgb": gym.spaces.Box(0, 255, (3,) + self.size, dtype=np.uint8),
-            "depth": gym.spaces.Box(
-                -np.inf,
-                np.inf,
-                (1,) + self.size,
-                dtype=np.float32,
-            ),
-            "proprio": gym.spaces.Box(
-                -5,
-                5,
-                self._env.modality_dims["robot0_proprio-state"],
-                dtype=np.float32,
-            ),
-            "objects_pos": gym.spaces.Box(
-                -2,
-                2,
-                (len(self.segmentation_instances), 3),
-                dtype=np.float32,
-            ),
-            "segmentation": gym.spaces.Box(
-                0,
-                1,
-                (len(self.segmentation_instances) + self.include_background,)
-                + self.size,
-                dtype=np.uint8,
-            ),
-            "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
-            "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
-            "is_last": gym.spaces.Box(0, 1, (), dtype=bool),
-            "is_terminal": gym.spaces.Box(0, 1, (), dtype=bool),
-            "state": self._env.observation_space,
-            "success": gym.spaces.Box(0, 1, (), dtype=bool),
-        }
-        return spaces
-
-    @property
-    def act_space(self):
-        action = self._env.action_space
-        if self.controller == "OSC_POSE":
-            action = gym.spaces.Box(-1, 1, (4,), dtype=np.float32)
-        return {"action": action}
-
     def _proprio_obs(self, state):
         proprio = []
 
@@ -369,48 +223,15 @@ class PandaRoboSuite:
         # obtain world coordinates from the segmentation mask
         depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
 
-        seg = env_state[
-            self.camera + "_segmentation_" + self.segmentation_level
-        ][::-1].transpose(2, 0, 1)
+        seg = env_state[self.camera + "_segmentation_" + self.segmentation_level][
+            ::-1
+        ].transpose(2, 0, 1)
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
             state[key] = env_state[key]
 
         return proprio, rgb, depth_map, seg, state
-
-    def pixel_to_world(self, seg, depth):
-
-        depth = depth.transpose(1, 2, 0)
-
-        # depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
-        estimated_obj_pos = []
-
-        for ch in range(len(self.segmentation_instances)):
-            seg_pixels = np.argwhere(seg[ch])
-            if (
-                seg_pixels.size > self.objects_pixels[ch]
-            ):  # update max number of pixels that compose the objects
-                self.objects_pixels[ch] = seg_pixels.size
-
-            if (
-                seg_pixels.size > 0.4 * self.objects_pixels[ch]
-            ):  # at least 40% of pixels needs to be in view to update the object position
-                centroid = np.mean(seg_pixels, axis=0).astype(int)
-                estimated_obj_pos += [
-                    CU.transform_from_pixels_to_world(
-                        pixels=centroid,
-                        depth_map=depth,
-                        camera_to_world_transform=self.camera_to_world,
-                    )
-                ]
-
-            else:  # if object is not detected in the scene just take the last relevand position
-                estimated_obj_pos += [self.last_estimated_obj_pos[ch]]
-
-        self.last_estimated_obj_pos = estimated_obj_pos
-
-        return estimated_obj_pos
 
     def check_contact(self):
         contact = 0
@@ -420,44 +241,74 @@ class PandaRoboSuite:
             )
         return contact > 0
 
-    def is_in_area(self, val, target):
-        return abs(target) <= abs(val) <= self.area_threshold and np.sign(
-            val
-        ) == np.sign(target)
-
-    def min_max_areas(self, val):
-        max = self.is_in_area(val, self.area_target)
-        min = self.is_in_area(val, -self.area_target)
-        return min, max
-
-    def check_in_areas(self, obj_pos):
-        left, right = self.min_max_areas(obj_pos[1])
-        close, far = self.min_max_areas(obj_pos[0])
-        up = (
-            self.height_target
-            <= obj_pos[2] - self.height_offset
-            <= self.area_threshold
-        )
-        return [left, right, close, far, up]
-
     def check_inside_table(self, obj_pos):
-
         # check if object is inside che edge of the table
         return not (
             abs(obj_pos[0]) > self.area_threshold
             or abs(obj_pos[1]) > self.area_threshold
         )
 
-    def step(self, action):
+    def push_reward(self, in_areas, true_obj_pos):
+        success = in_areas[_RIGHT]  # and done
+        reward = (
+            (true_obj_pos[1] - self.area_target) * self.push_norm + success
+            if success
+            else 0
+        )
+        return reward
 
+    def lift_reward(self, in_areas, true_obj_pos):
+        reward_grasp = self._env._check_grasp(
+            gripper=self._env.robots[0].gripper,
+            object_geoms=self.target_obj_attr,
+        )
+
+        success = in_areas[_UP] and reward_grasp
+        reward = (
+            (true_obj_pos[2] - self.height_offset - self.height_target) * self.lift_norm
+            + reward_grasp
+            if success
+            else 0
+        )
+        return reward
+
+    def compute_displacements(self, true_objs_pos, true_objs_ori):
+        true_pos_displacement = 0
+        true_ori_displacement = 0
+        true_vertical_displacement = 0
+
+        for obj in self.segmentation_instances:
+            true_pos_displacement += (
+                np.sqrt(np.sum(((true_objs_pos[obj] - self.true_obj_pos[obj]) ** 2)))
+                if self.check_inside_table(
+                    true_objs_pos[obj]
+                )  # do not consider the vertical dimension in case the object is not inside the table
+                else np.sqrt(
+                    np.sum(((true_objs_pos[obj][:2] - self.true_obj_pos[obj][:2]) ** 2))
+                )
+            )
+
+            true_ori_displacement += pq.Quaternion.absolute_distance(
+                pq.Quaternion(self.true_obj_ori[obj]),
+                pq.Quaternion(true_objs_ori[obj]),
+            )
+            true_vertical_displacement += (
+                abs(true_objs_pos[obj][2] - self.true_obj_pos[obj][2])
+                if self.check_inside_table(true_objs_pos[obj])
+                else 0
+            )
+
+        return (
+            true_pos_displacement,
+            true_ori_displacement,
+            true_vertical_displacement,
+        )
+
+    def step(self, action):
         target_obj = self.segmentation_instances[0]
 
         if self.controller == "OSC_POSE":
-            action = np.insert(
-                action, 3, [0, 0, 0]
-            )  # add dummy orientation values
-
-        # assert np.isfinite(action["action"]).all(), action["action"]
+            action = np.insert(action, 3, [0, 0, 0])  # add dummy orientation values
 
         reward = 0.0
         success = 0.0
@@ -465,100 +316,26 @@ class PandaRoboSuite:
             env_state, rew, done, info = self._env.step(action)
             success = self._env.check_success()
             reward += float(rew)
-        # success = (
-        #     min(success, 1.0) and done
-        # )  # success only assigned at last step
 
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
 
         contact = self.check_contact()
 
-        # get objects position and orientation
         new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
-
-        true_pos_displacement = 0
-        true_ori_displacement = 0
-        true_vertical_displacement = 0
-        if not self.is_first:
-            for obj in self.segmentation_instances:
-                true_pos_displacement += (
-                    np.sqrt(
-                        np.sum(
-                            (
-                                (
-                                    new_true_obj_pos[obj]
-                                    - self.true_obj_pos[obj]
-                                )
-                                ** 2
-                            )
-                        )
-                    )
-                    if self.check_inside_table(
-                        new_true_obj_pos[target_obj]
-                    )  # do not consider the vertical dimension in case the object is not inside the table
-                    else np.sqrt(
-                        np.sum(
-                            (
-                                (
-                                    new_true_obj_pos[obj][:2]
-                                    - self.true_obj_pos[obj][:2]
-                                )
-                                ** 2
-                            )
-                        )
-                    )
-                )
-
-                true_ori_displacement += pq.Quaternion.absolute_distance(
-                    pq.Quaternion(self.true_obj_ori[obj]),
-                    pq.Quaternion(new_true_obj_ori[obj]),
-                )
-                true_vertical_displacement += (
-                    abs(new_true_obj_pos[obj][2] - self.true_obj_pos[obj][2])
-                    if self.check_inside_table(new_true_obj_pos[target_obj])
-                    else 0
-                )
-            in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
-        else:
-            (
-                true_pos_displacement,
-                true_ori_displacement,
-                true_vertical_displacement,
-            ) = (0, 0, 0)
-
-            in_areas = [0, 0, 0, 0, 0]
+        (
+            true_pos_displacement,
+            true_ori_displacement,
+            true_vertical_displacement,
+        ) = self.compute_displacements(new_true_obj_pos, new_true_obj_ori)
+        in_areas = self.check_in_areas(new_true_obj_pos[target_obj])
 
         if self.task_reward == "lift":
-
-            reward_grasp = self._env._check_grasp(
-                gripper=self._env.robots[0].gripper,
-                object_geoms=self.target_obj_attr,
-            )
-
-            success = in_areas[_UP] and reward_grasp
-            reward = (
-                (
-                    new_true_obj_pos[target_obj][2]
-                    - self.height_offset
-                    - self.height_target
-                )
-                * self.lift_norm
-                + reward_grasp
-                if success
-                else 0
-            )
-
+            reward = self.lift_reward(in_areas, new_true_obj_pos[target_obj])
         elif self.task_reward == "push":
-            success = in_areas[_RIGHT]  # and done
-            reward = (
-                (new_true_obj_pos[target_obj][1] - self.area_target)
-                * self.push_norm
-                + success
-                if success
-                else 0
-            )
+            reward = self.push_reward(in_areas, new_true_obj_pos[target_obj])
+
         else:
-            # do not update reward or success
+            # Do not change success or reward, use original
             pass
 
         reward = (
@@ -571,9 +348,7 @@ class PandaRoboSuite:
         seg = self.segmentation_channel_split(seg, self.include_background)
 
         objects_pos = self.pixel_to_world(seg, depth)
-        action = np.delete(
-            action, [3, 4, 5]
-        )  # remove dummy orientation values
+        action = np.delete(action, [3, 4, 5])  # remove dummy orientation values
 
         self.is_first = False
 
@@ -601,7 +376,6 @@ class PandaRoboSuite:
         return obs
 
     def reset(self):
-
         self._env.reset()  # reset environment
 
         self.set_camera_pos()  # move camera closer to the robot

@@ -91,9 +91,7 @@ class Workspace:
         self.device = torch.device(cfg.device)
 
         # create logger
-        self.logger = Logger(
-            self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb
-        )
+        self.logger = Logger(self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
         task = (
             cfg.task if cfg.task != "none" else PRIMAL_TASKS[self.cfg.domain]
@@ -126,9 +124,7 @@ class Workspace:
         # add objects to cfg
         domain, _ = task.split("_", 1)
 
-        objets_list = (
-            RS_PANDA_TASKS_OBJ if domain == "rs_panda" else MS_PANDA_TASKS_OBJ
-        )
+        objets_list = RS_PANDA_TASKS_OBJ if domain == "rs_panda" else MS_PANDA_TASKS_OBJ
 
         cfg.objects = objets_list[task.split("_")[1]]
 
@@ -144,11 +140,7 @@ class Workspace:
         meta_specs = self.agent.get_meta_specs()
 
         data_specs = (
-            self.train_env.rgb_spec(),
-            self.train_env.depth_spec(),
-            self.train_env.proprio_spec(),
-            self.train_env.objects_pos_spec(),
-            self.train_env.segmentation_spec(),
+            *self.train_env.obs_specs(),
             self.train_env.action_spec(),
             specs.Array((1,), np.float32, "reward"),
             specs.Array((1,), np.float32, "discount"),
@@ -261,15 +253,11 @@ class Workspace:
         train_until_step = utils.Until(
             self.cfg.num_train_frames, self.cfg.action_repeat
         )
-        seed_until_step = utils.Until(
-            self.cfg.num_seed_frames, self.cfg.action_repeat
-        )
+        seed_until_step = utils.Until(self.cfg.num_seed_frames, self.cfg.action_repeat)
         eval_every_step = utils.Every(
             self.cfg.eval_every_frames, self.cfg.action_repeat
         )
-        train_every_n_steps = (
-            self.cfg.train_every_actions // self.cfg.action_repeat
-        )
+        train_every_n_steps = self.cfg.train_every_actions // self.cfg.action_repeat
         should_train_step = utils.Every(
             train_every_n_steps * self.cfg.action_repeat,
             self.cfg.action_repeat,
@@ -334,15 +322,11 @@ class Workspace:
                             "close_placement",
                             float(in_areas[2] / episode_frame),
                         )
-                        log(
-                            "far_placement", float(in_areas[3] / episode_frame)
-                        )
+                        log("far_placement", float(in_areas[3] / episode_frame))
                         log("up_placement", float(in_areas[4] / episode_frame))
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
-                        log(
-                            "vertical_displacement", cumm_vertical_displacement
-                        )
+                        log("vertical_displacement", cumm_vertical_displacement)
 
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
@@ -398,9 +382,7 @@ class Workspace:
                         next(self.replay_iter), self.global_step
                     )[1]
                 if should_log_scalars(self.global_step):
-                    self.logger.log_metrics(
-                        metrics, self.global_frame, ty="train"
-                    )
+                    self.logger.log_metrics(metrics, self.global_frame, ty="train")
                 if self.global_step > 0 and should_log_recon(self.global_step):
                     videos, text = self.agent.report(next(self.replay_iter))
 
@@ -455,9 +437,7 @@ class Workspace:
         snapshot = self.root_dir / "last_snapshot.pt"
         if snapshot.is_file():
             temp = Path(
-                str(snapshot).replace(
-                    "last_snapshot.pt", "second_last_snapshot.pt"
-                )
+                str(snapshot).replace("last_snapshot.pt", "second_last_snapshot.pt")
             )
             os.replace(snapshot, temp)
         keys_to_save = ["agent", "_global_step", "_global_episode"]

@@ -7,7 +7,7 @@ import agent.dreamer_utils as common
 from collections import OrderedDict
 import numpy as np
 
-from agent.dreamer import ActorCritic
+from agent.dreamer import ActorCritic, WorldModel
 
 
 def stop_gradient(x):
@@ -17,7 +17,7 @@ def stop_gradient(x):
 Module = nn.Module
 
 
-class DreamerObjAgent(Module):
+class FocusAgent(Module):
     def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
         super().__init__()
         self.name = name
@@ -28,24 +28,23 @@ class DreamerObjAgent(Module):
         self.obs_space = obs_space
         self.act_spec = act_spec
         self.is_finetune = is_finetune
+        self.obj_instances = self.obs_space["objects_pos"].shape[0]
 
         self.tfstep = None
         self._use_amp = cfg.precision == 16
         self.device = cfg.device
         self.act_dim = act_spec.shape[0]
 
-        self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
-        self._expl_behavior = ActorCritic(
-            cfg, self.act_spec, self.tfstep, name="expl"
-        )
-        self._task_behavior = ActorCritic(
-            cfg, self.act_spec, self.tfstep, name="task"
-        )
+        self.wm = OCWorldModel(cfg, obs_space, self.act_dim, self.tfstep)
+        self.wm.model_init()
+
+        self._expl_behavior = ActorCritic(cfg, self.act_spec, self.tfstep, name="expl")
+        self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep, name="task")
         self.to(cfg.device)
 
         self.requires_grad_(requires_grad=False)
         self.reward_coeff = cfg.reward_coeff
-        self.rw_dict = {"rw_sup", "rw_mov", "rw_dist_obj", "rw_intr"}
+        self.rw_dict = {"rw_mov", "rw_dist_obj", "rw_intr"}
 
         self.rewnorm_dict = {}
         for k in self.rw_dict:
@@ -82,10 +81,9 @@ class DreamerObjAgent(Module):
         )
         feat = self.wm.rssm.get_feat(latent)
 
+        # policy selsection based on exploration or finetune mode
         policy = (
-            self._task_behavior.actor
-            if self.is_finetune
-            else self._expl_behavior.actor
+            self._task_behavior.actor if self.is_finetune else self._expl_behavior.actor
         )
 
         if eval_mode:
@@ -111,6 +109,7 @@ class DreamerObjAgent(Module):
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
+        # update based on mode, save compute time
         if self.is_finetune:
             metrics.update(
                 self._task_behavior.update(
@@ -140,28 +139,20 @@ class DreamerObjAgent(Module):
         return reward
 
     def expl_reward_fn(self, seq):
+        # to optimize execution execute computation of distance and object movement reward only if needed
+        if self.reward_coeff["rw_mov"] > 0 or self.reward_coeff["rw_dist_obj"] > 0:
+            obj_id = 0
+            obj_poses = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
+                "objects_pos"
+            ].mean
 
-        if self.reward_coeff["rw_sup"] > 0:
-            rw_sup = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
-        else:
-            rw_sup = torch.Tensor([0.0]).to(self.device)
+            obj_pos = obj_poses[:, :, obj_id]
 
-        obj_id = 0
-        obj_poses = self.wm.heads["object_decoder"](
-            seq["feat"], only_mlp=True
-        )["objects_pos"].mean
-
-        obj_pos = obj_poses[:, :, obj_id]
-
-        if (
-            self.reward_coeff["rw_mov"] > 0
-            or self.reward_coeff["rw_dist_obj"] > 0
-        ):
             # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
             id_eef = 21 if self.env == "rs" else 18
-            gripper_pos = self.wm.heads["decoder"](seq["feat"])[
-                "proprio"
-            ].mean[:, :, id_eef : id_eef + 3]
+            gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
+                :, :, id_eef : id_eef + 3
+            ]
 
             rw_mov = obj_pos[:, :, 1].unsqueeze(
                 -1
@@ -176,9 +167,9 @@ class DreamerObjAgent(Module):
             rw_mov = torch.Tensor([0.0]).to(self.device)
             rw_dist_obj = torch.Tensor([0.0]).to(self.device)
 
-        instances = obj_poses.shape[2]
+        # computation of intrinsic reward
         obj_onehot = torch.eye(
-            instances + 1, device=seq["feat"].device
+            self.obj_instances + 1, device=seq["feat"].device
         ).repeat(*seq["feat"].shape[:2], 1, 1)
 
         x, _ = self.wm.heads["object_decoder"].object_latent_extractor(
@@ -186,12 +177,12 @@ class DreamerObjAgent(Module):
         )
 
         rw_intr = 0
-        for i in range(instances):
+        for i in range(self.obj_instances):
             rw_intr += self.compute_intr_reward(x[:, :, i])
-        # rw_intr = self.compute_intr_reward(obj_pos)
+        # rw_intr = self.compute_intr_reward(obj_pos) intrinsic reward computation over object positon in space
 
+        # output final results
         self.rw_dict = {
-            "rw_sup": rw_sup,
             "rw_mov": rw_mov,
             "rw_dist_obj": rw_dist_obj,
             "rw_intr": rw_intr,
@@ -211,7 +202,7 @@ class DreamerObjAgent(Module):
         return rw, mets
 
     def task_reward_fn(self, seq):
-        rw = self.wm.heads["reward"](seq["feat"]).mean  # .mode()
+        rw = self.wm.heads["reward"](seq["feat"]).mean
         met = {"task_rw_mean": rw.mean(), "task_rw_svd": rw.std()}
 
         return rw, met
@@ -262,9 +253,7 @@ class DreamerObjAgent(Module):
         print(f"Copying the pretrained world model")
         utils.hard_update_params(other.wm.rssm, self.wm.rssm)
         utils.hard_update_params(other.wm.encoder, self.wm.encoder)
-        utils.hard_update_params(
-            other.wm.heads["decoder"], self.wm.heads["decoder"]
-        )
+        utils.hard_update_params(other.wm.heads["decoder"], self.wm.heads["decoder"])
         utils.hard_update_params(
             other.wm.heads["object_decoder"], self.wm.heads["object_decoder"]
         )
@@ -297,73 +286,21 @@ class DreamerObjAgent(Module):
                 )
 
 
-class WorldModel(Module):
+class OCWorldModel(WorldModel):
+    # world model between dreamer and focus needs to be aligned in processing of the in
     def __init__(self, config, obs_space, act_dim, tfstep):
-        super().__init__()
-        shapes = {k: tuple(v.shape) for k, v in obs_space.items()}
-        self.cfg = config
-        self.device = config.device
-        self.tfstep = tfstep
-        self.encoder = common.Encoder(shapes, **config.encoder)
+        super().__init__(config, obs_space, act_dim, tfstep)
 
-        # Computing embed dim
-        with torch.no_grad():
-            zeros = {k: torch.zeros((1,) + v) for k, v in shapes.items()}
-            outs = self.encoder(zeros)
-            embed_dim = outs.shape[1]
-        self.embed_dim = embed_dim
-        self.rssm = common.EnsembleRSSM(
-            **config.rssm,
-            action_dim=act_dim,
-            embed_dim=embed_dim,
-            device=self.device,
-        )
-        self.heads = {}
-        self._use_amp = config.precision == 16
-        inp_size = config.rssm.deter
-        if config.rssm.discrete:
-            inp_size += config.rssm.stoch * config.rssm.discrete
-        else:
-            inp_size += config.rssm.stoch
-        self.inp_size = inp_size
-        self.heads["decoder"] = common.Decoder(
-            shapes, **config.decoder, embed_dim=inp_size
-        )
         self.heads["object_decoder"] = common.ObjDecoder(
-            shapes, **config.object_decoder, embed_dim=inp_size
+            self.shapes, **config.object_decoder, embed_dim=self.inp_size
         )
 
-        self.heads["reward"] = common.MLP(inp_size, (1,), **config.reward_head)
-        if config.pred_discount:
-            self.heads["discount"] = common.MLP(
-                inp_size, (1,), **config.discount_head
-            )
-        for name in config.grad_heads:
-            assert name in self.heads, name
-        self.grad_heads = config.grad_heads
-        self.heads = nn.ModuleDict(self.heads)
-        self.model_opt = common.Optimizer(
-            "model",
-            self.parameters(),
-            **config.model_opt,
-            use_amp=self._use_amp,
-        )
-        for p in self.heads["reward"]._out.parameters():
-            p.data.fill_(0.0)
-
-    def update(self, data, state=None):
-        with common.RequiresGrad(self):
-            with torch.cuda.amp.autocast(enabled=self._use_amp):
-                model_loss, state, outputs, metrics = self.loss(data, state)
-            metrics.update(self.model_opt(model_loss, self.parameters()))
-        return state, outputs, metrics
+        self.model_init()
 
     def loss(self, data, state=None):
         data = self.preprocess(data)
         embed = self.encoder(data)
-        post, prior = self.rssm.observe(
-            embed, data["action"], data["is_first"], state
-        )
+        post, prior = self.rssm.observe(embed, data["action"], data["is_first"], state)
         kl_loss, kl_value = self.rssm.kl_loss(post, prior, **self.cfg.kl)
         assert len(kl_loss.shape) == 0 or (
             len(kl_loss.shape) == 1 and kl_loss.shape[0] == 1
@@ -386,22 +323,17 @@ class WorldModel(Module):
 
             for key, dist in dists.items():
                 like = 0
-
+                # handled differently with respect to parent class, needs to be separated per instance
                 if key == "segmentation":
                     seg = data[key].permute(0, 1, 3, 4, 2)
                     like = dist.log_prob(seg)
 
                 elif key == "objects_pos":
-                    # for el in range(data[key].shape[2]):
                     like = dist.log_prob(data[key])
 
                 elif key == "rgb" or key == "depth":
                     instances_dim = dist.mean.shape[2]
-                    images = (
-                        data[key]
-                        .unsqueeze(2)
-                        .repeat(1, 1, instances_dim, 1, 1, 1)
-                    )
+                    images = data[key].unsqueeze(2).repeat(1, 1, instances_dim, 1, 1, 1)
                     like = dist.log_prob(images)
                 else:
                     like = dist.log_prob(data[key])
@@ -426,110 +358,6 @@ class WorldModel(Module):
         metrics["post_ent"] = self.rssm.get_dist(post).entropy().mean()
         last_state = {k: v[:, -1] for k, v in post.items()}
         return model_loss, last_state, outs, metrics
-
-    def imagine(
-        self,
-        policy,
-        start,
-        is_terminal,
-        horizon,
-        task_cond=None,
-        eval_policy=False,
-    ):
-        flatten = lambda x: x.reshape([-1] + list(x.shape[2:]))
-        start = {k: flatten(v) for k, v in start.items()}
-        start["feat"] = self.rssm.get_feat(start)
-        inp = (
-            start["feat"]
-            if task_cond is None
-            else torch.cat([start["feat"], task_cond], dim=-1)
-        )
-        start["action"] = torch.zeros_like(
-            policy(inp).mean, device=self.device
-        )  # .mode())
-        seq = {k: [v] for k, v in start.items()}
-        if task_cond is not None:
-            seq["task"] = [task_cond]
-        for _ in range(horizon):
-            inp = (
-                seq["feat"][-1]
-                if task_cond is None
-                else torch.cat([seq["feat"][-1], task_cond], dim=-1)
-            )
-            action = (
-                policy(stop_gradient(inp)).sample()
-                if not eval_policy
-                else policy(stop_gradient(inp)).mean
-            )
-            state = self.rssm.img_step(
-                {k: v[-1] for k, v in seq.items()}, action
-            )
-            feat = self.rssm.get_feat(state)
-            for key, value in {
-                **state,
-                "action": action,
-                "feat": feat,
-            }.items():
-                seq[key].append(value)
-            if task_cond is not None:
-                seq["task"].append(task_cond)
-
-        # shape will be (T, B, *DIMS)
-        seq = {k: torch.stack(v, 0) for k, v in seq.items()}
-        if "discount" in self.heads:
-            disc = self.heads["discount"](seq["feat"]).mean()
-            if is_terminal is not None:
-                # Override discount prediction for the first step with the true
-                # discount factor from the replay buffer.
-                true_first = 1.0 - flatten(is_terminal)
-                true_first *= self.cfg.discount
-                disc = torch.cat([true_first[None], disc[1:]], 0)
-        else:
-            disc = self.cfg.discount * torch.ones(
-                list(seq["feat"].shape[:-1]) + [1], device=self.device
-            )
-        seq["discount"] = disc
-        # Shift discount factors because they imply whether the following state
-        # will be valid, not whether the current state is valid.
-        seq["weight"] = torch.cumprod(
-            torch.cat(
-                [torch.ones_like(disc[:1], device=self.device), disc[:-1]], 0
-            ),
-            0,
-        )
-        return seq
-
-    def preprocess(self, obs):
-        obs = obs.copy()
-        for key, value in obs.items():
-            if key.startswith("log_"):
-                continue
-            if value.dtype in [np.uint8, torch.uint8] and "rgb" in key:
-                value = value / 255.0 - 0.5
-
-            if key == "depth":
-                value = value / 4.0 - 0.5
-
-            if key == "segmentation":
-                value = value * 1.0
-
-            # if key == "objects_pos":
-            # value = value * 100.0  # convert units to meters
-
-            # max = torch.tensor([0.1, 0.1, 1.0], device=value.device)
-            # min = torch.tensor([-0.1, -0.1, 0.75], device=value.device)
-
-            # value = (value - min) / (max - min)
-
-            obs[key] = value
-        obs["reward"] = {
-            "identity": nn.Identity(),
-            "sign": torch.sign,
-            "tanh": torch.tanh,
-        }[self.cfg.clip_rewards](obs["reward"])
-        obs["discount"] = 1.0 - obs["is_terminal"].float()
-        obs["discount"] *= self.cfg.discount
-        return obs
 
     def segmentation_visualization(
         self,
@@ -573,15 +401,10 @@ class WorldModel(Module):
         return color_seg.permute(0, 1, 4, 2, 3)
 
     def object_pos(self, data, key, head, nvid=8):
-
+        # decoding of the object_position for reporting
         decoder = self.heads[head]
 
         truth = data[key][:nvid][0].unsqueeze(1)
-
-        # normalization object_pose
-        # max = torch.tensor([0.1, 0.1, 0.9], device=truth.device)
-        # min = torch.tensor([-0.1, -0.1, 0.75], device=truth.device)
-        # conf = max - min
 
         embed = self.encoder(data)
         states, _ = self.rssm.observe(
@@ -619,7 +442,7 @@ class WorldModel(Module):
         return dict_out
 
     def proprio_pred(self, data, key, head, nvid=8):
-
+        # decoding of the proprio information for reporting
         decoder = self.heads[head]
         truth = data[key][:nvid][0].unsqueeze(1)
         embed = self.encoder(data)
@@ -642,9 +465,7 @@ class WorldModel(Module):
             GT = truth[i][0].cpu().numpy()
             pred = proprio_pred.mean[i][0].cpu().numpy()
             error = pred - GT
-            text_out.append(
-                f"Proprio GT={GT}, Prediction={pred}, Error={error}"
-            )
+            text_out.append(f"Proprio GT={GT}, Prediction={pred}, Error={error}")
 
             dict_out["Proprio GT"].append(GT)
             dict_out["Prediction"].append(pred)
@@ -654,7 +475,6 @@ class WorldModel(Module):
         return dict_out
 
     def video_pred(self, data, key, head, nvid=8):
-
         if key == "rgb" or key == "depth":
             decoder = self.heads[head]  # B, T, C, H, W
             truth = data[key][:nvid] + 0.5
@@ -667,36 +487,25 @@ class WorldModel(Module):
 
             recon = decoder(
                 self.rssm.get_feat(states), data["segmentation"][:nvid, :5]
-            )[key].mean[
-                :nvid
-            ]  # mode
+            )[key].mean[:nvid]
 
-            recon_unmasked = decoder(self.rssm.get_feat(states))[key].mean[
-                :nvid
-            ]  # mode
+            recon_unmasked = decoder(self.rssm.get_feat(states))[key].mean[:nvid]
 
             init = {k: v[:, -1] for k, v in states.items()}
             prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
 
             prior_recon = decoder(
                 self.rssm.get_feat(prior), data["segmentation"][:nvid, 5:]
-            )[
-                key
-            ].mean  # mode
+            )[key].mean
 
-            prior_recon_unmasked = decoder(self.rssm.get_feat(prior))[
-                key
-            ].mean  # mode
+            prior_recon_unmasked = decoder(self.rssm.get_feat(prior))[key].mean
 
             model = torch.clip(
                 torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
             )
 
             model_unmasked = torch.clip(
-                torch.cat(
-                    [recon_unmasked[:, :5] + 0.5, prior_recon_unmasked + 0.5],
-                    1,
-                ),
+                torch.cat([recon_unmasked[:, :5] + 0.5, prior_recon_unmasked + 0.5], 1),
                 0,
                 1,
             )
@@ -707,17 +516,14 @@ class WorldModel(Module):
             for m in range(masks.shape[2]):
                 if m == 0:
                     truth_out = (
-                        masks[:nvid, :, m].unsqueeze(2).repeat(1, 1, chs, 1, 1)
-                        * truth
+                        masks[:nvid, :, m].unsqueeze(2).repeat(1, 1, chs, 1, 1) * truth
                     )
                 else:
                     temp = (
-                        masks[:nvid, :, m].unsqueeze(2).repeat(1, 1, chs, 1, 1)
-                        * truth
+                        masks[:nvid, :, m].unsqueeze(2).repeat(1, 1, chs, 1, 1) * truth
                     )
                     truth_out = torch.cat((truth_out, temp), 4)
 
-            # truth = truth_out
             # divide model output
             model = model.permute(0, 1, 3, 4, 2, 5).reshape(
                 *model.shape[:2],
@@ -729,14 +535,10 @@ class WorldModel(Module):
                 *model_unmasked.shape[3:-1],
                 model_unmasked.shape[2] * model_unmasked.shape[-1],
             )
-            # model_unmasked = torch.cat(
-            #     torch.split(model_unmasked, chs, 2), dim=4
-            # )
 
             video = torch.cat([truth_out, model, model_unmasked], 3)
 
         elif key == "segmentation":
-
             decoder = self.heads[head]  # B, T, C, H, W
             truth = data[key][:nvid] + 0.5
             embed = self.encoder(data)
@@ -746,9 +548,7 @@ class WorldModel(Module):
                 data["is_first"][:nvid, :5],
             )
 
-            recon = decoder(self.rssm.get_feat(states))[key].mean[
-                :nvid
-            ]  # mode
+            recon = decoder(self.rssm.get_feat(states))[key].mean[:nvid]  # mode
 
             init = {k: v[:, -1] for k, v in states.items()}
             prior = self.rssm.imagine(data["action"][:nvid, 5:], init)

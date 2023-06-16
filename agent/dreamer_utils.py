@@ -442,12 +442,12 @@ class Encoder(Module):
         self.cnn_keys = [
             k
             for k, v in shapes.items()
-            if re.match(cnn_keys, k) and len(v) == 3
+            if re.match(cnn_keys, k)
         ]
         self.mlp_keys = [
             k
             for k, v in shapes.items()
-            if re.match(mlp_keys, k) and len(v) == 1
+            if re.match(mlp_keys, k)
         ]
 
         print("Encoder CNN inputs:", list(self.cnn_keys))
@@ -462,7 +462,7 @@ class Encoder(Module):
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
-                    prev_depth = 4
+                    prev_depth = sum([v[0] for k, v in shapes.items() if k in self.cnn_keys]) # intialize depth with sum of dimensions of considered observations
                 else:
                     prev_depth = 2 ** (i - 1) * self._cnn_depth
                 depth = 2**i * self._cnn_depth
@@ -541,12 +541,12 @@ class Decoder(Module):
         self.cnn_keys = [
             k
             for k, v in shapes.items()
-            if re.match(cnn_keys, k)  # and len(v) == 3
+            if re.match(cnn_keys, k)
         ]
         self.mlp_keys = [
             k
             for k, v in shapes.items()
-            if re.match(mlp_keys, k) and len(v) == 1
+            if re.match(mlp_keys, k)
         ]
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
@@ -681,12 +681,12 @@ class ObjDecoder(Module):
         self.cnn_keys = [
             k
             for k, v in shapes.items()
-            if re.match(cnn_keys, k)  # and len(v) == 3
+            if re.match(cnn_keys, k)
         ]
         self.mlp_keys = [
             k
             for k, v in shapes.items()
-            if re.match(mlp_keys, k)  # and len(v) == 1
+            if re.match(mlp_keys, k)
         ]
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
@@ -715,8 +715,6 @@ class ObjDecoder(Module):
 
         if len(self.cnn_keys) > 0:
 
-            # self._conv_in = nn.Sequential(nn.Linear(512, 32 * self._cnn_depth))
-
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
@@ -731,9 +729,6 @@ class ObjDecoder(Module):
                 if i == len(self._cnn_kernels) - 1:
                     depth, act, norm = (
                         sum(self.channels.values()),
-                        # Commented bc fixed above
-                        # - self.channels["segmentation"]
-                        # + 1,  # for segmentation consider only 1 channel per object, and then do the softmax over objects
                         nn.Identity(),
                         "none",
                     )
@@ -746,14 +741,6 @@ class ObjDecoder(Module):
                 self._conv_model.append(act)
 
             self._conv_model = nn.Sequential(*self._conv_model)
-
-            # self.keys = [
-            #     x for x in list(self.channels.keys()) if x != "segmentation"
-            # ]
-            # self.chs = [
-            #     self.channels[x] * self.instances_dim for x in self.keys
-            # ] + [self.instances_dim]
-            # self.chs = (sum(self.channels.values()) - self.channels["segmentation"] + 1) * self.channels["segmentation"]
 
         if len(self.mlp_keys) > 0:
             self._mlp_model = []
@@ -808,7 +795,6 @@ class ObjDecoder(Module):
             [
                 -1,  # batch_dim x batch_time x num_obj
                 32 * self._cnn_depth,  # object_extractor output dimension
-                # 1,1 to be an image
                 1,
                 1,
             ]
@@ -822,19 +808,13 @@ class ObjDecoder(Module):
         )
         means = torch.split(x, list(self.channels.values()), dim=-3)
 
-        # x = x.reshape(
-        #     list(feat.shape[:-2]) + [sum(self.chs)] + list(x.shape[2:])
-        # )
-        # means = torch.split(x, self.chs, 2)  # divide means per single channel
 
         for key, mean in zip(self.channels.keys(), means):
             if key == "segmentation":
                 mean = mean.reshape(
                     *features.shape[:2], self.instances_dim, *x.shape[-2:]
                 ).permute(0, 1, 3, 4, 2)
-                # mean = mean.permute(
-                #     0, 1, 3, 4, 2  # move obj channel to the last dimension
-                # )
+
                 dists[key] = D.Independent(
                     OneHotDist(mean), 2
                 )  # output is a binary mask

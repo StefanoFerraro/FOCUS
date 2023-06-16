@@ -32,12 +32,7 @@ def _make_jaco(
     seed,
     img_size,
 ):
-    env = cdmc.make_jaco(
-        task,
-        obs_type,
-        seed,
-        img_size,
-    )
+    env = cdmc.make_jaco(task, obs_type, seed, img_size)
     env = ActionDTypeWrapper(env, np.float32)
     env = ActionRepeatWrapper(env, action_repeat)
     env = FlattenJacoObservationWrapper(env)
@@ -76,12 +71,8 @@ def _make_dmc(
     if obs_type == "pixels":
         # zoom in camera for quadruped
         camera_id = dict(quadruped=2).get(domain, 0)
-        render_kwargs = dict(
-            height=img_size, width=img_size, camera_id=camera_id
-        )
-        env = pixels.Wrapper(
-            env, pixels_only=True, render_kwargs=render_kwargs
-        )
+        render_kwargs = dict(height=img_size, width=img_size, camera_id=camera_id)
+        env = pixels.Wrapper(env, pixels_only=True, render_kwargs=render_kwargs)
         env._size = (img_size, img_size)
         env._camera = camera_id
     return env
