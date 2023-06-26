@@ -9,6 +9,7 @@ reward_free: true
 # task settings
 task: none
 domain: walker # primal task will be infered in runtime
+comment: default
 # train settings
 num_train_frames: 2000010
 num_seed_frames: 4000

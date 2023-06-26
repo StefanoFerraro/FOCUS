@@ -30,6 +30,11 @@ def make(domain, task,
                            task_kwargs=task_kwargs,
                            environment_kwargs=environment_kwargs,
                            visualize_reward=visualize_reward)
+    elif domain == 'manipulator':
+        return quadruped.make(task,
+                           task_kwargs=task_kwargs,
+                           environment_kwargs=environment_kwargs,
+                           visualize_reward=visualize_reward)
     else:
         raise f'{task} not found'
 
