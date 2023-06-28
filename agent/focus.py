@@ -22,9 +22,10 @@ class FocusAgent(Module):
         super().__init__()
         self.name = name
         self.cfg = cfg
-        self.env = self.cfg["task"][:2]
-        self.task = self.cfg["task"].split("_")[1]
-        self.cfg.update(**kwargs)
+        self.env = self.cfg.domain
+        self.task = self.cfg.task
+        agent_config = {"agent": kwargs}
+        self.cfg.update(**agent_config)
         self.obs_space = obs_space
         self.act_spec = act_spec
         self.is_finetune = is_finetune
@@ -43,22 +44,22 @@ class FocusAgent(Module):
         self.to(cfg.device)
 
         self.requires_grad_(requires_grad=False)
-        self.reward_coeff = cfg.reward_coeff
+        self.reward_coeff = cfg.agent.reward_coeff
         self.rw_dict = {"rw_mov", "rw_dist_obj", "rw_intr"}
 
         self.rewnorm_dict = {}
         for k in self.rw_dict:
             self.rewnorm_dict[k] = common.StreamNorm(
-                **self.cfg.reward_norm, device=self.device
+                **cfg.agent.reward_norm, device=self.device
             )
 
         rms = utils.RMS(self.device)
         self.pbe = utils.PBE(
             rms,
-            cfg.apt.knn_clip,
-            cfg.apt.knn_k,
-            cfg.apt.knn_avg,
-            cfg.apt.knn_rms,
+            cfg.agent.apt.knn_clip,
+            cfg.agent.apt.knn_k,
+            cfg.agent.apt.knn_avg,
+            cfg.agent.apt.knn_rms,
             self.device,
         )
 
@@ -275,7 +276,7 @@ class FocusAgent(Module):
             utils.hard_update_params(
                 other._expl_behavior.critic, self._expl_behavior.critic
             )
-            if self.cfg.slow_target:
+            if self.cfg.agent.slow_target:
                 utils.hard_update_params(
                     other._task_behavior._target_critic,
                     self._task_behavior._target_critic,
@@ -292,7 +293,7 @@ class OCWorldModel(WorldModel):
         super().__init__(config, obs_space, act_dim, tfstep)
 
         self.heads["object_decoder"] = common.ObjDecoder(
-            self.shapes, **config.object_decoder, embed_dim=self.inp_size
+            self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size
         )
 
         self.model_init()

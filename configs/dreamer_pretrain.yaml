@@ -1,27 +1,18 @@
 defaults:
-  - configs/dreamer
+  - world_model: dreamer
+  - env: rs
   - agent: dreamer
-  - configs: ${configs}
   - override hydra/launcher: submitit_local
 
-# mode
-reward_free: true
-# task settings
+# agent: none
 task: none
-domain: walker # primal task will be infered in runtime
-comment: default
-# train settings
-num_train_frames: 2000010
-num_seed_frames: 4000
-# eval
-eval_every_frames: 50000
-num_eval_episodes: 10
-# snapshot
-snapshots: [100000, 500000, 1000000, 2000000] 
-snapshot_dir: ../../../models/${task}/${comment}/${agent.name}/${seed}
-# replay buffer
-replay_buffer_size: 500000
-replay_buffer_num_workers: 4
+domain: ${env.name}
+comment: ""
+
+# experiment
+experiment: pt
+project_name: RSS_benchmark
+
 # misc
 seed: 1
 device: cuda
@@ -30,12 +21,38 @@ save_train_video: true
 use_tb: false
 use_wandb: true
 
-#finetune
+# mode
+obs_type: pixels
+action_repeat: 2 
+reward_free: true
 is_finetune: True
+precision: 32
 
-# experiment
-experiment: pt
-project_name: RSS_benchmark
+# model specs
+batch_size: 32
+batch_length: 32
+imag_horizon: 15
+eval_state_mean: False
+train_every_actions: 32
+
+# train settings
+num_train_frames: 2000010
+num_seed_frames: 4000
+# eval settings
+eval_every_frames: 50000
+num_eval_episodes: 10
+# snapshot
+snapshots: [100000, 500000, 1000000, 2000000] 
+snapshot_dir: ../../../models/${task}/${comment}/${agent.name}/${seed}
+# replay buffer
+replay_buffer_size: 500000
+replay_buffer_num_workers: 4
+replay:   
+  capacity: ${replay_buffer_size}
+  ongoing: False
+  minlen: 50
+  maxlen: 50 
+  prioritize_ends: False
 
 # log settings
 log_every_frames: 1000

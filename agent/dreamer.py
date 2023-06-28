@@ -19,7 +19,8 @@ class DreamerAgent(Module):
         super().__init__()
         self.name = name
         self.cfg = cfg
-        self.cfg.update(**kwargs)
+        agent_config = {"agent": kwargs}
+        self.cfg.update(**agent_config)
         self.obs_space = obs_space
         self.act_spec = act_spec
         self.tfstep = None
@@ -133,7 +134,7 @@ class DreamerAgent(Module):
             utils.hard_update_params(
                 other._task_behavior.critic, self._task_behavior.critic
             )
-            if self.cfg.slow_target:
+            if self.cfg.agent.slow_target:
                 utils.hard_update_params(
                     other._task_behavior._target_critic,
                     self._task_behavior._target_critic,
@@ -164,7 +165,7 @@ class DreamerAgent(Module):
             value = self._task_behavior._target_critic(seq["feat"]).mean
         else:
             value = torch.zeros_like(reward, device=self.device)
-        disc = self.cfg.discount * torch.ones(
+        disc = self.cfg.agent.discount * torch.ones(
             list(seq["feat"].shape[:-1]) + [1], device=self.device
         )
 
@@ -173,7 +174,7 @@ class DreamerAgent(Module):
             value[:-1],
             disc[:-1],
             bootstrap=value[-1],
-            lambda_=self.cfg.discount_lambda,
+            lambda_=self.cfg.agent.discount_lambda,
             axis=0,
         )
 
@@ -298,10 +299,11 @@ class WorldModel(Module):
     def __init__(self, config, obs_space, act_dim, tfstep):
         super().__init__()
         self.shapes = {k: tuple(v.shape) for k, v in obs_space.items()}
-        self.cfg = config
+        self.full_cfg = config
+        self.cfg = config.world_model
         self.device = config.device
         self.tfstep = tfstep
-        self.encoder = common.Encoder(self.shapes, **config.encoder)
+        self.encoder = common.Encoder(self.shapes, **self.cfg.encoder)
         # Computing embed dim
         with torch.no_grad():
             zeros = {k: torch.zeros((1,) + v) for k, v in self.shapes.items()}
@@ -309,26 +311,26 @@ class WorldModel(Module):
             embed_dim = outs.shape[1]
         self.embed_dim = embed_dim
         self.rssm = common.EnsembleRSSM(
-            **config.rssm,
+            **self.cfg.rssm,
             action_dim=act_dim,
             embed_dim=embed_dim,
             device=self.device,
         )
         self.heads = {}
         self._use_amp = config.precision == 16
-        self.inp_size = config.rssm.deter
-        if config.rssm.discrete:
-            self.inp_size += config.rssm.stoch * config.rssm.discrete
+        self.inp_size = self.cfg.rssm.deter
+        if self.cfg.rssm.discrete:
+            self.inp_size += self.cfg.rssm.stoch * self.cfg.rssm.discrete
         else:
-            self.inp_size += config.rssm.stoch
+            self.inp_size += self.cfg.rssm.stoch
         self.inp_size = self.inp_size
         self.heads["decoder"] = common.Decoder(
-            self.shapes, **config.decoder, embed_dim=self.inp_size
+            self.shapes, **self.cfg.decoder, embed_dim=self.inp_size
         )
-        self.heads["reward"] = common.MLP(self.inp_size, (1,), **config.reward_head)
-        if config.pred_discount:
+        self.heads["reward"] = common.MLP(self.inp_size, (1,), **self.cfg.reward_head)
+        if self.cfg.pred_discount:
             self.heads["discount"] = common.MLP(
-                self.inp_size, (1,), **config.discount_head
+                self.inp_size, (1,), **self.cfg.discount_head
             )
 
     def model_init(self):
@@ -442,10 +444,10 @@ class WorldModel(Module):
                 # Override discount prediction for the first step with the true
                 # discount factor from the replay buffer.
                 true_first = 1.0 - flatten(is_terminal)
-                true_first *= self.cfg.discount
+                true_first *= self.full_cfg.agent.discount
                 disc = torch.cat([true_first[None], disc[1:]], 0)
         else:
-            disc = self.cfg.discount * torch.ones(
+            disc = self.full_cfg.agent.discount * torch.ones(
                 list(seq["feat"].shape[:-1]) + [1], device=self.device
             )
         seq["discount"] = disc
@@ -479,9 +481,9 @@ class WorldModel(Module):
             "identity": nn.Identity(),
             "sign": torch.sign,
             "tanh": torch.tanh,
-        }[self.cfg.clip_rewards](obs["reward"])
+        }[self.full_cfg.agent.clip_rewards](obs["reward"])
         obs["discount"] = 1.0 - obs["is_terminal"].float()
-        obs["discount"] *= self.cfg.discount
+        obs["discount"] *= self.full_cfg.agent.discount
         return obs
 
     def video_pred(self, data, key, nvid=8):
@@ -536,17 +538,18 @@ class WorldModel(Module):
 class ActorCritic(Module):
     def __init__(self, config, act_spec, tfstep, name="default"):
         super().__init__()
-        self.cfg = config
+        self.cfg = config.agent
         self.act_spec = act_spec
         self.tfstep = tfstep
         self._use_amp = config.precision == 16
+        self.hor = config.imag_horizon
         self.device = config.device
 
-        inp_size = config.rssm.deter
-        if config.rssm.discrete:
-            inp_size += config.rssm.stoch * config.rssm.discrete
+        inp_size = config.world_model.rssm.deter
+        if config.world_model.rssm.discrete:
+            inp_size += config.world_model.rssm.stoch * config.world_model.rssm.discrete
         else:
-            inp_size += config.rssm.stoch
+            inp_size += config.world_model.rssm.stoch
         self.actor = common.MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
         self.critic = common.MLP(inp_size, (1,), **self.cfg.critic)
         if self.cfg.slow_target:
@@ -574,7 +577,7 @@ class ActorCritic(Module):
 
     def update(self, world_model, start, is_terminal, reward_fn):
         metrics = {}
-        hor = self.cfg.imag_horizon
+
         # The weights are is_terminal flags for the imagination start states.
         # Technically, they should multiply the losses from the second trajectory
         # step onwards, which is the first imagined step. However, we are not
@@ -582,7 +585,7 @@ class ActorCritic(Module):
         # them to scale the whole sequence.
         with common.RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
-                seq = world_model.imagine(self.actor, start, is_terminal, hor)
+                seq = world_model.imagine(self.actor, start, is_terminal, self.hor)
                 seq["reward"], mets1 = reward_fn(seq)
                 target, mets2 = self.target(seq)
                 actor_loss, mets3 = self.actor_loss(seq, target)

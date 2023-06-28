@@ -15,7 +15,8 @@ import torch
 import wandb
 from dm_env import specs
 
-from envs.make import make
+import env
+from env.make import make
 import utils
 from logger import Logger
 from dreamer_replay import ReplayBuffer, make_replay_loader
@@ -23,7 +24,7 @@ from hydra.utils import get_original_cwd, to_absolute_path
 
 torch.backends.cudnn.benchmark = True
 
-from dmc_benchmark import PRIMAL_TASKS, RS_PANDA_TASKS_OBJ, MS_PANDA_TASKS_OBJ
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, PRIMAL_TASKS
 
 import warnings
 

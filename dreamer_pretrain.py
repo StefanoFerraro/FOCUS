@@ -15,14 +15,13 @@ import torch
 import wandb
 from dm_env import specs
 
-from envs.make import make
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, PRIMAL_TASKS
+from env.make import make
 import utils
 from logger import Logger
 from dreamer_replay import ReplayBuffer, make_replay_loader
 
 torch.backends.cudnn.benchmark = True
-
-from dmc_benchmark import PRIMAL_TASKS, RS_PANDA_TASKS_OBJ, MS_PANDA_TASKS_OBJ
 
 import warnings
 
@@ -89,10 +88,12 @@ class Workspace:
         self.cfg = cfg
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
+        cfg.world_model.device = cfg.device
 
         # create logger
         self.logger = Logger(self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
         # create envs
+        domain = cfg.domain
         task = (
             cfg.task if cfg.task != "none" else PRIMAL_TASKS[self.cfg.domain]
         )  # -> which is the URLB default
@@ -103,6 +104,7 @@ class Workspace:
         )  # change to original working directory for loading URDF models
 
         self.train_env = make(
+            domain,
             task,
             cfg.obs_type,
             frame_stack,
@@ -110,7 +112,9 @@ class Workspace:
             cfg.seed,
             cfg.env,
         )
+
         self.eval_env = make(
+            domain,
             task,
             cfg.obs_type,
             frame_stack,
@@ -121,12 +125,10 @@ class Workspace:
 
         os.chdir(self.workdir)
 
-        # add objects to cfg
-        domain, _ = task.split("_", 1)
+        objets_list = RS_TASKS_OBJ if domain == "rs" else MS_TASKS_OBJ
 
-        objets_list = RS_PANDA_TASKS_OBJ if domain == "rs_panda" else MS_PANDA_TASKS_OBJ
-
-        # cfg.objects = objets_list[task.split("_")[1]]
+        if cfg.world_model.name == "focus":
+            cfg.world_model.objects = objets_list[task]
 
         # create agent
         self.agent = make_dreamer_agent(
@@ -490,7 +492,7 @@ class Workspace:
         return snapshot_dir
 
 
-@hydra.main(config_path=".", config_name="dreamer_pretrain")
+@hydra.main(config_path="configs", config_name="dreamer_pretrain")
 def main(cfg):
     from dreamer_pretrain import Workspace as W
 
