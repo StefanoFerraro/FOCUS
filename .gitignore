@@ -122,7 +122,6 @@ celerybeat.pid
 # Environments
 .env
 .venv
-env/
 venv/
 ENV/
 env.bak/
@@ -158,4 +157,5 @@ cython_debug/
 exp_local
 data
 models
+env/recordings
 # notebooks

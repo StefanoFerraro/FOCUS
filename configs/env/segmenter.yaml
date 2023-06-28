@@ -1,0 +1,11 @@
+segmenter:
+  checkpoints_folder: ./checkpoints/ # with respect to main dir
+  text_prompt: red cube
+  box_prompt: [0, 0, 0, 0]
+  iou: 0.9 # iou threshold for filtering the annotations
+  conf: 0.4 # object confidence threshold
+  output: ./output/
+  randomcolor: True # mask random color
+  better_quality: False # better quality using morphologyEx
+  retina: True # draw high-resolution segmentation masks
+  withContours: True # draw the edges of the masks
