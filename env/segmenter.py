@@ -27,7 +27,7 @@ class Segmenter:
 
         # init fast-SAM
         fastSAM_checkpoint = "FastSAM.pt"
-        fastSAM_checkpoint_url = "https://huggingface.co/spaces/An-619/FastSAM/resolve/main/checkpoints/FastSAM.pt"
+        fastSAM_checkpoint_url = config.fastSAM_url
         fastSAM_checkpoint = download_checkpoint(
             fastSAM_checkpoint_url, self.cfg.checkpoints_folder, fastSAM_checkpoint
         )
@@ -36,9 +36,7 @@ class Segmenter:
 
         # init xMem https://github.com/hkchengrex/XMem
         xmem_checkpoint = "XMem-s012.pth"
-        xmem_checkpoint_url = (
-            "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth"
-        )
+        xmem_checkpoint_url = self.xmem_url
 
         xmem_checkpoint = download_checkpoint(
             xmem_checkpoint_url, self.cfg.checkpoints_folder, xmem_checkpoint

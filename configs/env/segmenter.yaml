@@ -1,4 +1,6 @@
 segmenter:
+  fastSAM_url: https://huggingface.co/spaces/An-619/FastSAM/resolve/main/weights/FastSAM.pt
+  xmem_url: https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth
   checkpoints_folder: ./checkpoints/ # with respect to main dir
   text_prompt: red cube
   box_prompt: [0, 0, 0, 0]
