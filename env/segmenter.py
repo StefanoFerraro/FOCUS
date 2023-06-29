@@ -36,7 +36,7 @@ class Segmenter:
 
         # init xMem https://github.com/hkchengrex/XMem
         xmem_checkpoint = "XMem-s012.pth"
-        xmem_checkpoint_url = self.xmem_url
+        xmem_checkpoint_url = config.xmem_url
 
         xmem_checkpoint = download_checkpoint(
             xmem_checkpoint_url, self.cfg.checkpoints_folder, xmem_checkpoint
