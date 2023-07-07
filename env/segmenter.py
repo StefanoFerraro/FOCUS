@@ -109,10 +109,10 @@ class Segmenter:
             self.cfg.text_prompt,
             device=self.device,
         )
-        max_idx = scores.argsort()
+        max_idx = torch.flip(scores.argsort(), [0]) # argsort sort from min to max, hence the flip
 
         for i in range(self.num_objects):
-            id = max_idx[-i]  # should get number of objects in the scene
+            id = max_idx[i]  # should get number of objects in the scene
             id += sum(np.array(filter_id) <= int(id))
             masks.append(
                 annotaions[id]["segmentation"]

@@ -1,6 +1,6 @@
 segmenter:
   checkpoints_folder: ./checkpoints/ # with respect to main dir
-  text_prompt: red cube
+  text_prompt: cube
   box_prompt: [0, 0, 0, 0]
   iou: 0.9 # iou threshold for filtering the annotations
   conf: 0.4 # object confidence threshold
