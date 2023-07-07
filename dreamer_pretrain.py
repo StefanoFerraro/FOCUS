@@ -99,9 +99,9 @@ class Workspace:
         )  # -> which is the URLB default
         frame_stack = 1
 
-        os.chdir(
-            (hydra.utils.get_original_cwd())
-        )  # change to original working directory for loading URDF models
+        # os.chdir(
+        #     (hydra.utils.get_original_cwd())
+        # )  # change to original working directory for loading URDF models
 
         self.train_env = make(
             domain,
@@ -174,9 +174,9 @@ class Workspace:
         self._horizon = cfg.env.horizon
 
     def reset(self, func):
-        os.chdir(
-            (hydra.utils.get_original_cwd())
-        )  # change to original working directory for loading URDF models
+        # os.chdir(
+        #   (hydra.utils.get_original_cwd())
+        # )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)
 
@@ -490,7 +490,24 @@ class Workspace:
         snapshot_dir.mkdir(exist_ok=True, parents=True)
         snapshot = snapshot_dir
         return snapshot_dir
-
+    
+def toolkit_main(cfg, savedir, workdir):
+    from dreamer_pretrain import Workspace as W
+    root_dir = Path.cwd()
+    cfg.use_tb = False
+    print("WORKDIR: ", workdir)
+    # print("ORIGINALCWD: ", original_cwd)    
+    print("SAVEDIR: ", savedir)   
+    workspace = W(cfg, savedir, workdir)
+    workspace.root_dir = root_dir
+    snapshot = workspace.root_dir / 'last_snapshot.pt'
+    if snapshot.exists():
+        print(f'resuming: {snapshot}')
+        workspace.load_snapshot()
+    if cfg.use_wandb and wandb.run is None:
+        # otherwise it was resumed
+        workspace.setup_wandb()
+    workspace.train()
 
 @hydra.main(config_path="configs", config_name="dreamer_pretrain")
 def main(cfg):
@@ -499,7 +516,6 @@ def main(cfg):
     root_dir = Path.cwd()
     # cfg.use_wandb = False
     # cfg.project_name = "ObjChoreo"
-
     workspace = W(cfg)
     workspace.root_dir = root_dir
     print("ROOT DIR: ", root_dir)
