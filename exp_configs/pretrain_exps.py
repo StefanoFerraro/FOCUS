@@ -1310,9 +1310,17 @@ exp_configs = {
     
     "focus_rs_pretrain" : {
         "world_model": ["focus", "dreamer"],
-        "agent": AGENTS,
+        "agent": ["focus", "dreamer"],
         "env": "rs",
         "task": ["CustomLift", "CustomStack"],
+        "seed": [1,2,3],
+    },
+    
+    "focus_skill_pretrain" : {
+        "world_model": ["focus"],
+        "agent": "skill_focus",
+        "env": "rs",
+        "task": ["CustomStack"],
         "seed": [1,2,3],
     },
 }

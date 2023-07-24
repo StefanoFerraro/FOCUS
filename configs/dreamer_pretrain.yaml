@@ -18,7 +18,7 @@ seed: 1
 device: cuda
 save_video: false
 save_train_video: true
-use_tb: false
+use_tb: true
 use_wandb: true
 
 # mode

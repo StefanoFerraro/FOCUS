@@ -215,7 +215,9 @@ class Workspace:
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         meta = self.agent.init_meta()
         while eval_until_episode(episode):
+            episode_data = []
             dreamer_obs = self.eval_env.reset()
+            episode_data.append(dreamer_obs)
             agent_state = None
             while not bool(dreamer_obs["is_last"]):
                 with torch.no_grad(), utils.eval_mode(self.agent):
@@ -227,6 +229,7 @@ class Workspace:
                         state=agent_state,
                     )
                 dreamer_obs = self.eval_env.step(action)
+                episode_data.append(dreamer_obs)
                 total_reward += dreamer_obs["reward"]
                 step += 1
                 # Hacky way to say that step_to_success was set
@@ -249,6 +252,10 @@ class Workspace:
             log("avg_step_to_success", sum(step_to_success_list) / episode)
             log("episode", self.global_episode)
             log("step", self.global_step)
+
+        # B, T, C, H, W = video.shape
+        last_video = np.expand_dims(np.stack([ obs['rgb'] for obs in episode_data ], axis=0), axis=0)
+        self.logger.log_video({'eval/video' : last_video }, self.global_frame)
 
     def train(self):
         # predicates
@@ -337,7 +344,7 @@ class Workspace:
                 cumm_vertical_displacement = 0
 
                 # save last model
-                if self.global_step % 100000 == 0:
+                if self.global_step % 5000 == 0:
                     self.save_last_model()
 
                 # reset env
@@ -495,9 +502,7 @@ def toolkit_main(cfg, savedir, workdir):
     from dreamer_pretrain import Workspace as W
     root_dir = Path.cwd()
     cfg.use_tb = False
-    print("WORKDIR: ", workdir)
-    # print("ORIGINALCWD: ", original_cwd)    
-    print("SAVEDIR: ", savedir)   
+
     workspace = W(cfg, savedir, workdir)
     workspace.root_dir = root_dir
     snapshot = workspace.root_dir / 'last_snapshot.pt'
@@ -512,10 +517,8 @@ def toolkit_main(cfg, savedir, workdir):
 @hydra.main(config_path="configs", config_name="dreamer_pretrain")
 def main(cfg):
     from dreamer_pretrain import Workspace as W
-
     root_dir = Path.cwd()
-    # cfg.use_wandb = False
-    # cfg.project_name = "ObjChoreo"
+
     workspace = W(cfg)
     workspace.root_dir = root_dir
     print("ROOT DIR: ", root_dir)

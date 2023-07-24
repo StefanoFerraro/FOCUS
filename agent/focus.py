@@ -42,7 +42,7 @@ class FocusAgent(Module):
         self._expl_behavior = ActorCritic(cfg, self.act_spec, self.tfstep, name="expl")
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep, name="task")
         self.to(cfg.device)
-
+        
         self.requires_grad_(requires_grad=False)
         self.reward_coeff = cfg.agent.reward_coeff
         self.rw_dict = {"rw_mov", "rw_dist_obj", "rw_intr"}

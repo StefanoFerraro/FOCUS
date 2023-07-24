@@ -11,9 +11,9 @@ renderer:
   depths: True
   segmentation_level: "element" # None, class, instance or element 
   seg_size: [256, 256]
-  gt_segmentation: False
-reward_shaping: False
-task_reward: "lift"
+  gt_segmentation: True
+reward_shaping: True
+task_reward: "dense"
 objects:
   rgba: [1, 0, 0, 1]
   minsize: 0.025

@@ -33,7 +33,10 @@ class BaseTracker:
         xmem_checkpoint: checkpoint of XMem model
         """
         # load configurations
-        with open("env/tracker/config/config.yaml", "r") as stream:
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        print(dir_path)
+        
+        with open(dir_path + "/config/config.yaml", "r") as stream:
             config = yaml.safe_load(stream)
         # initialise XMem
         network = XMem(config, xmem_checkpoint).to(device).eval()

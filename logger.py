@@ -213,7 +213,8 @@ class Logger(object):
                 self._sw.add_video(k, v, global_step=step, fps=15)
         if self.use_wandb:
             for k, v in data.items():
-                v = np.uint8(v.cpu() * 255)
+                if type(v) is not np.ndarray:
+                    v = np.uint8(v.cpu() * 255)
                 wandb.log({k: wandb.Video(v, fps=15, format="gif")})
 
     def log_text(self, data, step):
