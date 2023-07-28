@@ -13,7 +13,6 @@ from agent.dreamer import ActorCritic, WorldModel
 def stop_gradient(x):
     return x.detach()
 
-
 Module = nn.Module
 
 
@@ -142,8 +141,10 @@ class FocusAgent(Module):
     def expl_reward_fn(self, seq):
         # to optimize execution execute computation of distance and object movement reward only if needed
         if self.reward_coeff["rw_mov"] > 0 or self.reward_coeff["rw_dist_obj"] > 0:
+            
+            goal_poses = torch.randn(seq["feat"]) 
             obj_id = 0
-            obj_poses = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
+            obj_poses = self.wm.heads["object_decoder"](seq["feat"])[
                 "objects_pos"
             ].mean
 
@@ -295,7 +296,7 @@ class OCWorldModel(WorldModel):
         self.heads["object_decoder"] = common.ObjDecoder(
             self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size
         )
-
+        
         self.model_init()
 
     def loss(self, data, state=None):
@@ -308,6 +309,7 @@ class OCWorldModel(WorldModel):
         ), kl_loss.shape
         likes = {}
         losses = {"kl": kl_loss}
+        prior_obj_loss = nn.MSELoss()
         feat = self.rssm.get_feat(post)
 
         for name, head in self.heads.items():
@@ -315,23 +317,29 @@ class OCWorldModel(WorldModel):
             inp = feat if grad_head else stop_gradient(feat)
 
             out = (
-                head(inp, data["segmentation"])
+                head(inp, masks=data["segmentation"], poses=data["objects_pose"])
                 if name == "object_decoder"
                 else head(inp)
             )
+
+            if name == "object_decoder":
+                obj_states = {}
+                obj_states["prior"] = out.pop("prior")
+                obj_states["post"] = out.pop("post")     
+                
+                loss = nn.MSELoss()
+                prior_loss = loss(obj_states["prior"], stop_gradient(obj_states["post"]))
+                post_loss = loss(stop_gradient(obj_states["prior"]), obj_states["post"])
+                losses["pose_prior"] = 0.8 * prior_loss + 0.2 * post_loss           
 
             dists = out if isinstance(out, dict) else {name: out}
 
             for key, dist in dists.items():
                 like = 0
-                # handled differently with respect to parent class, needs to be separated per instance
+                # handled differently with respects to parent class, needs to be separated per instance
                 if key == "segmentation":
                     seg = data[key].permute(0, 1, 3, 4, 2)
                     like = dist.log_prob(seg)
-
-                elif key == "objects_pos":
-                    like = dist.log_prob(data[key])
-
                 elif key == "rgb" or key == "depth":
                     instances_dim = dist.mean.shape[2]
                     images = data[key].unsqueeze(2).repeat(1, 1, instances_dim, 1, 1, 1)
@@ -341,7 +349,7 @@ class OCWorldModel(WorldModel):
 
                 likes[key] = like
                 losses[key] = -like.mean()
-
+            
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()
         )

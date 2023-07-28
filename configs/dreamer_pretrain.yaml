@@ -25,7 +25,7 @@ use_wandb: true
 obs_type: pixels
 action_repeat: 2 
 reward_free: true
-is_finetune: True
+is_finetune: false
 precision: 32
 
 # model specs

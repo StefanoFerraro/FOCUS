@@ -1,0 +1,12 @@
+# @package agent
+defaults:
+  - default
+
+_target_: agent.skill_focus.SkillFocusAgent
+name: skill_focus
+cfg: ???
+obs_space: ???
+act_spec: ???
+reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+skill_reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+actor_ent: 0
