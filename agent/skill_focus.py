@@ -19,12 +19,13 @@ class SkillFocusAgent(FocusAgent):
     def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
         super().__init__(name, cfg, obs_space, act_spec, is_finetune, **kwargs)
         
-        obj = [1,0]
-        pos = [0.2, 0.2, 0.84]
+        # obj = [1,0]
+        self._target_pose = torch.Tensor([[[[0.2, 0.2, 0.84, 1, 0, 0, 1]]]]).to(device="cuda")
         # NOTE: Only for debugging
-        self.skill_dim = [self.obj_instances + 1, 3]
-        self._skill_strategy = 'object_context_position'
-        self._fixed_skill = torch.Tensor([*obj, *pos]).float().to(self.device).unsqueeze(0)
+        self._skill_strategy = 'object_context_pose'
+        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pose))["prior"][0][0]
+        self.skill_dim = [self._fixed_skill.shape[-1]]
+
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
                                                     sampling_strategy=self._skill_strategy, solved_meta={'skill' : self._fixed_skill}) 
 
@@ -42,12 +43,25 @@ class SkillFocusAgent(FocusAgent):
         squared_distance = torch.sum(((obj_goal_pos - obj_pos) ** 2), dim=2).unsqueeze(-1) 
         return -squared_distance
 
+    def object_context_pose_reward_fn(self, seq):
+        obj_id = torch.eye(2)
+        obj_poses = self.wm.heads["object_decoder"](seq["feat"])[
+            "objects_pos"
+        ]["post"]
+        T, B, O, P = obj_poses.shape
+        obj_poses = obj_poses.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
+        squared_distance = torch.sum(((obj_poses - self._fixed_skill) ** 2), dim=2).unsqueeze(-1) 
+        return -squared_distance
+
     def update(self, data, step):
         state, outputs, metrics = self.update_wm(data, step)
 
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
+        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pose))["prior"][0][0]
+        self._skill_behavior.solved_meta['skill'] = self._fixed_skill
+        
         # update based on mode, save compute time
         metrics.update(
             self._skill_behavior.update(
@@ -77,7 +91,7 @@ class SkillFocusAgent(FocusAgent):
 
         # only for debugging
         policy = self._skill_behavior.actor
-        skill = self._fixed_skill
+        skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pose))["prior"][0][0]
         inp = torch.cat([feat, skill], dim=-1)
 
         actor = policy(inp)
