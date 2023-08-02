@@ -327,9 +327,11 @@ class OCWorldModel(WorldModel):
                 obj_states["prior"] = out.pop("prior")
                 obj_states["post"] = out.pop("post")     
                 
-                loss = nn.MSELoss()
-                prior_loss = loss(obj_states["prior"], stop_gradient(obj_states["post"]))
-                post_loss = loss(stop_gradient(obj_states["prior"]), obj_states["post"])
+                # loss = nn.MSELoss()
+                # priot_loss = loss(obj_states["prior"], stop_gradient(obj_states["post"]))
+                # post_loss = loss(stop_gradient(obj_states["prior"]), obj_states["post"])
+                prior_loss =torch.sum(((obj_states["prior"] - stop_gradient(obj_states["post"])) ** 2))
+                post_loss =torch.sum(((stop_gradient(obj_states["prior"]) - obj_states["post"]) ** 2))
                 losses["pose_prior"] = 0.8 * prior_loss + 0.2 * post_loss           
 
             dists = out if isinstance(out, dict) else {name: out}

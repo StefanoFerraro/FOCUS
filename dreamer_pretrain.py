@@ -27,7 +27,6 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-
 def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
     cfg.obs_type = obs_type
     cfg.obs_shape = obs_spec.shape

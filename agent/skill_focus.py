@@ -44,13 +44,11 @@ class SkillFocusAgent(FocusAgent):
         return -squared_distance
 
     def object_context_pose_reward_fn(self, seq):
-        obj_id = torch.eye(2)
-        obj_poses = self.wm.heads["object_decoder"](seq["feat"])[
-            "objects_pos"
-        ]["post"]
-        T, B, O, P = obj_poses.shape
-        obj_poses = obj_poses.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
-        squared_distance = torch.sum(((obj_poses - self._fixed_skill) ** 2), dim=2).unsqueeze(-1) 
+        # obj_id = torch.eye(2)
+        post_obj_state = self.wm.heads["object_decoder"](seq["feat"])["post"][:,:,0,:] #consider only first object
+        # T, B, O, P = post_obj_state.shape
+        # post_obj_state = post_obj_state.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
+        squared_distance = torch.sum(((post_obj_state - self._fixed_skill) ** 2), dim=2).unsqueeze(-1) 
         return -squared_distance
 
     def update(self, data, step):
