@@ -1320,7 +1320,7 @@ exp_configs = {
         "world_model": ["focus"],
         "agent": "skill_focus",
         "env": "rs",
-        "task": ["CustomStack"],
+        "task": ["CustomLift"],
         "seed": [1,2,3],
     },
 }

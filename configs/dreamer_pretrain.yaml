@@ -29,9 +29,9 @@ is_finetune: false
 precision: 32
 
 # model specs
-batch_size: 8
-batch_length: 8
-imag_horizon: 5
+batch_size: 16
+batch_length: 16
+imag_horizon: 15
 eval_state_mean: False
 train_every_actions: 32
 
