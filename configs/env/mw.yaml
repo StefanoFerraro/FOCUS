@@ -1,19 +1,19 @@
 defaults:
   - segmenter
 
-name: rs
+name: mw
 horizon: 250
 controller: "OSC_POSE" 
 renderer:
   fps: 30
   size: [64, 64]
-  camera: "agentview2" # "frontview", "agentview", "eye_in_hand"
+  camera: "corner2" # "corner2" "corner3" "topview"
   depths: True
   segmentation_level: "element" # None, class, instance or element 
-  seg_size: [256, 256]
-  gt_segmentation: True
+  seg_size: [480, 480]
+  gt_segmentation: False
 reward_shaping: False
-task_reward: "lift"
+task_reward: "pick-place"
 objects:
   rgba: [1, 0, 0, 1]
   minsize: 0.025

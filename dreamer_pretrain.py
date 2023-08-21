@@ -15,7 +15,7 @@ import torch
 import wandb
 from dm_env import specs
 
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ, PRIMAL_TASKS
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS
 from env.make import make
 import utils
 from logger import Logger
@@ -26,14 +26,6 @@ torch.backends.cudnn.benchmark = True
 import warnings
 
 warnings.filterwarnings("ignore")
-
-
-def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
-    cfg.obs_type = obs_type
-    cfg.obs_shape = obs_spec.shape
-    cfg.action_shape = action_spec.shape
-    cfg.num_expl_steps = num_expl_steps
-    return hydra.utils.instantiate(cfg)
 
 
 def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
@@ -48,7 +40,6 @@ def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
         act_spec=action_spec,
         is_finetune=cur_config.is_finetune,
     )
-
 
 def segmentation_visualization(
     self,
@@ -125,10 +116,10 @@ class Workspace:
 
         os.chdir(self.workdir)
 
-        objets_list = RS_TASKS_OBJ if domain == "rs" else MS_TASKS_OBJ
+        objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
 
         if cfg.world_model.name == "focus":
-            cfg.world_model.objects = objets_list[task]
+            cfg.world_model.objects = objets_list
 
         # create agent
         self.agent = make_dreamer_agent(
@@ -219,6 +210,10 @@ class Workspace:
             agent_state = None
             while not bool(dreamer_obs["is_last"]):
                 with torch.no_grad(), utils.eval_mode(self.agent):
+                    dreamer_obs = {
+                        k: np.array(v) if isinstance(v, list) else v
+                        for k, v in dreamer_obs.items()
+                    }
                     action, agent_state = self.agent.act(
                         dreamer_obs,
                         meta,
@@ -278,6 +273,10 @@ class Workspace:
             dreamer_obs = self.reset(self.train_env)
         agent_state = None
         meta = self.agent.init_meta()
+        dreamer_obs = {
+                k: np.array(v) if isinstance(v, list) else v
+                for k, v in dreamer_obs.items()
+            }
         data = dreamer_obs
 
         self.replay_storage.add(data, meta)
@@ -342,6 +341,10 @@ class Workspace:
 
                 # reset env
                 dreamer_obs = self.reset(self.train_env)
+                dreamer_obs = {
+                        k: np.array(v) if isinstance(v, list) else v
+                        for k, v in dreamer_obs.items()
+                    }
 
                 agent_state = None  # Resetting agent's latent state
                 meta = self.agent.init_meta()
@@ -393,6 +396,10 @@ class Workspace:
 
             # take env step
             dreamer_obs = self.train_env.step(action)
+            dreamer_obs = {
+                        k: np.array(v) if isinstance(v, list) else v
+                        for k, v in dreamer_obs.items()
+                    }
 
             episode_reward += dreamer_obs["reward"]
             data = dreamer_obs
@@ -511,7 +518,6 @@ def main(cfg):
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
-
 
 if __name__ == "__main__":
     main()

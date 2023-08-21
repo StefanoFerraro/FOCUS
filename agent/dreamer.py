@@ -534,7 +534,6 @@ class WorldModel(Module):
         B, T, C, H, W = video.shape
         return video
 
-
 class ActorCritic(Module):
     def __init__(self, config, act_spec, tfstep, name="default"):
         super().__init__()

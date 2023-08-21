@@ -1,8 +1,7 @@
-# from dmc_benchmark import RS_TASKS_OBJ, MS_TASKS_OBJ
-
 from env.ms import PandaManiSkill
 from env.rs import PandaRoboSuite
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ
+from env.mw import Metaworld
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ
 
 import custom_dmc_tasks as cdmc
 from dm_control import suite
@@ -11,7 +10,10 @@ from dm_control.suite.wrappers import action_scale, pixels
 from env.wrappers import *
 
 
-def _make_panda(
+env_classes = {"rs": PandaRoboSuite, "ms": PandaManiSkill, "mw": Metaworld}
+
+
+def _make(
     env_type,
     task,
     objs,
@@ -19,7 +21,7 @@ def _make_panda(
     seed,
     env_config,
 ):
-    env_class = PandaRoboSuite if env_type == "rs" else PandaManiSkill
+    env_class = env_classes[env_type]
 
     return env_class(env_config, task, objs, seed, action_repeat)
 
@@ -89,14 +91,13 @@ def make(
     env_config=None,
 ):
     assert obs_type in ["states", "pixels"]
-    # domain, task = name.split("_", 1)
-    domain = dict(cup="ball_in_cup", point="point_mass").get(domain, domain)
+    # domain = dict(cup="ball_in_cup", point="point_mass").get(domain, domain)
 
-    obj_envs = ["rs", "ms"]
+    obj_envs = ["rs", "ms", "mw"]
 
     if domain in obj_envs:
-        make_fn = _make_panda
-        objs = RS_TASKS_OBJ[task] if domain == "rs" else MS_TASKS_OBJ[task]
+        make_fn = _make
+        objs = globals()[domain.upper() + "_TASKS_OBJ"][task]
         env_type = domain[:2]
 
         env = make_fn(
@@ -108,6 +109,7 @@ def make(
             env_config,
         )
         return env
+
     else:
         make_fn = _make_jaco if domain == "jaco" else _make_dmc
     env = make_fn(

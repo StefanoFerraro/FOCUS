@@ -241,7 +241,7 @@ class PandaRoboSuite(BaseEnv):
                 camera_name=self.camera, height=self.seg_size[0], width=self.seg_size[1]
             )[::-1]
             seg, _, _ = self.segmenter.generate(high_res_rgb, self.is_first)
-        seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
+            seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
@@ -371,7 +371,7 @@ class PandaRoboSuite(BaseEnv):
         obs = {
             "reward": reward,
             "is_first": self.is_first,
-            "is_last": done,  # will be handled by timelimit wrapper
+            "is_last": done,
             "is_terminal": False,  # will be handled by per_episode function
             "rgb": rgb,
             "depth": depth,
