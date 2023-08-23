@@ -22,7 +22,7 @@ class APTDreamerAgent(DreamerAgent):
         self._expl_behavior = ActorCritic(self.cfg, self.act_spec, self.tfstep, name='expl')
 
         self.expl_rewnorm = common.StreamNorm(
-            **self.cfg.reward_norm, device=self.device
+            **self.cfg.agent.reward_norm, device=self.device
         )
         self.is_finetune = kwargs["is_finetune"]
 

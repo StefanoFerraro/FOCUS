@@ -4,9 +4,18 @@ defaults:
 
 _target_: agent.focus.FocusAgent
 name: focus
-
 cfg: ???
 obs_space: ???
 act_spec: ???
 reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
 actor_ent: 0
+
+world_model:
+  encoder: {mlp_keys: 'proprio', cnn_keys: 'rgb|depth', norm: none, cnn_depth: 48, cnn_kernels: [4, 4, 4, 4], mlp_layers: [400, 400, 400, 400]} # act: elu
+  decoder: {mlp_keys: 'proprio', cnn_keys: '$^', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
+  object_decoder: {mlp_keys: '$^', cnn_keys: 'rgb|segmentation', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
+  grad_heads: [decoder, object_decoder]
+  replay.capacity: 5e5
+  objects: [] 
+  device: cuda
+  name: focus

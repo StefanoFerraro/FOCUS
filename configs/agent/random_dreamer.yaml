@@ -1,6 +1,7 @@
 # @package agent
 defaults:
   - default
+  - dreamer
   
 _target_: agent.random_dreamer.RandomDreamerAgent
 name: random_dreamer

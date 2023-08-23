@@ -13,9 +13,7 @@ from agent.dreamer import ActorCritic, WorldModel
 def stop_gradient(x):
     return x.detach()
 
-
 Module = nn.Module
-
 
 class FocusAgent(Module):
     def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):

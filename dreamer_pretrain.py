@@ -41,6 +41,7 @@ def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
         is_finetune=cur_config.is_finetune,
     )
 
+
 def segmentation_visualization(
     self,
     seg,
@@ -79,7 +80,7 @@ class Workspace:
         self.cfg = cfg
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
-        cfg.world_model.device = cfg.device
+        cfg.agent.world_model.device = cfg.device
 
         # create logger
         self.logger = Logger(self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
@@ -118,8 +119,8 @@ class Workspace:
 
         objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
 
-        if cfg.world_model.name == "focus":
-            cfg.world_model.objects = objets_list
+        if cfg.agent.world_model.name == "focus":
+            cfg.agent.world_model.objects = objets_list
 
         # create agent
         self.agent = make_dreamer_agent(
@@ -274,9 +275,8 @@ class Workspace:
         agent_state = None
         meta = self.agent.init_meta()
         dreamer_obs = {
-                k: np.array(v) if isinstance(v, list) else v
-                for k, v in dreamer_obs.items()
-            }
+            k: np.array(v) if isinstance(v, list) else v for k, v in dreamer_obs.items()
+        }
         data = dreamer_obs
 
         self.replay_storage.add(data, meta)
@@ -342,9 +342,9 @@ class Workspace:
                 # reset env
                 dreamer_obs = self.reset(self.train_env)
                 dreamer_obs = {
-                        k: np.array(v) if isinstance(v, list) else v
-                        for k, v in dreamer_obs.items()
-                    }
+                    k: np.array(v) if isinstance(v, list) else v
+                    for k, v in dreamer_obs.items()
+                }
 
                 agent_state = None  # Resetting agent's latent state
                 meta = self.agent.init_meta()
@@ -397,9 +397,9 @@ class Workspace:
             # take env step
             dreamer_obs = self.train_env.step(action)
             dreamer_obs = {
-                        k: np.array(v) if isinstance(v, list) else v
-                        for k, v in dreamer_obs.items()
-                    }
+                k: np.array(v) if isinstance(v, list) else v
+                for k, v in dreamer_obs.items()
+            }
 
             episode_reward += dreamer_obs["reward"]
             data = dreamer_obs
@@ -518,6 +518,7 @@ def main(cfg):
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
+
 
 if __name__ == "__main__":
     main()

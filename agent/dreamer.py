@@ -300,7 +300,7 @@ class WorldModel(Module):
         super().__init__()
         self.shapes = {k: tuple(v.shape) for k, v in obs_space.items()}
         self.full_cfg = config
-        self.cfg = config.world_model
+        self.cfg = config.agent.world_model
         self.device = config.device
         self.tfstep = tfstep
         self.encoder = common.Encoder(self.shapes, **self.cfg.encoder)
@@ -544,11 +544,11 @@ class ActorCritic(Module):
         self.hor = config.imag_horizon
         self.device = config.device
 
-        inp_size = config.world_model.rssm.deter
-        if config.world_model.rssm.discrete:
-            inp_size += config.world_model.rssm.stoch * config.world_model.rssm.discrete
+        inp_size = self.cfg.world_model.rssm.deter
+        if self.cfg.world_model.rssm.discrete:
+            inp_size += self.cfg.world_model.rssm.stoch * self.cfg.world_model.rssm.discrete
         else:
-            inp_size += config.world_model.rssm.stoch
+            inp_size += self.cfg.world_model.rssm.stoch
         self.actor = common.MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
         self.critic = common.MLP(inp_size, (1,), **self.cfg.critic)
         if self.cfg.slow_target:
