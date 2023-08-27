@@ -51,9 +51,6 @@ class PandaRoboSuite(BaseEnv):
 
         self.random_placement = env_config.objects.random_placement
 
-        self.reward_shaping = env_config.reward_shaping
-        self.task_reward = env_config.task_reward
-
         self.target_x = env_config.goal.x
         self.target_y = env_config.goal.y
         self.target_z = env_config.goal.z

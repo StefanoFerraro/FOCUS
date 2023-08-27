@@ -193,7 +193,7 @@ class Metaworld(BaseEnv):
         for _ in range(self._action_repeat):
             state, rew, _, _, info = self._env.step(action)
             success += float(info["success"])
-            reward += float(rew)
+            reward += float(rew) if self.reward_shaping else float(info["success"])
 
         rgb = self._env.mujoco_renderer.render(
             render_mode="rgb_array", camera_name=self.camera
