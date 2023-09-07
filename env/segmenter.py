@@ -99,7 +99,7 @@ class Segmenter:
 
     def prompt(self, image, results, args, box=None, point=None, text=None):
         if box:
-            masks = torch.tensor([x["segmentation"] for x in results])
+            masks = torch.tensor(np.array([x["segmentation"] for x in results]), device="cuda:0")
             mask, _ = self.box_prompt(
                 masks,
                 self.cfg.box_prompt,
