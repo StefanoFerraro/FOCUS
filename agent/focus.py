@@ -181,7 +181,7 @@ class FocusAgent(Module):
                 rw_intr += self.compute_intr_reward(x[:, :, i])
         # rw_intr = self.compute_intr_reward(obj_pos) intrinsic reward computation over object positon in space
 
-        rw_task = 0
+        rw_task = torch.zeros_like(rw_intr)
         if self.reward_coeff["rw_task"] > 0:
             rw_task = self.wm.heads["reward"](seq["feat"]).mean
 

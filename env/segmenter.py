@@ -83,7 +83,7 @@ class Segmenter:
             # )
 
             # starting mask
-            template_mask = annotations.astype(np.int)
+            template_mask = annotations.astype(int)
 
             # add indeces of other masks
             # for i, mask in enumerate(annotations[1:]):

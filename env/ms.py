@@ -76,10 +76,7 @@ class PandaManiSkill(BaseEnv):
             abs(1 / (self.area_threshold - self.area_target) + 1)
         )  # min 0 max 0.15 -> normalized 1.05
 
-        curr_path = os.getcwd()
-        os.chdir("/mnt/home/focus")
         self.make()
-        os.chdir(curr_path)
 
     def _filter_obs(self, obs, keys):
         out_obs = {}
