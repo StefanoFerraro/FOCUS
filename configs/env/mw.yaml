@@ -1,25 +1,25 @@
 defaults:
   - segmenter
-  
-name: ms
+
+name: mw
 horizon: 250
-controller: "pd_ee_delta_pos"
+controller: "OSC_POSE" 
 renderer:
   fps: 30
   size: [64, 64]
-  camera: "base_camera"
+  camera: "corner2" # "corner2" "corner3" "topview"
   depths: True
   segmentation_level: "element" # None, class, instance or element 
-  seg_size: [256, 256]
-  gt_segmentation: True
+  seg_size: [480, 480]
+  gt_segmentation: False
 reward_shaping: False
-task_reward: "turn"
+task_reward: "pick-place"
 objects:
   rgba: [1, 0, 0, 1]
-  minsize: 0.04
+  minsize: 0.025
   spawn_range: 0.01
   random_placement: False
-  name: "035_power_drill" # "003_cracker_box" 
+  name: ""  
 goal:
   x: None
   y: None

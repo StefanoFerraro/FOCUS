@@ -1,0 +1,14 @@
+*.pyc
+__pycache__
+models
+pretrained_models
+offline_models
+exp_local
+nohup.out
+eval/*.pt
+.eval_data
+datasets
+codes
+gifs
+notebooks
+gpulab

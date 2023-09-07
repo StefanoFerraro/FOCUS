@@ -31,6 +31,7 @@ RS_TASKS_OBJ = {
     "CustomStack": ["cubeA", "cubeB"],
     "Lift": ["cube"],
     "CustomLift": ["cube"],
+    "NutAssembly": ["nut"],
 }
 
 MS_TASKS_OBJ = {
@@ -44,6 +45,30 @@ MS_TASKS_OBJ = {
     "CustomLiftYCB": ["obj"],
 }
 
+MW_TASKS_OBJ = {
+    "drawer-close": ["drawer_link"],
+    "drawer-open": ["drawer_link"],
+    "disassemble": ["RoundNut"],
+    "shelf-place": ["obj"],
+    "handle-pull": ["handle_link"],
+    "door-open": ["door"],
+    "door-close": ["door"],
+    "peg-insert-side": ["peg"],
+    "hammer": ["hammerbody"],
+}
+
+MW_TASKS_PROMPT = {
+    "drawer-close": ["box", [50, 175, 225, 300]],
+    "drawer-open": ["box", [50, 175, 225, 300]],
+    "disassemble": ["box", [175, 325, 250, 375]],
+    "shelf-place": ["box", [210, 320, 250, 350]],
+    "handle-pull": ["box", [50, 250, 225, 350]],
+    "door-open": ["box", [0, 100, 150, 350]],
+    "door-close": ["box", [200, 225, 300, 300]],
+    "peg-insert-side": ["box", [130, 330, 175, 375]],
+    "hammer": ["text", "hammer"],
+}
+
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS
 
 PRIMAL_TASKS = {
@@ -52,4 +77,5 @@ PRIMAL_TASKS = {
     "quadruped": "quadruped_walk",
     "rs": "Stack",
     "ms": "Stack",
+    "mw": "pick-place",
 }

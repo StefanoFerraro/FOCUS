@@ -1323,6 +1323,49 @@ exp_configs = {
         "task": ["CustomLift"],
         "seed": [1,2,3],
     },
+    
+    "focus_mw_sparse_pretrain" : {
+        "agent": ["apt_dreamer", "plan2explore"],
+        "env": "mw",
+        "task": ["hammer", "drawer-open", "disassemble", "shelf-place", "handle-pull", "door-open", "door-close", "peg-insert-side"], 
+        "use_wandb": True,
+        "seed": [1, 2, 3],
+    },
+    
+    "focus_mw_mix_rw_pretrain" : {
+        "agent": ["focus"],
+        "env": "mw",
+        "task": ["hammer", "drawer-open", "disassemble", "shelf-place", "handle-pull", "door-open", "door-close", "peg-insert-side"], 
+        "use_wandb": True,
+        "seed": [1, 2, 3],
+    },
+    
+    "focus_mw_sparse_finetune" : {
+        "agent": "focus",
+        "env": "mw",
+        "task": ["drawer-open", "disassemble", "shelf-place", "handle-pull", "door-open", "door-close", "peg-insert-side"],
+        "use_wandb": True,
+        "seed": [1, 2, 3],
+        "num_train_frames": [500010],
+    },
+    
+    "dreamer_mw_sparse_pretrain" : {
+        "agent": "dreamer",
+        "env": "mw",
+        "task": ["hammer"], # "drawer-open", "disassemble", "shelf-place", "handle-pull", "door-open", "door-close", "peg-insert-side", 
+        "use_wandb": True,
+        "seed": [1, 2, 3],
+    },
+    
+    "random_dreamer_sparse_pretrain" : {
+        "agent": "random_dreamer",
+        "env": "ms",
+        "task": "CustomLiftYCB", # "drawer-open", "disassemble", "shelf-place", "handle-pull", "door-open", "door-close", "peg-insert-side", 
+        "env|objects|name": ["011_banana", "002_master_chef_can"],
+        "env|task_reward": ["lift", "push"],
+        "use_wandb": True,
+        "seed": [1, 2, 3],
+    },
 }
 
 EXP_GROUPS = { k : hu.cartesian_exp_group(v) for k,v in exp_configs.items()} 

@@ -1,5 +1,4 @@
 defaults:
-  - world_model: dreamer
   - env: rs
   - agent: dreamer
   - override hydra/launcher: submitit_local

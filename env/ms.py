@@ -353,7 +353,7 @@ class PandaManiSkill(BaseEnv):
                     pq.Quaternion(true_objs_ori[obj]),
                 )
                 if self.task != "TurnFaucet"
-                else abs(true_objs_pos[obj] - self.true_obj_ori[obj])
+                else abs(true_objs_ori[obj] - self.true_obj_ori[obj])
             )
             true_vertical_displacement += abs(
                 true_objs_pos[obj][2] - self.true_obj_pos[obj][2]

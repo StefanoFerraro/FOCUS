@@ -10,8 +10,8 @@ from env.segmenter import Segmenter
 class BaseEnv:
     def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
         # render parameters
-        os.environ["DISPLAY"] = ":0"
         os.environ["MUJOCO_GL"] = "egl"
+        os.environ["DISPLAY"] = ":0"
 
         # object specs
         self.cube_rgba = env_config.objects.rgba
@@ -35,6 +35,7 @@ class BaseEnv:
         # env params
         self.size = tuple(env_config.renderer.size)
         self.seg_size = tuple(env_config.renderer.seg_size)
+        self.reward_shaping = env_config.reward_shaping
         self.task_reward = env_config.task_reward
         self.camera = env_config.renderer.camera
         self.controller = env_config.controller
@@ -46,6 +47,7 @@ class BaseEnv:
         if not self.gt_segmentation:
             self.segmenter = Segmenter(
                 env_config.segmenter,
+                self.task,
                 self.num_objects,
                 img_size=self.seg_size,
                 device="cuda:0",

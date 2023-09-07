@@ -9,6 +9,7 @@ import ast
 import time
 import clip
 from env.tracker.base_tracker import BaseTracker
+from env import MW_TASKS_PROMPT
 
 
 class Tracking:
@@ -18,12 +19,17 @@ class Tracking:
 
 
 class Segmenter:
-    def __init__(self, config, num_objects, img_size=[64, 64], device="cuda:0"):
+    def __init__(self, config, task, num_objects, img_size=[64, 64], device="cuda:0"):
         self.cfg = config
 
         self.device = device
         self.num_objects = num_objects
         self.img_size = img_size
+        
+        if self.cfg.mode == "None":
+            self.cfg.mode = MW_TASKS_PROMPT[task][0]
+        self.text_mode = True if self.cfg.mode == "text" else False
+        self.box_mode = True if self.cfg.mode == "box" else False
 
         # init fast-SAM
         fastSAM_checkpoint = "FastSAM.pt"
@@ -43,6 +49,12 @@ class Segmenter:
         )
         self.xmem_model = BaseTracker(xmem_checkpoint, device=self.device)
 
+        if self.cfg.text_prompt == "None":
+            self.cfg.text_prompt = MW_TASKS_PROMPT[task][1]
+
+        if self.cfg.box_prompt == [0, 0, 0, 0]:
+            self.cfg.box_prompt = MW_TASKS_PROMPT[task][1]
+
     def generate(self, image, is_first):
         if is_first:
             self.xmem_model.clear_memory()
@@ -55,10 +67,14 @@ class Segmenter:
                 iou=self.cfg.iou,
                 conf=self.cfg.conf,
                 max_det=100,
+                verbose=False,  # stop logging of inference and detection details
             )
             results = format_results(results[0], 0)
+
             annotations = np.array(
-                self.prompt(image, results, self.cfg, text=True)
+                self.prompt(
+                    image, results, self.cfg, box=self.box_mode, text=self.text_mode
+                )
             )  # masked results are evalueated and assign a score based on the text prompt
 
             # inpaint and save image
@@ -67,11 +83,11 @@ class Segmenter:
             # )
 
             # starting mask
-            template_mask = annotations[0].astype(np.int)
+            template_mask = annotations.astype(int)
 
             # add indeces of other masks
-            for i, mask in enumerate(annotations[1:]):
-                template_mask += (mask * (i + 2)).astype(np.int)
+            # for i, mask in enumerate(annotations[1:]):
+            # template_mask += (mask * (i + 2)).astype(np.int)
 
             mask, logit, painted_image = self.xmem_model.track(
                 image.copy(), template_mask
@@ -83,14 +99,16 @@ class Segmenter:
 
     def prompt(self, image, results, args, box=None, point=None, text=None):
         if box:
+            masks = torch.tensor(np.array([x["segmentation"] for x in results]), device="cuda:0")
             mask, _ = self.box_prompt(
-                results[0].masks.data,
-                convert_box_xywh_to_xyxy(self.cfg.box_prompt),
+                masks,
+                self.cfg.box_prompt,
                 self.img_size[0],
                 self.img_size[1],
             )
         elif text:
             mask, _ = self.text_prompt(image, results)
+            mask = mask[0]
         else:
             return None
         return mask
@@ -107,7 +125,9 @@ class Segmenter:
             self.cfg.text_prompt,
             device=self.device,
         )
-        max_idx = torch.flip(scores.argsort(), [0]) # argsort sort from min to max, hence the flip
+        max_idx = torch.flip(
+            scores.argsort(), [0]
+        )  # argsort sort from min to max, hence the flip
 
         for i in range(self.num_objects):
             id = max_idx[i]  # should get number of objects in the scene

@@ -51,9 +51,6 @@ class PandaRoboSuite(BaseEnv):
 
         self.random_placement = env_config.objects.random_placement
 
-        self.reward_shaping = env_config.reward_shaping
-        self.task_reward = env_config.task_reward
-
         self.target_x = env_config.goal.x
         self.target_y = env_config.goal.y
         self.target_z = env_config.goal.z
@@ -245,7 +242,7 @@ class PandaRoboSuite(BaseEnv):
                 camera_name=self.camera, height=self.seg_size[0], width=self.seg_size[1]
             )[::-1]
             seg, _, _ = self.segmenter.generate(high_res_rgb, self.is_first)
-        seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
+            seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
@@ -353,7 +350,6 @@ class PandaRoboSuite(BaseEnv):
             reward = self.lift_reward(in_areas, new_true_obj_pos[target_obj])
         elif self.task_reward == "push":
             reward = self.push_reward(in_areas, new_true_obj_pos[target_obj])
-
         else:
             # Do not change success or reward, use original
             pass
@@ -375,7 +371,7 @@ class PandaRoboSuite(BaseEnv):
         obs = {
             "reward": reward,
             "is_first": self.is_first,
-            "is_last": done,  # will be handled by timelimit wrapper
+            "is_last": done,
             "is_terminal": False,  # will be handled by per_episode function
             "rgb": rgb,
             "depth": depth,

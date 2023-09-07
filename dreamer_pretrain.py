@@ -15,7 +15,7 @@ import torch
 import wandb
 from dm_env import specs
 
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ, PRIMAL_TASKS
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS 
 from env.make import make
 import utils
 from logger import Logger
@@ -87,7 +87,7 @@ class Workspace:
         self.cfg = cfg
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
-        cfg.world_model.device = cfg.device
+        cfg.agent.world_model.device = cfg.device
 
         # create logger
         self.logger = Logger(self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
@@ -124,10 +124,10 @@ class Workspace:
 
         os.chdir(self.workdir)
 
-        objets_list = RS_TASKS_OBJ if domain == "rs" else MS_TASKS_OBJ
+        objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
 
-        if cfg.world_model.name == "focus":
-            cfg.world_model.objects = objets_list[task]
+        if cfg.agent.world_model.name == "focus":
+            cfg.agent.world_model.objects = objets_list
 
         # create agent
         self.agent = make_dreamer_agent(
@@ -173,9 +173,9 @@ class Workspace:
         self._horizon = cfg.env.horizon
 
     def reset(self, func):
-        # os.chdir(
-        #   (hydra.utils.get_original_cwd())
-        # )  # change to original working directory for loading URDF models
+        os.chdir(
+          (hydra.utils.get_original_cwd())
+        )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)
 
@@ -425,11 +425,10 @@ class Workspace:
     def setup_wandb(self):
         cfg = self.cfg
         exp_name = "_".join(
-            [
+            [   "Pretrain",
                 cfg.agent.name,
+                cfg.env.name,
                 cfg.task,
-                cfg.env.renderer.camera,
-                str(cfg.comment),
             ]
         )
         wandb.init(
@@ -529,7 +528,6 @@ def main(cfg):
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
-
 
 if __name__ == "__main__":
     main()

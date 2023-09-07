@@ -24,20 +24,10 @@ from hydra.utils import get_original_cwd, to_absolute_path
 
 torch.backends.cudnn.benchmark = True
 
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ, PRIMAL_TASKS
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS 
+from env.make import make
 
 import warnings
-
-warnings.filterwarnings("ignore")
-
-
-def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
-    cfg.obs_type = obs_type
-    cfg.obs_shape = obs_spec.shape
-    cfg.action_shape = action_spec.shape
-    cfg.num_expl_steps = num_expl_steps
-    return hydra.utils.instantiate(cfg)
-
 
 def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
     from copy import deepcopy
@@ -97,16 +87,19 @@ class Workspace:
             self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb
         )
         # create envs
+        # create envs
+        domain = cfg.domain
         task = (
             cfg.task if cfg.task != "none" else PRIMAL_TASKS[self.cfg.domain]
         )  # -> which is the URLB default
         frame_stack = 1
 
-        os.chdir(
-            (hydra.utils.get_original_cwd())
-        )  # change to original working directory for loading URDF models
+        # os.chdir(
+        #     (hydra.utils.get_original_cwd())
+        # )  # change to original working directory for loading URDF models
 
         self.train_env = make(
+            domain,
             task,
             cfg.obs_type,
             frame_stack,
@@ -114,7 +107,9 @@ class Workspace:
             cfg.seed,
             cfg.env,
         )
+
         self.eval_env = make(
+            domain,
             task,
             cfg.obs_type,
             frame_stack,
@@ -125,14 +120,11 @@ class Workspace:
 
         os.chdir(self.workdir)
 
-        # add objects to cfg
-        domain, _ = task.split("_", 1)
+        objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
 
-        objets_list = (
-            RS_PANDA_TASKS_OBJ if domain == "rs_panda" else MS_PANDA_TASKS_OBJ
-        )
+        if cfg.agent.world_model.name == "focus":
+            cfg.agent.world_model.objects = objets_list
 
-        cfg.objects = objets_list[task.split("_")[1]]
 
         # create agent
         self.agent = make_dreamer_agent(
@@ -151,11 +143,7 @@ class Workspace:
         meta_specs = self.agent.get_meta_specs()
 
         data_specs = (
-            self.train_env.rgb_spec(),
-            self.train_env.depth_spec(),
-            self.train_env.proprio_spec(),
-            self.train_env.objects_pos_spec(),
-            self.train_env.segmentation_spec(),
+            *self.train_env.obs_specs(),
             self.train_env.action_spec(),
             specs.Array((1,), np.float32, "reward"),
             specs.Array((1,), np.float32, "discount"),
@@ -187,9 +175,9 @@ class Workspace:
         self._horizon = cfg.env.horizon
 
     def reset(self, func):
-        os.chdir(
-            (hydra.utils.get_original_cwd())
-        )  # change to original working directory for loading URDF models
+        # os.chdir(
+        #     (hydra.utils.get_original_cwd())
+        # )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)
 
@@ -434,22 +422,9 @@ class Workspace:
             self.save_finetuned_model()
 
     def load_snapshot(self):
-        snapshot_base_dir = Path(
-            hydra.utils.get_original_cwd() + self.cfg.snapshot_base_dir
-        )
-        domain, task = self.cfg.task.split("_", 1)
-        # models/${task}/${comment}/${agent.name}/${seed}
-        snapshot_dir = (
-            snapshot_base_dir
-            / self.cfg.task
-            / self.cfg.comment
-            / self.cfg.agent.name
-        )
-        if self.cfg.custom_snap_dir != "none":
-            snapshot_dir = Path(self.cfg.custom_snap_dir)
+        snapshot_base_dir = Path(self.cfg.snapshot_base_dir) 
         snapshot = (
-            snapshot_dir
-            / str(self.cfg.seed)
+            snapshot_base_dir
             / f"snapshot_{self.cfg.snapshot_ts}.pt"
         )
 
@@ -533,9 +508,8 @@ class Workspace:
             [
                 "Finetune",
                 cfg.agent.name,
+                cfg.env.name,
                 cfg.task,
-                cfg.env.renderer.camera,
-                str(cfg.comment),
             ]
         )
         wandb.init(
@@ -546,19 +520,29 @@ class Workspace:
         wandb.config.update(cfg)
         self.wandb_run_id = wandb.run.id
 
+def toolkit_main(cfg, savedir, workdir):
+    from dreamer_finetune import Workspace as W
+    root_dir = Path.cwd()
+    cfg.use_tb = False
 
-@hydra.main(config_path=".", config_name="dreamer_finetune")
+    workspace = W(cfg, savedir, workdir)
+    workspace.root_dir = root_dir
+    snapshot = workspace.root_dir / 'last_snapshot.pt'
+    if snapshot.exists():
+        print(f'resuming: {snapshot}')
+        workspace.load_snapshot()
+    if cfg.use_wandb and wandb.run is None:
+        # otherwise it was resumed
+        workspace.setup_wandb()
+    workspace.train()
+
+@hydra.main(config_path="configs", config_name="dreamer_finetune")
 def main(cfg):
     from dreamer_finetune import Workspace as W
-
     root_dir = Path.cwd()
-    cfg.snapshot_base_dir = str(
-        Path(get_original_cwd()) / cfg.snapshot_base_dir
-    )
-    # cfg.use_wandb = True
-    # cfg.project_name = "local"
 
     workspace = W(cfg)
+    workspace.root_dir = root_dir
     snapshot = root_dir / "last_snapshot.pt"
     if snapshot.exists():
         print(f"resuming: {snapshot}")

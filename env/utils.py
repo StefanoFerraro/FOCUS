@@ -11,13 +11,6 @@ import requests
 import gdown
 import clip
 
-def convert_box_xywh_to_xyxy(box):
-    x1 = box[0]
-    y1 = box[1]
-    x2 = box[0] + box[2]
-    y2 = box[1] + box[3]
-    return [x1, y1, x2, y2]
-
 
 def segment_image(image, bbox):
     image_array = np.array(image)
@@ -327,6 +320,7 @@ def image_segmentation(image, seg):
     return seg_image
 
 
+<<<<<<< HEAD
 # def common_obs_space(size, segmentation_instances, include_background=True):
 #     spaces = {
 #         "rgb": gym.spaces.Box(0, 255, (3,) + size, dtype=np.uint8),
@@ -352,3 +346,32 @@ def image_segmentation(image, seg):
 #         "success": gym.spaces.Box(0, 1, (), dtype=bool),
 #     }
 #     return spaces
+=======
+def common_obs_space(size, segmentation_instances, include_background=True):
+    spaces = {
+        "rgb": gym.spaces.Box(0, 255, (3,) + size, dtype=np.uint8),
+        "depth": gym.spaces.Box(
+            -np.inf,
+            np.inf,
+            (1,) + size,
+            dtype=np.float32,
+        ),
+        "objects_pos": gym.spaces.Box(
+            -2, 2, (len(segmentation_instances), 3), dtype=np.float32
+        ),
+        "segmentation": gym.spaces.Box(
+            0,
+            1,
+            (len(segmentation_instances) + include_background,) + size,
+            dtype=np.uint8,
+        ),
+        "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
+        "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
+        "is_last": gym.spaces.Box(0, 1, (), dtype=bool),
+        "is_terminal": gym.spaces.Box(0, 1, (), dtype=bool),
+        "success": gym.spaces.Box(0, 1, (), dtype=bool),
+    }
+    return spaces
+
+
+>>>>>>> master

@@ -1,6 +1,7 @@
 # @package agent
 defaults:
   - default
+  - dreamer
 
 _target_: agent.apt_dreamer.APTDreamerAgent
 name: apt_dreamer
