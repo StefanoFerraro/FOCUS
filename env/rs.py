@@ -51,9 +51,6 @@ class PandaRoboSuite(BaseEnv):
 
         self.random_placement = env_config.objects.random_placement
 
-        self.reward_shaping = env_config.reward_shaping
-        self.task_reward = env_config.task_reward
-
         self.target_x = env_config.goal.x
         self.target_y = env_config.goal.y
         self.target_z = env_config.goal.z
@@ -349,7 +346,6 @@ class PandaRoboSuite(BaseEnv):
             reward = self.lift_reward(in_areas, new_true_obj_pos[target_obj])
         elif self.task_reward == "push":
             reward = self.push_reward(in_areas, new_true_obj_pos[target_obj])
-
         else:
             # Do not change success or reward, use original
             pass

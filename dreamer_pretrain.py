@@ -15,7 +15,7 @@ import torch
 import wandb
 from dm_env import specs
 
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS 
 from env.make import make
 import utils
 from logger import Logger
@@ -26,6 +26,13 @@ torch.backends.cudnn.benchmark = True
 import warnings
 
 warnings.filterwarnings("ignore")
+
+def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
+    cfg.obs_type = obs_type
+    cfg.obs_shape = obs_spec.shape
+    cfg.action_shape = action_spec.shape
+    cfg.num_expl_steps = num_expl_steps
+    return hydra.utils.instantiate(cfg)
 
 
 def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
@@ -91,9 +98,9 @@ class Workspace:
         )  # -> which is the URLB default
         frame_stack = 1
 
-        os.chdir(
-            (hydra.utils.get_original_cwd())
-        )  # change to original working directory for loading URDF models
+        # os.chdir(
+        #     (hydra.utils.get_original_cwd())
+        # )  # change to original working directory for loading URDF models
 
         self.train_env = make(
             domain,
@@ -166,9 +173,9 @@ class Workspace:
         self._horizon = cfg.env.horizon
 
     def reset(self, func):
-        os.chdir(
-            (hydra.utils.get_original_cwd())
-        )  # change to original working directory for loading URDF models
+        # os.chdir(
+        #   (hydra.utils.get_original_cwd())
+        # )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)
 
@@ -207,14 +214,12 @@ class Workspace:
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         meta = self.agent.init_meta()
         while eval_until_episode(episode):
+            episode_data = []
             dreamer_obs = self.eval_env.reset()
+            episode_data.append(dreamer_obs)
             agent_state = None
             while not bool(dreamer_obs["is_last"]):
                 with torch.no_grad(), utils.eval_mode(self.agent):
-                    dreamer_obs = {
-                        k: np.array(v) if isinstance(v, list) else v
-                        for k, v in dreamer_obs.items()
-                    }
                     action, agent_state = self.agent.act(
                         dreamer_obs,
                         meta,
@@ -223,6 +228,7 @@ class Workspace:
                         state=agent_state,
                     )
                 dreamer_obs = self.eval_env.step(action)
+                episode_data.append(dreamer_obs)
                 total_reward += dreamer_obs["reward"]
                 step += 1
                 # Hacky way to say that step_to_success was set
@@ -245,6 +251,10 @@ class Workspace:
             log("avg_step_to_success", sum(step_to_success_list) / episode)
             log("episode", self.global_episode)
             log("step", self.global_step)
+
+        # B, T, C, H, W = video.shape
+        last_video = np.expand_dims(np.stack([ obs['rgb'] for obs in episode_data ], axis=0), axis=0)
+        self.logger.log_video({'eval/video' : last_video }, self.global_frame)
 
     def train(self):
         # predicates
@@ -274,9 +284,6 @@ class Workspace:
             dreamer_obs = self.reset(self.train_env)
         agent_state = None
         meta = self.agent.init_meta()
-        dreamer_obs = {
-            k: np.array(v) if isinstance(v, list) else v for k, v in dreamer_obs.items()
-        }
         data = dreamer_obs
 
         self.replay_storage.add(data, meta)
@@ -336,15 +343,11 @@ class Workspace:
                 cumm_vertical_displacement = 0
 
                 # save last model
-                if self.global_step % 100000 == 0:
+                if self.global_step % 5000 == 0:
                     self.save_last_model()
 
                 # reset env
                 dreamer_obs = self.reset(self.train_env)
-                dreamer_obs = {
-                    k: np.array(v) if isinstance(v, list) else v
-                    for k, v in dreamer_obs.items()
-                }
 
                 agent_state = None  # Resetting agent's latent state
                 meta = self.agent.init_meta()
@@ -396,10 +399,6 @@ class Workspace:
 
             # take env step
             dreamer_obs = self.train_env.step(action)
-            dreamer_obs = {
-                k: np.array(v) if isinstance(v, list) else v
-                for k, v in dreamer_obs.items()
-            }
 
             episode_reward += dreamer_obs["reward"]
             data = dreamer_obs
@@ -426,11 +425,10 @@ class Workspace:
     def setup_wandb(self):
         cfg = self.cfg
         exp_name = "_".join(
-            [
+            [   "Pretrain",
                 cfg.agent.name,
+                cfg.env.name,
                 cfg.task,
-                cfg.env.renderer.camera,
-                str(cfg.comment),
             ]
         )
         wandb.init(
@@ -497,15 +495,27 @@ class Workspace:
         snapshot_dir.mkdir(exist_ok=True, parents=True)
         snapshot = snapshot_dir
         return snapshot_dir
+    
+def toolkit_main(cfg, savedir, workdir):
+    from dreamer_pretrain import Workspace as W
+    root_dir = Path.cwd()
+    cfg.use_tb = False
 
+    workspace = W(cfg, savedir, workdir)
+    workspace.root_dir = root_dir
+    snapshot = workspace.root_dir / 'last_snapshot.pt'
+    if snapshot.exists():
+        print(f'resuming: {snapshot}')
+        workspace.load_snapshot()
+    if cfg.use_wandb and wandb.run is None:
+        # otherwise it was resumed
+        workspace.setup_wandb()
+    workspace.train()
 
 @hydra.main(config_path="configs", config_name="dreamer_pretrain")
 def main(cfg):
     from dreamer_pretrain import Workspace as W
-
     root_dir = Path.cwd()
-    # cfg.use_wandb = False
-    # cfg.project_name = "ObjChoreo"
 
     workspace = W(cfg)
     workspace.root_dir = root_dir
@@ -518,7 +528,6 @@ def main(cfg):
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
-
 
 if __name__ == "__main__":
     main()

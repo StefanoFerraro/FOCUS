@@ -1,30 +1,17 @@
 defaults:
-  - configs/dreamer
+  - env: rs
   - agent: dreamer
-  - configs: ${configs}
   - override hydra/launcher: submitit_local
 
-# mode
-reward_free: true
-# task settings
+# agent: none
 task: none
-domain: walker # primal task will be infered in runtime
-# train settings
-num_train_frames: 100010
-num_seed_frames: 4000
-# eval
-eval_every_frames: 50000
-num_eval_episodes: 10
-# pretrained
-snapshot_ts: 500000
-custom_snap_dir: /srv/sferraro/choreographer/models/dreamer_obj_msPanda_PickSingleYCB_011_banana-push
-snapshot_base_dir: /exp_sweep/models
-# snapshot
-snapshots: [100000, 500000, 1000000, 2000000] 
-snapshot_dir: ../../../models/${task}/${comment}/${agent.name}/${seed}
-# replay buffer
-replay_buffer_size: 500000
-replay_buffer_num_workers: 4
+domain: ${env.name}
+comment: ""
+
+# experiment
+experiment: pt
+project_name: RSS_benchmark
+
 # misc
 seed: 1
 device: cuda
@@ -33,9 +20,43 @@ save_train_video: true
 use_tb: false
 use_wandb: true
 
-# experiment
-experiment: pt
-project_name: RSS_benchmark
+# mode
+obs_type: pixels
+action_repeat: 2 
+reward_free: false
+is_finetune: true
+precision: 32
+
+# model specs
+batch_size: 32
+batch_length: 32
+imag_horizon: 15
+eval_state_mean: False
+train_every_actions: 32
+
+# train settings
+num_train_frames: 100010
+num_seed_frames: 4000
+# eval
+eval_every_frames: 1000000
+num_eval_episodes: 10
+
+# pretrained
+snapshot_ts: 2000000
+custom_snap_dir: /srv/sferraro/choreographer/models/dreamer_obj_msPanda_PickSingleYCB_011_banana-push
+snapshot_base_dir: /exp_sweep/models
+# snapshot
+snapshots: [100000, 500000, 1000000, 2000000] 
+snapshot_dir: ../../../models/${task}/${comment}/${agent.name}/${seed}
+# replay buffer
+replay_buffer_size: 500000
+replay_buffer_num_workers: 4
+replay:   
+  capacity: ${replay_buffer_size}
+  ongoing: False
+  minlen: 50
+  maxlen: 50 
+  prioritize_ends: False
 
 # Pretrained network reuse
 init_critic: true
@@ -43,7 +64,7 @@ init_actor: true
 
 # log settings
 log_every_frames: 1000
-recon_every_frames: 25000 # edit for debug
+recon_every_frames: 5000 # edit for debug
 root_log_dir: '.'
 
 # Fine-tuning ablation

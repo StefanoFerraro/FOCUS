@@ -35,6 +35,7 @@ class BaseEnv:
         # env params
         self.size = tuple(env_config.renderer.size)
         self.seg_size = tuple(env_config.renderer.seg_size)
+        self.reward_shaping = env_config.reward_shaping
         self.task_reward = env_config.task_reward
         self.camera = env_config.renderer.camera
         self.controller = env_config.controller

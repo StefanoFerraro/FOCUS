@@ -43,7 +43,7 @@ class FocusAgent(Module):
 
         self.requires_grad_(requires_grad=False)
         self.reward_coeff = cfg.agent.reward_coeff
-        self.rw_dict = {"rw_mov", "rw_dist_obj", "rw_intr"}
+        self.rw_dict = {"rw_task", "rw_intr"}
 
         self.rewnorm_dict = {}
         for k in self.rw_dict:
@@ -139,32 +139,32 @@ class FocusAgent(Module):
 
     def expl_reward_fn(self, seq):
         # to optimize execution execute computation of distance and object movement reward only if needed
-        if self.reward_coeff["rw_mov"] > 0 or self.reward_coeff["rw_dist_obj"] > 0:
-            obj_id = 0
-            obj_poses = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
-                "objects_pos"
-            ].mean
+        # if self.reward_coeff["rw_mov"] > 0 or self.reward_coeff["rw_dist_obj"] > 0:
+        #     obj_id = 0
+        #     obj_poses = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
+        #         "objects_pos"
+        #     ].mean
 
-            obj_pos = obj_poses[:, :, obj_id]
+        #     obj_pos = obj_poses[:, :, obj_id]
 
-            # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
-            id_eef = 21 if self.env == "rs" else 18
-            gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
-                :, :, id_eef : id_eef + 3
-            ]
+        #     # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
+        #     id_eef = 21 if self.env == "rs" else 18
+        #     gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
+        #         :, :, id_eef : id_eef + 3
+        #     ]
 
-            rw_mov = obj_pos[:, :, 1].unsqueeze(
-                -1
-            )  # reward for moving cubeA right (positive position)
+        #     rw_mov = obj_pos[:, :, 1].unsqueeze(
+        #         -1
+        #     )  # reward for moving cubeA right (positive position)
 
-            rw_dist_obj = (
-                (torch.sum(((gripper_pos - obj_pos) ** 2), dim=2))
-                .pow(0.5)
-                .unsqueeze(-1)
-            )
-        else:
-            rw_mov = torch.Tensor([0.0]).to(self.device)
-            rw_dist_obj = torch.Tensor([0.0]).to(self.device)
+        #     rw_dist_obj = (
+        #         (torch.sum(((gripper_pos - obj_pos) ** 2), dim=2))
+        #         .pow(0.5)
+        #         .unsqueeze(-1)
+        #     )
+        # else:
+        #     rw_mov = torch.Tensor([0.0]).to(self.device)
+        #     rw_dist_obj = torch.Tensor([0.0]).to(self.device)
 
         # computation of intrinsic reward
         obj_onehot = torch.eye(
@@ -176,15 +176,21 @@ class FocusAgent(Module):
         )
 
         rw_intr = 0
-        for i in range(self.obj_instances):
-            rw_intr += self.compute_intr_reward(x[:, :, i])
+        if self.reward_coeff["rw_intr"] > 0:
+            for i in range(self.obj_instances):
+                rw_intr += self.compute_intr_reward(x[:, :, i])
         # rw_intr = self.compute_intr_reward(obj_pos) intrinsic reward computation over object positon in space
+
+        rw_task = 0
+        if self.reward_coeff["rw_task"] > 0:
+            rw_task = self.wm.heads["reward"](seq["feat"]).mean
 
         # output final results
         self.rw_dict = {
-            "rw_mov": rw_mov,
-            "rw_dist_obj": rw_dist_obj,
+            # "rw_mov": rw_mov,
+            # "rw_dist_obj": rw_dist_obj,
             "rw_intr": rw_intr,
+            "rw_task": rw_task,
         }
         rw_norm = {}
         mets = {}
@@ -224,7 +230,7 @@ class FocusAgent(Module):
             for key in self.wm.heads["object_decoder"].cnn_keys:
                 name = key.replace("/", "_")
                 report[f"{name}"] = self.wm.video_pred(
-                    data, key, "object_decoder", nvid=8
+                    data, key, "object_decoder", nvid=4
                 )
 
             # for key in self.wm.heads["object_decoder"].mlp_keys:
@@ -473,7 +479,7 @@ class OCWorldModel(WorldModel):
         # return "\t".join(text_out)
         return dict_out
 
-    def video_pred(self, data, key, head, nvid=8):
+    def video_pred(self, data, key, head, nvid=4):
         if key == "rgb" or key == "depth":
             decoder = self.heads[head]  # B, T, C, H, W
             truth = data[key][:nvid] + 0.5
