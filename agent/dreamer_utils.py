@@ -665,7 +665,7 @@ class ObjDecoder(Module):
         self,
         shapes,
         cnn_keys=r".*",
-        pose_key=r".*",
+        mlp_keys=r".*",
         act=nn.ELU,
         norm="none",
         cnn_depth=48,
@@ -682,13 +682,13 @@ class ObjDecoder(Module):
             for k, v in shapes.items()
             if re.match(cnn_keys, k)
         ]
-        self.pose_key = [
+        self.mlp_keys = [
             k
             for k, v in shapes.items()
-            if re.match(pose_key, k)
+            if re.match(mlp_keys, k)
         ]
         print("Object Decoder CNN outputs:", list(self.cnn_keys))
-        print("Object Decoder Pose key:", list(self.pose_key))
+        print("Object Decoder Pose key:", list(self.mlp_keys))
 
         self._act = act()
         self._norm = norm
@@ -738,11 +738,11 @@ class ObjDecoder(Module):
 
             self._conv_model = nn.Sequential(*self._conv_model)
 
-        if len(self.pose_key) > 0:
+        if len(self.mlp_keys) > 0:
             self._mlp_model = []
             for i, width in enumerate(self._mlp_layers):
                 if i == 0:
-                    prev_width = self._shapes[self.pose_key[0]][1] + self.instances_dim
+                    prev_width = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
                 else:
                     prev_width = self._mlp_layers[i - 1]
                 if i == len(self._mlp_layers) - 1:
@@ -752,7 +752,7 @@ class ObjDecoder(Module):
                 self._mlp_model.append(self._act)
 
             self._mlp_model = nn.Sequential(*self._mlp_model)
-            # for key, shape in {k: shapes[k] for k in self.pose_key}.items():
+            # for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 # self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
 
     def forward(self, features=None, masks=None, poses=None):
@@ -769,7 +769,7 @@ class ObjDecoder(Module):
             dist, post = self._cnn(features, obj_onehot, masks)
             outputs.update(dist)
             outputs["post"] = post
-        if self.pose_key and poses != None:
+        if self.mlp_keys and poses != None:
             prior = self._mlp(poses, obj_onehot)
             outputs["prior"] = prior
         return outputs
@@ -860,7 +860,7 @@ class ObjDecoder(Module):
         
         dists = {}
         instances = self.instances_dim if instances == None else instances
-        shapes = {k: self._shapes[k] for k in self.pose_key}
+        shapes = {k: self._shapes[k] for k in self.mlp_keys}
 
         feat = []
         for i in range(instances - 1): # remove background

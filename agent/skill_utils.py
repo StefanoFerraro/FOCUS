@@ -14,36 +14,36 @@ def get_feat_ac(seq):
 class SkillActorCritic(common.Module):
   def __init__(self, config, act_spec, tfstep, skill_dim, solved_meta=None, sampling_strategy='object_context_position'):
     super().__init__()
-    self.cfg = config
+    self.cfg = config.agent
     self.act_spec = act_spec
     self.tfstep = tfstep
     self._use_amp = (config.precision == 16)
+    self.hor = config.imag_horizon
     self.device = config.device
     
     self.sampling_strategy = sampling_strategy
     self.solved_meta = solved_meta
     self.skill_dim = skill_dim
-    inp_size = config.world_model.rssm.deter 
-    if config.world_model.rssm.discrete: 
-      inp_size += config.world_model.rssm.stoch * config.world_model.rssm.discrete
+    inp_size = self.cfg.world_model.rssm.deter 
+    if self.cfg.world_model.rssm.discrete: 
+      inp_size += self.cfg.world_model.rssm.stoch * self.cfg.world_model.rssm.discrete
     else:
-      inp_size += config.world_model.rssm.stoch
+      inp_size += self.cfg.world_model.rssm.stoch
     
     inp_size += skill_dim if type(skill_dim) == int else sum(skill_dim)
-    self.actor = common.MLP(inp_size, act_spec.shape[0], **self.cfg.agent.actor)
-    self.critic = common.MLP(inp_size, (1,), **self.cfg.agent.critic)
-    if self.cfg.agent.slow_target:
-      self._target_critic = common.MLP(inp_size, (1,), **self.cfg.agent.critic)
+    self.actor = common.MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
+    self.critic = common.MLP(inp_size, (1,), **self.cfg.critic)
+    if self.cfg.slow_target:
+      self._target_critic = common.MLP(inp_size, (1,), **self.cfg.critic)
       self._updates = 0 
     else:
       self._target_critic = self.critic
-    self.actor_opt = common.Optimizer('skill_actor', self.actor.parameters(), **self.cfg.agent.actor_opt, use_amp=self._use_amp)
-    self.critic_opt = common.Optimizer('skill_critic', self.critic.parameters(), **self.cfg.agent.critic_opt, use_amp=self._use_amp)
-    self.rewnorm = common.StreamNorm(**self.cfg.agent.skill_reward_norm, device=self.device)
+    self.actor_opt = common.Optimizer('skill_actor', self.actor.parameters(), **self.cfg.actor_opt, use_amp=self._use_amp)
+    self.critic_opt = common.Optimizer('skill_critic', self.critic.parameters(), **self.cfg.critic_opt, use_amp=self._use_amp)
+    self.rewnorm = common.StreamNorm(**self.cfg.skill_reward_norm, device=self.device)
 
   def update(self, world_model, start, is_terminal, reward_fn):
     metrics = {}
-    hor = self.cfg.imag_horizon
     with common.RequiresGrad(self.actor):
       with torch.cuda.amp.autocast(enabled=self._use_amp):
         B,T , _ = start['deter'].shape
@@ -66,7 +66,7 @@ class SkillActorCritic(common.Module):
             img_pos = torch.rand((B*T, pos_dim), device=self.device) * 2 - 1.
             img_skill = torch.cat([img_obj, img_pos], dim=-1)
 
-        seq = world_model.imagine(self.actor, start, is_terminal, hor, task_cond=img_skill)
+        seq = world_model.imagine(self.actor, start, is_terminal, self.hor, task_cond=img_skill)
         seq['skill'] = seq.pop('task')
         reward = reward_fn(seq)
         seq['reward'], mets1 = self.rewnorm(reward)
@@ -96,23 +96,23 @@ class SkillActorCritic(common.Module):
     # anywhere anymore. One target is lost at the start of the trajectory
     # because the initial state comes from the replay buffer.
     policy = self.actor(stop_gradient(get_feat_ac(seq)[:-2]))
-    if self.cfg.agent.actor_grad == 'dynamics':
+    if self.cfg.actor_grad == 'dynamics':
       objective = target[1:]
-    elif self.cfg.agent.actor_grad == 'reinforce':
+    elif self.cfg.actor_grad == 'reinforce':
       baseline = self._target_critic(get_feat_ac(seq)[:-2]).mean # .mode()
       advantage = stop_gradient(target[1:] - baseline)
       objective = policy.log_prob(stop_gradient(seq['action'][1:-1]))[:,:,None] * advantage
-    elif self.cfg.agent.actor_grad == 'both':
+    elif self.cfg.actor_grad == 'both':
       baseline = self._target_critic(get_feat_ac(seq)[:-2]).mean # .mode()
       advantage = stop_gradient(target[1:] - baseline)
       objective = policy.log_prob(stop_gradient(seq['action'][1:-1]))[:,:,None] * advantage
-      mix = utils.schedule(self.cfg.agent.actor_grad_mix, self.tfstep)
+      mix = utils.schedule(self.cfg.actor_grad_mix, self.tfstep)
       objective = mix * target[1:] + (1 - mix) * objective
       metrics['skill_actor_grad_mix'] = mix
     else:
-      raise NotImplementedError(self.cfg.agent.actor_grad)
+      raise NotImplementedError(self.cfg.actor_grad)
     ent = policy.entropy()[:,:,None]
-    ent_scale = utils.schedule(self.cfg.agent.actor_ent, self.tfstep)
+    ent_scale = utils.schedule(self.cfg.actor_ent, self.tfstep)
     objective += ent_scale * ent
     weight = stop_gradient(seq['weight'])
     actor_loss = -(weight[:-2] * objective).mean() 
@@ -136,7 +136,7 @@ class SkillActorCritic(common.Module):
     target = common.lambda_return(
         reward[:-1], value[:-1], disc[:-1],
         bootstrap=value[-1],
-        lambda_=self.cfg.agent.discount_lambda,
+        lambda_=self.cfg.discount_lambda,
         axis=0)
     metrics = {}
     metrics['skill_critic_slow'] = value.mean()
@@ -144,10 +144,10 @@ class SkillActorCritic(common.Module):
     return target, metrics
 
   def update_slow_target(self):
-    if self.cfg.agent.slow_target:
-      if self._updates % self.cfg.agent.slow_target_update == 0:
+    if self.cfg.slow_target:
+      if self._updates % self.cfg.slow_target_update == 0:
         mix = 1.0 if self._updates == 0 else float(
-            self.cfg.agent.slow_target_fraction)
+            self.cfg.slow_target_fraction)
         for s, d in zip(self.critic.parameters(), self._target_critic.parameters()):
           d.data = mix * s.data + (1 - mix) * d.data
       self._updates += 1 # .assign_add(1)
