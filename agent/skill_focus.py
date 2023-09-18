@@ -19,11 +19,15 @@ class SkillFocusAgent(FocusAgent):
     def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
         super().__init__(name, cfg, obs_space, act_spec, is_finetune, **kwargs)
         
-        # obj = [1,0]
-        self._target_pose = torch.Tensor([[[[0.2, 0.2, 0.84, 1, 0, 0, 1]]]]).to(device="cuda")
+        self.exploration_area = self.cfg.env.exploration_area
+        self._low = [x[0] for x in self.exploration_area]
+        self._high = [x[1] for x in self.exploration_area]
+        
+        self.update_target()
+        
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
-        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pose))["prior"][0][0]
+        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pos))["prior"][0][0]
         self.skill_dim = [self._fixed_skill.shape[-1]]
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
@@ -32,6 +36,10 @@ class SkillFocusAgent(FocusAgent):
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
+    def update_target(self):
+        new_target = np.random.uniform(self._low, self._high) 
+        self._target_pos = torch.Tensor([[[new_target]]]).to(device="cuda")        
+    
     def object_context_position_reward_fn(self, seq):
         obj_id, obj_goal_pos = torch.split(seq['skill'] , self.skill_dim, dim=-1) 
         
@@ -57,7 +65,7 @@ class SkillFocusAgent(FocusAgent):
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
-        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pose))["prior"][0][0]
+        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pos))["prior"][0][0]
         self._skill_behavior.solved_meta['skill'] = self._fixed_skill
         
         # update based on mode, save compute time
@@ -89,7 +97,7 @@ class SkillFocusAgent(FocusAgent):
 
         # only for debugging
         policy = self._skill_behavior.actor
-        skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pose))["prior"][0][0]
+        skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pos))["prior"][0][0]
         inp = torch.cat([feat, skill], dim=-1)
 
         actor = policy(inp)

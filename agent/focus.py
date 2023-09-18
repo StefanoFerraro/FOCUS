@@ -320,7 +320,7 @@ class OCWorldModel(WorldModel):
             inp = feat if grad_head else stop_gradient(feat)
 
             out = (
-                head(inp, masks=data["segmentation"], poses=data["objects_pose"])
+                head(inp, masks=data["segmentation"], poses=data["objects_pos"])
                 if name == "object_decoder"
                 else head(inp)
             )

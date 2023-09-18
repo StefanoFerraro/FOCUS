@@ -335,7 +335,9 @@ class Workspace:
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
                         log("vertical_displacement", cumm_vertical_displacement)
+                        log("move_to_target", 1 - np.linalg.norm(dreamer_obs["objects_pos"][0]- self.agent._target_pos.cpu().numpy()) / np.linalg.norm(self.agent._target_pos.cpu().numpy()[:2]))
 
+                self.agent.update_target() # update pos target for agent every new episode 
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
                 cumm_pos_displacement = 0

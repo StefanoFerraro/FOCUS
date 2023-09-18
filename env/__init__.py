@@ -26,7 +26,7 @@ JACO_TASKS = [
 ]
 
 RS_TASKS_OBJ = {
-    "MoveTo": ["cube"],
+    "MoveTo": ["cube", ],
     "Stack": ["cubeA", "cubeB"],
     "CustomStack": ["cubeA", "cubeB"],
     "Lift": ["cube"],

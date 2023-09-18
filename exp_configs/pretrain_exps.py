@@ -1316,8 +1316,14 @@ exp_configs = {
         "seed": [1,2,3],
     },
     
+    "focus_skill_randTarget_pretrain" : {
+        "agent": "skill_focus",
+        "env": "rs",
+        "task": ["CustomLift", "CustomStack"],
+        "seed": [1,2,3],
+    },
+    
     "focus_skill_pretrain" : {
-        "world_model": ["focus"],
         "agent": "skill_focus",
         "env": "rs",
         "task": ["CustomLift"],

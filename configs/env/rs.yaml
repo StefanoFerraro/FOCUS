@@ -25,3 +25,4 @@ goal:
   y: None
   z: None
   point_goal: False
+exploration_area: [[-0.4, 0.4], [-0.4, 0.4], [0.84, 0.84]]
