@@ -98,9 +98,9 @@ class Workspace:
         )  # -> which is the URLB default
         frame_stack = 1
 
-        # os.chdir(
-        #     (hydra.utils.get_original_cwd())
-        # )  # change to original working directory for loading URDF models
+        os.chdir(
+            ("/mnt/home/focus/")
+        )  # change to original working directory for loading URDF models
 
         self.train_env = make(
             domain,
@@ -174,7 +174,7 @@ class Workspace:
 
     def reset(self, func):
         os.chdir(
-          (hydra.utils.get_original_cwd())
+          ("/mnt/home/focus/")
         )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)

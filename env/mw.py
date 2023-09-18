@@ -1,5 +1,5 @@
 from .utils import *
-from .base_env import BaseEnv
+from env.base_env import BaseEnv
 import pickle
 import gym
 import pyquaternion as pq
@@ -57,9 +57,7 @@ class Metaworld(BaseEnv):
 
         self._duration = 0
         self.is_last = False
-        self.main_object_id = mujoco.mj_name2id(
-            self._env.model, mujoco.mjtObj.mjOBJ_BODY, self.segmentation_instances[0]
-        )
+        self.main_object_id = [mujoco.mj_name2id(self._env.model, mujoco.mjtObj.mjOBJ_BODY, part) for part in self.segmentation_instances[0]]
 
     def action_spec(
         self,
@@ -74,9 +72,7 @@ class Metaworld(BaseEnv):
 
     @property
     def obs_space(self):
-        spaces = common_obs_space(
-            self.size, self.segmentation_instances, self.include_background
-        )
+        spaces = self.common_obs_space
         spaces.update(
             {
                 "proprio": gym.spaces.Box(
@@ -130,8 +126,11 @@ class Metaworld(BaseEnv):
         obj_pos = {}
         obj_ori = {}
         for obj in self.segmentation_instances:
-            obj_pos[obj] = self._env.data.body(obj).xpos.copy()
-            obj_ori[obj] = self._env.data.body(obj).xquat.copy()
+            obj_pos[obj[0]] = []
+            obj_ori[obj[0]] = []
+            for part in obj:
+                obj_pos[obj[0]].append(self._env.data.body(part).xpos.copy())
+                obj_ori[obj[0]].append(self._env.data.body(part).xquat.copy())
 
         return obj_pos, obj_ori
 
@@ -141,17 +140,18 @@ class Metaworld(BaseEnv):
         true_vertical_displacement = 0
 
         for obj in self.segmentation_instances:
-            true_pos_displacement += np.sqrt(
-                np.sum(((true_objs_pos[obj] - self.true_obj_pos[obj]) ** 2))
-            )
+            for i in range(len(obj)):
+                true_pos_displacement += np.sqrt(
+                    np.sum(((true_objs_pos[obj[0]][i] - self.true_obj_pos[obj[0]][i]) ** 2))
+                )
 
-            true_ori_displacement += pq.Quaternion.absolute_distance(
-                pq.Quaternion(self.true_obj_ori[obj]),
-                pq.Quaternion(true_objs_ori[obj]),
-            )
-            true_vertical_displacement += abs(
-                true_objs_pos[obj][2] - self.true_obj_pos[obj][2]
-            )
+                true_ori_displacement += pq.Quaternion.absolute_distance(
+                    pq.Quaternion(self.true_obj_ori[obj[0]][i]),
+                    pq.Quaternion(true_objs_ori[obj[0]][i]),
+                )
+                true_vertical_displacement += abs(
+                    true_objs_pos[obj[0]][i][2] - self.true_obj_pos[obj[0]][i][2]
+                )
 
         return (
             true_pos_displacement,
@@ -210,7 +210,7 @@ class Metaworld(BaseEnv):
 
         # TODO check if state need to be modified
 
-        contact = deepcopy(self.touching_object(self.main_object_id))
+        contact = any([deepcopy(self.touching_object(part_id)) for part_id in self.main_object_id])
         new_true_obj_pos, new_true_obj_ori = self.get_objects_pose()
         (
             true_pos_displacement,

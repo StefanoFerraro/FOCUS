@@ -282,7 +282,7 @@ def download_checkpoint_from_google_drive(file_id, folder, filename):
 
 
 def obs_specs(obs_space):
-    obs_keys = ["rgb", "depth", "proprio", "objects_pos", "objects_pose", "segmentation"]
+    obs_keys = ["rgb", "depth", "proprio", "objects_pos", "segmentation"]
     obs_specs = []
     for k, v in obs_space.items():
         if k in obs_keys:
@@ -320,7 +320,6 @@ def image_segmentation(image, seg):
     return seg_image
 
 
-<<<<<<< HEAD
 # def common_obs_space(size, segmentation_instances, include_background=True):
 #     spaces = {
 #         "rgb": gym.spaces.Box(0, 255, (3,) + size, dtype=np.uint8),
@@ -346,32 +345,3 @@ def image_segmentation(image, seg):
 #         "success": gym.spaces.Box(0, 1, (), dtype=bool),
 #     }
 #     return spaces
-=======
-def common_obs_space(size, segmentation_instances, include_background=True):
-    spaces = {
-        "rgb": gym.spaces.Box(0, 255, (3,) + size, dtype=np.uint8),
-        "depth": gym.spaces.Box(
-            -np.inf,
-            np.inf,
-            (1,) + size,
-            dtype=np.float32,
-        ),
-        "objects_pos": gym.spaces.Box(
-            -2, 2, (len(segmentation_instances), 3), dtype=np.float32
-        ),
-        "segmentation": gym.spaces.Box(
-            0,
-            1,
-            (len(segmentation_instances) + include_background,) + size,
-            dtype=np.uint8,
-        ),
-        "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
-        "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
-        "is_last": gym.spaces.Box(0, 1, (), dtype=bool),
-        "is_terminal": gym.spaces.Box(0, 1, (), dtype=bool),
-        "success": gym.spaces.Box(0, 1, (), dtype=bool),
-    }
-    return spaces
-
-
->>>>>>> master

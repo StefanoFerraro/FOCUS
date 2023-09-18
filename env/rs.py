@@ -76,13 +76,12 @@ class PandaRoboSuite(BaseEnv):
     def get_object_pose(self):
         obj_pos = {}
         obj_ori = {}
-        obj_pose = {}
         for obj in self.segmentation_instances:
             obj_id = getattr(self._env, obj + "_body_id")
             obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy()
             obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
-            obj_pose[obj] = np.concatenate((obj_pos[obj], obj_ori[obj])).astype(np.float32)
-        return obj_pos.copy(), obj_ori.copy(), obj_pose.copy()
+
+        return obj_pos.copy(), obj_ori.copy()
 
     def make(self):
         self._env = PandaGymWrapper(
@@ -104,7 +103,7 @@ class PandaRoboSuite(BaseEnv):
         self.last_estimated_obj_pos = [[0, 0, 0]] * len(
             self.segmentation_instances
         )  # initialize to zero
-        self.true_obj_pos, self.true_obj_ori, _ = self.get_object_pose()
+        self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
         self.target_attr_name = self.target_obj
         self.target_obj_attr = getattr(self._env, self.target_attr_name)
@@ -170,13 +169,8 @@ class PandaRoboSuite(BaseEnv):
     @property
     def obs_space(self):
         spaces = self.common_obs_space
-            # self.size, self.segmentation_instances, self.include_background
-        
         spaces.update(
             {
-                "objects_pose": gym.spaces.Box(
-                    -1, 1, (len(self.segmentation_instances), 7), dtype=np.float32
-                ),
                 "proprio": gym.spaces.Box(
                     -5,
                     5,
@@ -338,7 +332,7 @@ class PandaRoboSuite(BaseEnv):
 
         contact = self.check_contact()
 
-        new_true_obj_pos, new_true_obj_ori, true_obj_pose = self.get_object_pose()
+        new_true_obj_pos, new_true_obj_ori = self.get_object_pose()
         (
             true_pos_displacement,
             true_ori_displacement,
@@ -377,7 +371,6 @@ class PandaRoboSuite(BaseEnv):
             "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
-            "objects_pose": np.array(list(true_obj_pose.values())).astype(np.float32), # concatenate objects poses
             "segmentation": seg,
             "state": self._env._flatten_obs(state),
             "action": action,
@@ -403,7 +396,7 @@ class PandaRoboSuite(BaseEnv):
         proprio, rgb, depth, seg, state = self._state_extraction(env_state)
         seg = self.segmentation_channel_split(seg, self.include_background)
 
-        self.true_obj_pos, self.true_obj_ori, true_obj_pose = self.get_object_pose()
+        self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
         objects_pos = self.pixel_to_world(seg, depth)
 
@@ -416,7 +409,6 @@ class PandaRoboSuite(BaseEnv):
             "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
-            "objects_pose": np.array(list(true_obj_pose.values())).astype(np.float32), # concatenate objects poses
             "segmentation": seg,
             "state": self._env._flatten_obs(state),
             "action": np.zeros_like(self.act_space["action"].sample()),

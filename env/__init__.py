@@ -46,15 +46,15 @@ MS_TASKS_OBJ = {
 }
 
 MW_TASKS_OBJ = {
-    "drawer-close": ["drawer_link"],
-    "drawer-open": ["drawer_link"],
-    "disassemble": ["RoundNut"],
-    "shelf-place": ["obj"],
-    "handle-pull": ["handle_link"],
-    "door-open": ["door"],
-    "door-close": ["door"],
-    "peg-insert-side": ["peg"],
-    "hammer": ["hammerbody"],
+    "drawer-close": [["drawer", "drawer_link", "drawercase_link"]],
+    "drawer-open": [["drawer", "drawer_link", "drawercase_link"]],
+    "disassemble": [["RoundNut"]],
+    "shelf-place": [["obj"]],
+    "handle-pull": [["handle_link", "hdlprs"]],
+    "door-open": [["door", "door_link"]],
+    "door-close": [["door", "door_link"]],
+    "peg-insert-side": [["peg"]],
+    "hammer": [["hammerbody"]],
 }
 
 MW_TASKS_PROMPT = {

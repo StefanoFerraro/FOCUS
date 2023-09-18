@@ -24,8 +24,8 @@ from mani_skill2.utils.sapien_utils import (
 from sapien.core import Pose
 import pyquaternion as pq
 from mani_skill2.utils.wrappers import RecordEpisode
-from .utils import *
-from .base_env import BaseEnv
+from env.utils import *
+from env.base_env import BaseEnv
 
 _LEFT = 0
 _RIGHT = 1
@@ -230,9 +230,7 @@ class PandaManiSkill(BaseEnv):
 
     @property
     def obs_space(self):
-        spaces = common_obs_space(
-            self.size, self.segmentation_instances, self.include_background
-        )
+        spaces = self.common_obs_space
         spaces.update(
             {
                 "proprio": gym.spaces.Box(
