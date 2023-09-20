@@ -46,7 +46,7 @@ class BaseEnv:
         self.gt_segmentation = env_config.renderer.gt_segmentation
         if not self.gt_segmentation:
             self.segmenter = Segmenter(
-                env_config.segmenter,
+                env_config,
                 self.task,
                 self.num_objects,
                 img_size=self.seg_size,

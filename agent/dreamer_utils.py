@@ -144,14 +144,11 @@ def static_scan(fn, inputs, start, reverse=False, unpack=False):
         if unpack:
             last = fn(last, inputs[0][index])
         else:
-            last = fn(
-                last, inp(index)
-            )  # NOTE: I removed an unpacking(*) before inp
+            last = fn(last, inp(index))  # NOTE: I removed an unpacking(*) before inp
         if flag:
             if type(last) == type({}):
                 outputs = {
-                    key: value.clone().unsqueeze(0)
-                    for key, value in last.items()
+                    key: value.clone().unsqueeze(0) for key, value in last.items()
                 }
             else:
                 outputs = []
@@ -219,9 +216,7 @@ class EnsembleRSSM(Module):
         self._norm = norm
         self._std_act = std_act
         self._min_std = min_std
-        self._cell = GRUCell(
-            self._hidden, self._deter, norm=True, device=self.device
-        )
+        self._cell = GRUCell(self._hidden, self._deter, norm=True, device=self.device)
 
         if discrete:
             inp_dim = stoch * discrete + action_dim
@@ -233,9 +228,7 @@ class EnsembleRSSM(Module):
 
         self._ensemble_img_out = nn.ModuleList(
             [
-                nn.Sequential(
-                    nn.Linear(deter, hidden), NormLayer(norm, hidden)
-                )
+                nn.Sequential(nn.Linear(deter, hidden), NormLayer(norm, hidden))
                 for _ in range(ensemble)
             ]
         )
@@ -269,13 +262,9 @@ class EnsembleRSSM(Module):
             )
         else:
             state = dict(
-                mean=torch.zeros(
-                    [batch_size, self._stoch], device=self.device
-                ),
+                mean=torch.zeros([batch_size, self._stoch], device=self.device),
                 std=torch.zeros([batch_size, self._stoch], device=self.device),
-                stoch=torch.zeros(
-                    [batch_size, self._stoch], device=self.device
-                ),
+                stoch=torch.zeros([batch_size, self._stoch], device=self.device),
                 deter=self._cell.get_initial_state(None, batch_size),
             )
         return state
@@ -321,16 +310,12 @@ class EnsembleRSSM(Module):
             dist = D.MultivariateNormal(mean, torch.eye(std))
         return dist
 
-    def obs_step(
-        self, prev_state, prev_action, embed, is_first, should_sample=True
-    ):
+    def obs_step(self, prev_state, prev_action, embed, is_first, should_sample=True):
         prev_state = {
             k: torch.einsum("b,b...->b...", 1.0 - is_first.float(), x)
             for k, x in prev_state.items()
         }
-        prev_action = torch.einsum(
-            "b,b...->b...", 1.0 - is_first.float(), prev_action
-        )
+        prev_action = torch.einsum("b,b...->b...", 1.0 - is_first.float(), prev_action)
         #
         prior = self.img_step(prev_state, prev_action, should_sample)
         x = torch.cat([prior["deter"], embed], -1)
@@ -345,9 +330,7 @@ class EnsembleRSSM(Module):
     def img_step(self, prev_state, prev_action, sample=True):
         prev_stoch = prev_state["stoch"]
         if self._discrete:
-            shape = list(prev_stoch.shape[:-2]) + [
-                self._stoch * self._discrete
-            ]
+            shape = list(prev_stoch.shape[:-2]) + [self._stoch * self._discrete]
             prev_stoch = prev_stoch.reshape(shape)
         x = torch.cat([prev_stoch, prev_action], -1)
         x = self._img_in(x)
@@ -371,10 +354,7 @@ class EnsembleRSSM(Module):
             x = self._ensemble_img_out[k](inp)
             x = self._act(x)
             stats.append(self._suff_stats_layer("_ensemble_img_dist", x, k=k))
-        stats = {
-            k: torch.stack([x[k] for x in stats], 0)
-            for k, v in stats[0].items()
-        }
+        stats = {k: torch.stack([x[k] for x in stats], 0) for k, v in stats[0].items()}
         stats = {
             k: v.reshape([v.shape[0]] + bs + list(v.shape[2:]))
             for k, v in stats.items()
@@ -387,9 +367,7 @@ class EnsembleRSSM(Module):
             layer = layer[k]
         x = layer(x)
         if self._discrete:
-            logit = x.reshape(
-                list(x.shape[:-1]) + [self._stoch, self._discrete]
-            )
+            logit = x.reshape(list(x.shape[:-1]) + [self._stoch, self._discrete])
             return {"logit": logit}
         else:
             mean, std = torch.chunk(x, 2, -1)
@@ -439,16 +417,8 @@ class Encoder(Module):
     ):
         super().__init__()
         self.shapes = shapes
-        self.cnn_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(cnn_keys, k)
-        ]
-        self.mlp_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(mlp_keys, k)
-        ]
+        self.cnn_keys = [k for k, v in shapes.items() if re.match(cnn_keys, k)]
+        self.mlp_keys = [k for k, v in shapes.items() if re.match(mlp_keys, k)]
 
         print("Encoder CNN inputs:", list(self.cnn_keys))
         print("Encoder MLP inputs:", list(self.mlp_keys))
@@ -462,13 +432,13 @@ class Encoder(Module):
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
-                    prev_depth = sum([v[0] for k, v in shapes.items() if k in self.cnn_keys]) # intialize depth with sum of dimensions of considered observations
+                    prev_depth = sum(
+                        [v[0] for k, v in shapes.items() if k in self.cnn_keys]
+                    )  # intialize depth with sum of dimensions of considered observations
                 else:
                     prev_depth = 2 ** (i - 1) * self._cnn_depth
                 depth = 2**i * self._cnn_depth
-                self._conv_model.append(
-                    nn.Conv2d(prev_depth, depth, kernel, stride=2)
-                )
+                self._conv_model.append(nn.Conv2d(prev_depth, depth, kernel, stride=2))
                 self._conv_model.append(NormLayer(norm, depth))
                 self._conv_model.append(self._act)
             self._conv_model = nn.Sequential(*self._conv_model)
@@ -501,7 +471,6 @@ class Encoder(Module):
         return output.reshape(batch_dims + output.shape[1:])
 
     def _cnn(self, data):
-
         x = torch.cat(list(data.values()), 1)
         x = self._conv_model(x)
         return x.reshape(tuple(x.shape[:-3]) + (-1,))
@@ -538,16 +507,8 @@ class Decoder(Module):
         super().__init__()
         self._embed_dim = embed_dim
         self._shapes = shapes
-        self.cnn_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(cnn_keys, k)
-        ]
-        self.mlp_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(mlp_keys, k)
-        ]
+        self.cnn_keys = [k for k, v in shapes.items() if re.match(cnn_keys, k)]
+        self.mlp_keys = [k for k, v in shapes.items() if re.match(mlp_keys, k)]
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
 
@@ -559,10 +520,7 @@ class Decoder(Module):
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
 
         if len(self.cnn_keys) > 0:
-
-            self._conv_in = nn.Sequential(
-                nn.Linear(embed_dim, 32 * self._cnn_depth)
-            )
+            self._conv_in = nn.Sequential(nn.Linear(embed_dim, 32 * self._cnn_depth))
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
@@ -570,8 +528,7 @@ class Decoder(Module):
                     self.layer_size = 1
                 else:
                     prev_depth = (
-                        2 ** (len(self._cnn_kernels) - (i - 1) - 2)
-                        * self._cnn_depth
+                        2 ** (len(self._cnn_kernels) - (i - 1) - 2) * self._cnn_depth
                     )
                 depth = 2 ** (len(self._cnn_kernels) - i - 2) * self._cnn_depth
                 act, norm = self._act, self._norm
@@ -660,6 +617,7 @@ class Decoder(Module):
             # dists[key] = getattr(self, f"dense_{key}")(x) # removed for debugging reasons
         return dists
 
+
 class ObjDecoder(Module):
     def __init__(
         self,
@@ -677,16 +635,8 @@ class ObjDecoder(Module):
         self._embed_dim = embed_dim
         self._shapes = {**shapes}
         self._shapes["segmentation"] = (1, *self._shapes["segmentation"][1:])
-        self.cnn_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(cnn_keys, k)
-        ]
-        self.mlp_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(mlp_keys, k)
-        ]
+        self.cnn_keys = [k for k, v in shapes.items() if re.match(cnn_keys, k)]
+        self.mlp_keys = [k for k, v in shapes.items() if re.match(mlp_keys, k)]
         print("Object Decoder CNN outputs:", list(self.cnn_keys))
         print("Object Decoder Pose key:", list(self.mlp_keys))
 
@@ -696,9 +646,7 @@ class ObjDecoder(Module):
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
 
-        self.instances_dim = (
-            shapes["segmentation"][0]  # this didn't got modified above
-        )
+        self.instances_dim = shapes["segmentation"][0]  # this didn't got modified above
 
         self.objects_dim = self.instances_dim - 1
 
@@ -717,8 +665,7 @@ class ObjDecoder(Module):
                     prev_depth = 32 * self._cnn_depth  # * self.instances_dim
                 else:
                     prev_depth = (
-                        2 ** (len(self._cnn_kernels) - (i - 1) - 2)
-                        * self._cnn_depth
+                        2 ** (len(self._cnn_kernels) - (i - 1) - 2) * self._cnn_depth
                     )
                 depth = 2 ** (len(self._cnn_kernels) - i - 2) * self._cnn_depth
                 act, norm = self._act, self._norm
@@ -753,15 +700,13 @@ class ObjDecoder(Module):
 
             self._mlp_model = nn.Sequential(*self._mlp_model)
             # for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                # self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
+            # self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
 
     def forward(self, features=None, masks=None, poses=None):
         outputs = {}
         ref = features if features != None else poses
-        
-        obj_onehot = torch.eye(
-            self.instances_dim, device=ref.device
-        ).repeat(
+
+        obj_onehot = torch.eye(self.instances_dim, device=ref.device).repeat(
             *ref.shape[:2], 1, 1
         )  # last dim is obj idx
 
@@ -781,14 +726,11 @@ class ObjDecoder(Module):
         repeat_idx[dim] = n_tile
         a = a.repeat(*(repeat_idx))
         order_index = torch.LongTensor(
-            np.concatenate(
-                [init_dim * np.arange(n_tile) + i for i in range(init_dim)]
-            )
+            np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)])
         )
         return torch.index_select(a, dim, order_index.to(device=a.device))
 
     def _cnn(self, features, obj_onehot, masks):
-
         dists = {}
 
         # x is extracted feat, feat is = (embed, obj_onehot)
@@ -796,7 +738,7 @@ class ObjDecoder(Module):
 
         x = posterior.reshape(
             [
-                -1,  # batch_dim x batch_time x     
+                -1,  # batch_dim x batch_time x
                 32 * self._cnn_depth,  # object_extractor output dimension
                 1,
                 1,
@@ -857,17 +799,16 @@ class ObjDecoder(Module):
         return extracted_feat, feat
 
     def _mlp(self, poses, obj_onehot, instances=None):
-        
         dists = {}
         instances = self.instances_dim if instances == None else instances
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
 
         feat = []
-        for i in range(instances - 1): # remove background
-            # concatenate corresponding (index i) one-hot encoding of instance to the full embedding
-            obj_feat = obj_onehot[..., i, :]
-            feat.append(torch.cat((poses[..., i, :], obj_feat), dim=-1))
-        
+        # for i in range(instances - 1): # remove background
+        # concatenate corresponding (index i) one-hot encoding of instance to the full embedding
+        obj_feat = obj_onehot[..., 0, :]
+        feat.append(torch.cat((poses[..., 0, :], obj_feat), dim=-1))
+
         feat = torch.stack(feat, dim=2)
         prior = self._mlp_model(feat)
 
@@ -879,10 +820,9 @@ class ObjDecoder(Module):
 
         return prior
 
+
 class MLP(Module):
-    def __init__(
-        self, in_shape, shape, layers, units, act=nn.ELU, norm="none", **out
-    ):
+    def __init__(self, in_shape, shape, layers, units, act=nn.ELU, norm="none", **out):
         super().__init__()
         self._in_shape = in_shape
         self._shape = (shape,) if isinstance(shape, int) else shape
@@ -955,9 +895,7 @@ class GRUCell(Module):
 
 
 class DistLayer(Module):
-    def __init__(
-        self, in_dim, shape, dist="mse", min_std=0.1, init_std=0.0, bias=True
-    ):
+    def __init__(self, in_dim, shape, dist="mse", min_std=0.1, init_std=0.0, bias=True):
         super().__init__()
         self._in_dim = in_dim
         self._shape = shape if type(shape) in [list, tuple] else [shape]
@@ -1050,9 +988,10 @@ class Optimizer:
 
     def __call__(self, loss, params):
         params = list(params)
-        assert len(loss.shape) == 0 or (
-            len(loss.shape) == 1 and loss.shape[0] == 1
-        ), (self._name, loss.shape)
+        assert len(loss.shape) == 0 or (len(loss.shape) == 1 and loss.shape[0] == 1), (
+            self._name,
+            loss.shape,
+        )
         metrics = {}
 
         # Count parameters.
@@ -1094,9 +1033,7 @@ class Optimizer:
 
 
 class StreamNorm:
-    def __init__(
-        self, shape=(), momentum=0.99, scale=1.0, eps=1e-8, device="cuda"
-    ):
+    def __init__(self, shape=(), momentum=0.99, scale=1.0, eps=1e-8, device="cuda"):
         # Momentum of 0 normalizes only based on the current batch.
         # Momentum of 1 disables normalization.
 
@@ -1123,9 +1060,7 @@ class StreamNorm:
     def update(self, inputs):
         batch = inputs.reshape((-1,) + self._shape)
         mag = torch.abs(batch).mean(0)
-        self.mag.data = (
-            self._momentum * self.mag.data + (1 - self._momentum) * mag
-        )
+        self.mag.data = self._momentum * self.mag.data + (1 - self._momentum) * mag
 
     def transform(self, inputs):
         values = inputs.reshape((-1,) + self._shape)

@@ -26,7 +26,7 @@ JACO_TASKS = [
 ]
 
 RS_TASKS_OBJ = {
-    "MoveTo": ["cube", ],
+    "MoveTo": ["cube"],
     "Stack": ["cubeA", "cubeB"],
     "CustomStack": ["cubeA", "cubeB"],
     "Lift": ["cube"],
@@ -57,15 +57,34 @@ MW_TASKS_OBJ = {
     "hammer": [["hammerbody"]],
 }
 
+RS_TASKS_PROMPT = {
+    "MoveTo": ["text", "a red cube"],
+    "Stack": ["text", "a red cube and a green cube"],
+    "CustomStack": ["text", "a red cube and a green cube"],
+    "Lift": ["text", "a red cube"],
+    "CustomLift": ["text", "a red cube"],
+}
+
+MS_TASKS_PROMPT = {
+    "MoveTo": ["text", "a red cube"],
+    "Stack": ["text", "a red cube and a green cube"],
+    "CustomStack": ["text", "a red cube and a green cube"],
+    "Lift": ["text", "a red cube"],
+    "CustomLift": ["text", "a red cube"],
+    "TurnFaucet": ["text", "a faucet"],
+    "PickSingleYCB": ["text", "a banana"],
+    "CustomLiftYCB": ["text", "a banana"],
+}
+
 MW_TASKS_PROMPT = {
-    "drawer-close": ["box", [50, 175, 225, 300]],
-    "drawer-open": ["box", [50, 175, 225, 300]],
-    "disassemble": ["box", [175, 325, 250, 375]],
-    "shelf-place": ["box", [210, 320, 250, 350]],
-    "handle-pull": ["box", [50, 250, 225, 350]],
-    "door-open": ["box", [0, 100, 150, 350]],
-    "door-close": ["box", [200, 225, 300, 300]],
-    "peg-insert-side": ["box", [130, 330, 175, 375]],
+    "drawer-close": ["text", "a green drawer"],
+    "drawer-open": ["text", "a green drawer"],
+    "disassemble": ["text", "a green nut"],
+    "shelf-place": ["text", "a blue cube"],
+    "handle-pull": ["text", "a red handle"],
+    "door-open": ["text", "a grey door"],
+    "door-close": ["text", "a grey door"],
+    "peg-insert-side": ["text", "a green peg"],
     "hammer": ["text", "hammer"],
 }
 

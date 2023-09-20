@@ -6,6 +6,7 @@ import os
 
 os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
 os.environ["MUJOCO_GL"] = "egl"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:1024"
 
 from pathlib import Path
 
@@ -15,7 +16,7 @@ import torch
 import wandb
 from dm_env import specs
 
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS 
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS
 from env.make import make
 import utils
 from logger import Logger
@@ -26,6 +27,7 @@ torch.backends.cudnn.benchmark = True
 import warnings
 
 warnings.filterwarnings("ignore")
+
 
 def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
     cfg.obs_type = obs_type
@@ -99,7 +101,7 @@ class Workspace:
         frame_stack = 1
 
         os.chdir(
-            ("/mnt/home/focus/")
+            ("/srv/sferraro/focus/")
         )  # change to original working directory for loading URDF models
 
         self.train_env = make(
@@ -174,7 +176,7 @@ class Workspace:
 
     def reset(self, func):
         os.chdir(
-          ("/mnt/home/focus/")
+            ("/srv/sferraro/focus")
         )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)
@@ -253,8 +255,10 @@ class Workspace:
             log("step", self.global_step)
 
         # B, T, C, H, W = video.shape
-        last_video = np.expand_dims(np.stack([ obs['rgb'] for obs in episode_data ], axis=0), axis=0)
-        self.logger.log_video({'eval/video' : last_video }, self.global_frame)
+        last_video = np.expand_dims(
+            np.stack([obs["rgb"] for obs in episode_data], axis=0), axis=0
+        )
+        self.logger.log_video({"eval/video": last_video}, self.global_frame)
 
     def train(self):
         # predicates
@@ -335,9 +339,19 @@ class Workspace:
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
                         log("vertical_displacement", cumm_vertical_displacement)
-                        log("move_to_target", 1 - np.linalg.norm(dreamer_obs["objects_pos"][0]- self.agent._target_pos.cpu().numpy()) / np.linalg.norm(self.agent._target_pos.cpu().numpy()[:2]))
+                        log(
+                            "move_to_target",
+                            1
+                            - np.linalg.norm(
+                                dreamer_obs["objects_pos"][0][:2]
+                                - self.agent._target_pos.cpu().numpy()[..., :2]
+                            )
+                            / np.linalg.norm(
+                                self.agent._target_pos.cpu().numpy()[..., :2]
+                            ),
+                        )
 
-                self.agent.update_target() # update pos target for agent every new episode 
+                # self.agent.update_target()  # update pos target for agent every new episode
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
                 cumm_pos_displacement = 0
@@ -427,7 +441,8 @@ class Workspace:
     def setup_wandb(self):
         cfg = self.cfg
         exp_name = "_".join(
-            [   "Pretrain",
+            [
+                "Pretrain",
                 cfg.agent.name,
                 cfg.env.name,
                 cfg.task,
@@ -472,10 +487,10 @@ class Workspace:
                 cfg = self.cfg
                 exp_name = "_".join(
                     [
+                        "Pretrain",
                         cfg.agent.name,
+                        cfg.env.name,
                         cfg.task,
-                        cfg.env.renderer.camera,
-                        str(cfg.comment),
                     ]
                 )
                 wandb.init(
@@ -497,26 +512,30 @@ class Workspace:
         snapshot_dir.mkdir(exist_ok=True, parents=True)
         snapshot = snapshot_dir
         return snapshot_dir
-    
+
+
 def toolkit_main(cfg, savedir, workdir):
     from dreamer_pretrain import Workspace as W
+
     root_dir = Path.cwd()
     cfg.use_tb = False
 
     workspace = W(cfg, savedir, workdir)
     workspace.root_dir = root_dir
-    snapshot = workspace.root_dir / 'last_snapshot.pt'
+    snapshot = workspace.root_dir / "last_snapshot.pt"
     if snapshot.exists():
-        print(f'resuming: {snapshot}')
+        print(f"resuming: {snapshot}")
         workspace.load_snapshot()
     if cfg.use_wandb and wandb.run is None:
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
 
+
 @hydra.main(config_path="configs", config_name="dreamer_pretrain")
 def main(cfg):
     from dreamer_pretrain import Workspace as W
+
     root_dir = Path.cwd()
 
     workspace = W(cfg)
@@ -530,6 +549,7 @@ def main(cfg):
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
+
 
 if __name__ == "__main__":
     main()

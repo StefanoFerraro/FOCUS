@@ -10,6 +10,7 @@ import os
 import requests
 import gdown
 import clip
+import wget
 
 
 def segment_image(image, bbox):
@@ -260,6 +261,17 @@ def download_checkpoint(url, folder, filename):
                 if chunk:
                     f.write(chunk)
 
+        print("download successfully!")
+
+    return filepath
+
+
+def download_checkpoint_wget(url, folder, filename):
+    os.makedirs(folder, exist_ok=True)
+    filepath = os.path.join(folder, filename)
+    if not os.path.exists(filepath):
+        print("download checkpoints ......")
+        wget.download(url)
         print("download successfully!")
 
     return filepath
