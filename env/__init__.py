@@ -57,6 +57,14 @@ MW_TASKS_OBJ = {
     "hammer": [["hammerbody"]],
 }
 
+DMC_TASKS_OBJ = {
+    "walker_run": ["leg"],
+}
+
+DMC_TASKS_PROMPT = {
+    "walker_run": ["leg"],
+}
+
 RS_TASKS_PROMPT = {
     "MoveTo": ["text", "a red cube"],
     "Stack": ["text", "a red cube and a green cube"],
@@ -97,4 +105,5 @@ PRIMAL_TASKS = {
     "rs": "Stack",
     "ms": "Stack",
     "mw": "pick-place",
+    "dmc": "walker_run"
 }

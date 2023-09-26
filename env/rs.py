@@ -71,7 +71,6 @@ class PandaRoboSuite(BaseEnv):
         self.lift_norm = int(abs(1 / (self.area_threshold)) + 1)
         self.push_norm = int(abs(1 / (self.area_threshold - self.area_target)) + 1)
         
-        self.exploration_area = [[-0.4, 0.4], [-0.4, 0.4], [0.84, 0.84]]
         self.make()
 
     def get_object_pose(self):

@@ -6,7 +6,6 @@ import os
 
 os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
 os.environ["MUJOCO_GL"] = "egl"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:1024"
 
 from pathlib import Path
 
@@ -16,7 +15,7 @@ import torch
 import wandb
 from dm_env import specs
 
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, PRIMAL_TASKS
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, DMC_TASKS_OBJ, PRIMAL_TASKS 
 from env.make import make
 import utils
 from logger import Logger
@@ -27,7 +26,6 @@ torch.backends.cudnn.benchmark = True
 import warnings
 
 warnings.filterwarnings("ignore")
-
 
 def make_agent(obs_type, obs_spec, action_spec, num_expl_steps, cfg):
     cfg.obs_type = obs_type
@@ -101,7 +99,7 @@ class Workspace:
         frame_stack = 1
 
         os.chdir(
-            ("/srv/sferraro/focus/")
+            ("/mnt/home/focus/")
         )  # change to original working directory for loading URDF models
 
         self.train_env = make(
@@ -176,7 +174,7 @@ class Workspace:
 
     def reset(self, func):
         os.chdir(
-            ("/srv/sferraro/focus")
+          ("/mnt/home/focus/")
         )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)
@@ -255,10 +253,8 @@ class Workspace:
             log("step", self.global_step)
 
         # B, T, C, H, W = video.shape
-        last_video = np.expand_dims(
-            np.stack([obs["rgb"] for obs in episode_data], axis=0), axis=0
-        )
-        self.logger.log_video({"eval/video": last_video}, self.global_frame)
+        last_video = np.expand_dims(np.stack([ obs['rgb'] for obs in episode_data ], axis=0), axis=0)
+        self.logger.log_video({'eval/video' : last_video }, self.global_frame)
 
     def train(self):
         # predicates
@@ -294,6 +290,7 @@ class Workspace:
         metrics = None
         contact_count = 0
         in_areas = np.array([0, 0, 0, 0, 0])
+        obj_pos = np.array([[0, 0]]).astype(np.float)        
         cumm_pos_displacement = 0
         cumm_ang_displacement = 0
         cumm_vertical_displacement = 0
@@ -306,6 +303,7 @@ class Workspace:
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
+                    target_pos = self.agent._target_pos.cpu().numpy()[..., :2]
                     elapsed_time, total_time = self.timer.reset()
                     episode_frame = episode_step * self.cfg.action_repeat
                     with self.logger.log_and_dump_ctx(
@@ -340,20 +338,37 @@ class Workspace:
                         log("ang_displacement", cumm_ang_displacement)
                         log("vertical_displacement", cumm_vertical_displacement)
                         log(
-                            "move_to_target",
-                            1
-                            - np.linalg.norm(
-                                dreamer_obs["objects_pos"][0][:2]
-                                - self.agent._target_pos.cpu().numpy()[..., :2]
-                            )
-                            / np.linalg.norm(
-                                self.agent._target_pos.cpu().numpy()[..., :2]
-                            ),
+                            "move_to_target_final",
+                            np.exp(- np.linalg.norm(
+                                obj_pos[-1] - target_pos)
+                            / np.linalg.norm(target_pos)) # exponential distance from the target at the end of episode
                         )
-
-                # self.agent.update_target()  # update pos target for agent every new episode
+                        log(
+                            "move_to_target_min",
+                            np.exp(- np.linalg.norm(
+                                obj_pos - target_pos, axis=-1)
+                            / np.linalg.norm(target_pos)).max() # exponential min distance to target during the entire episode
+                        )
+                        log(
+                            "move_to_target_max",
+                            np.exp(- np.linalg.norm(
+                                obj_pos - target_pos, axis=-1)
+                            / np.linalg.norm(target_pos)).min() # exponential max distance to target during the entire episode
+                        )
+                        log(
+                            "move_to_target_mean",
+                            np.exp(- np.linalg.norm(
+                                obj_pos - target_pos, axis=-1)
+                            / np.linalg.norm(
+                                target_pos)).mean() # exponential max distance to target during the entire episode
+                        )
+                        
+                if self.cfg.scheduler_target: self.target_update() # update pos target according to scheduler 
+                else: self.agent.update_target()
+                
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
+                obj_pos = np.array([[0, 0]]).astype(np.float)
                 cumm_pos_displacement = 0
                 cumm_ang_displacement = 0
                 cumm_vertical_displacement = 0
@@ -426,6 +441,7 @@ class Workspace:
             self._global_step += 1
             contact_count += dreamer_obs["contact"]
             in_areas += np.array(dreamer_obs["in_areas"])
+            obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0][:2]]))
             cumm_pos_displacement += dreamer_obs["pos_displacement"]
             cumm_ang_displacement += dreamer_obs["ang_displacement"]
             cumm_vertical_displacement += dreamer_obs["vertical_displacement"]
@@ -441,8 +457,7 @@ class Workspace:
     def setup_wandb(self):
         cfg = self.cfg
         exp_name = "_".join(
-            [
-                "Pretrain",
+            [   "Pretrain",
                 cfg.agent.name,
                 cfg.env.name,
                 cfg.task,
@@ -453,7 +468,7 @@ class Workspace:
             group=cfg.agent.name,
             name=exp_name,
         )
-        wandb.config.update(cfg)
+        wandb.config.update(dict(cfg))
         self.wandb_run_id = wandb.run.id
 
     @utils.retry
@@ -471,6 +486,11 @@ class Workspace:
         with snapshot.open("wb") as f:
             torch.save(payload, f)
 
+    def target_update(self):        
+        exp_func = lambda x: (np.exp(x /1000000 - 3)) # 0 -> 0.05 | 1M -> 0.135 | 2M -> 0.36
+        rad = exp_func(self.global_episode)
+        self.agent.set_radius_target(rad)
+            
     def load_snapshot(self):
         try:
             snapshot = self.root_dir / "last_snapshot.pt"
@@ -487,10 +507,10 @@ class Workspace:
                 cfg = self.cfg
                 exp_name = "_".join(
                     [
-                        "Pretrain",
                         cfg.agent.name,
-                        cfg.env.name,
                         cfg.task,
+                        cfg.env.renderer.camera,
+                        str(cfg.comment),
                     ]
                 )
                 wandb.init(
@@ -512,30 +532,26 @@ class Workspace:
         snapshot_dir.mkdir(exist_ok=True, parents=True)
         snapshot = snapshot_dir
         return snapshot_dir
-
-
+    
 def toolkit_main(cfg, savedir, workdir):
     from dreamer_pretrain import Workspace as W
-
     root_dir = Path.cwd()
     cfg.use_tb = False
 
     workspace = W(cfg, savedir, workdir)
     workspace.root_dir = root_dir
-    snapshot = workspace.root_dir / "last_snapshot.pt"
+    snapshot = workspace.root_dir / 'last_snapshot.pt'
     if snapshot.exists():
-        print(f"resuming: {snapshot}")
+        print(f'resuming: {snapshot}')
         workspace.load_snapshot()
     if cfg.use_wandb and wandb.run is None:
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
 
-
 @hydra.main(config_path="configs", config_name="dreamer_pretrain")
 def main(cfg):
     from dreamer_pretrain import Workspace as W
-
     root_dir = Path.cwd()
 
     workspace = W(cfg)
@@ -549,7 +565,6 @@ def main(cfg):
         # otherwise it was resumed
         workspace.setup_wandb()
     workspace.train()
-
 
 if __name__ == "__main__":
     main()

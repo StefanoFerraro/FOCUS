@@ -9,7 +9,7 @@ import torch
 import os
 import requests
 import gdown
-import clip
+# import clip
 import wget
 
 
@@ -212,19 +212,19 @@ def fast_show_mask_gpu(
 
 
 # clip
-@torch.no_grad()
-def retriev(
-    model, preprocess, elements: [Image.Image], search_text: str, device
-) -> int:
-    preprocessed_images = [preprocess(image).to(device) for image in elements]
-    tokenized_text = clip.tokenize([search_text]).to(device)
-    stacked_images = torch.stack(preprocessed_images)
-    image_features = model.encode_image(stacked_images)
-    text_features = model.encode_text(tokenized_text)
-    image_features /= image_features.norm(dim=-1, keepdim=True)
-    text_features /= text_features.norm(dim=-1, keepdim=True)
-    probs = 100.0 * image_features @ text_features.T
-    return probs[:, 0].softmax(dim=0)
+# @torch.no_grad()
+# def retriev(
+#     model, preprocess, elements: [Image.Image], search_text: str, device
+# ) -> int:
+#     preprocessed_images = [preprocess(image).to(device) for image in elements]
+#     tokenized_text = clip.tokenize([search_text]).to(device)
+#     stacked_images = torch.stack(preprocessed_images)
+#     image_features = model.encode_image(stacked_images)
+#     text_features = model.encode_text(tokenized_text)
+#     image_features /= image_features.norm(dim=-1, keepdim=True)
+#     text_features /= text_features.norm(dim=-1, keepdim=True)
+#     probs = 100.0 * image_features @ text_features.T
+#     return probs[:, 0].softmax(dim=0)
 
 
 def crop_image(annotations, image):
@@ -271,7 +271,7 @@ def download_checkpoint_wget(url, folder, filename):
     filepath = os.path.join(folder, filename)
     if not os.path.exists(filepath):
         print("download checkpoints ......")
-        wget.download(url)
+        wget.download(url, folder)
         print("download successfully!")
 
     return filepath

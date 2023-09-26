@@ -232,7 +232,7 @@ class FocusAgent(Module):
             for key in self.wm.heads["object_decoder"].cnn_keys:
                 name = key.replace("/", "_")
                 report[f"{name}"] = self.wm.video_pred(
-                    data, key, "object_decoder", nvid=8
+                    data, key, "object_decoder", nvid=2
                 )
 
             # for key in self.wm.heads["object_decoder"].mlp_keys:

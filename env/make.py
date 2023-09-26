@@ -53,6 +53,8 @@ def _make_dmc(
     img_size,
 ):
     visualize_reward = False
+    domain, task = task.split("_")
+    
     if (domain, task) in suite.ALL_TASKS:
         env = suite.load(
             domain,
@@ -112,6 +114,7 @@ def make(
 
     else:
         make_fn = _make_jaco if domain == "jaco" else _make_dmc
+    
     env = make_fn(
         obs_type,
         domain,

@@ -19,9 +19,10 @@ class SkillFocusAgent(FocusAgent):
     def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
         super().__init__(name, cfg, obs_space, act_spec, is_finetune, **kwargs)
         
-        self.exploration_area = self.cfg.env.exploration_area
-        self._low = [x[0] for x in self.exploration_area]
-        self._high = [x[1] for x in self.exploration_area]
+        self.exploration_area = self.cfg.env.init_exploration_area
+        # sample a circle from the center of the workspace
+        self._rad_circle = self.exploration_area[0]
+        self.fixed_height = self.exploration_area[1]
         
         self.update_target()
         
@@ -37,8 +38,12 @@ class SkillFocusAgent(FocusAgent):
         self.requires_grad_(requires_grad=False)
 
     def update_target(self):
-        new_target = np.random.uniform(self._low, self._high) 
-        self._target_pos = torch.Tensor([[[new_target]]]).to(device="cuda")        
+        new_target = np.random.uniform([-self._rad_circle] * 2, [self._rad_circle] * 2)
+        new_target= np.append(new_target, self.fixed_height) # z dimension fixed  
+        self._target_pos = torch.Tensor([[[new_target]]]).to(device="cuda") 
+        
+    def set_radius_target(self, rad):
+        self._rad_circle = rad
     
     def object_context_position_reward_fn(self, seq):
         obj_id, obj_goal_pos = torch.split(seq['skill'] , self.skill_dim, dim=-1) 

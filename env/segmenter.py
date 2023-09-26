@@ -46,7 +46,7 @@ class Segmenter:
         GroundingDino_checkpoint = "groundingdino_swint_ogc.pth"
         GroundingDino_checkpoint_url = self.cfg.GroundingDino_url
         GroundingDino_checkpoint = download_checkpoint_wget(
-            fastSAM_checkpoint_url,
+            GroundingDino_checkpoint_url,
             self.cfg.checkpoints_folder,
             GroundingDino_checkpoint,
         )

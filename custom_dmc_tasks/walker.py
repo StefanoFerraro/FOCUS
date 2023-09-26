@@ -63,11 +63,6 @@ def get_model_and_assets():
                                              'walker.xml'))
     return xml, common.ASSETS
 
-
-
-
-
-
 @SUITE.add('benchmarking')
 def flip(time_limit=_DEFAULT_TIME_LIMIT,
                  random=None,

@@ -517,7 +517,7 @@ class Workspace:
             group=cfg.agent.name,
             name=exp_name,
         )
-        wandb.config.update(cfg)
+        wandb.config.update(dict(cfg))
         self.wandb_run_id = wandb.run.id
 
 def toolkit_main(cfg, savedir, workdir):

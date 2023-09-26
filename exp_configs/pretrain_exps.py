@@ -1316,15 +1316,24 @@ exp_configs = {
         "seed": [1,2,3],
     },
     
+    "focus_skill_randTarget_scheduler_pretrain" : {
+        "scheduler_target": True,
+        "agent": "skill_focus",
+        "env": "rs",
+        "task": ["CustomStack"],
+        "seed": [1,2,3]
+    },
+    
     "focus_skill_randTarget_pretrain" : {
+        "scheduler_target": False,
         "agent": "skill_focus",
         "env": "rs",
         "task": ["CustomLift", "CustomStack"],
-        "seed": [1,2,3],
+        "seed": [1,2,3]
     },
     
-    "focus_skill_pretrain" : {
-        "agent": "skill_focus",
+    "focus_skill_opengl_pretrain" : {
+        "agent": "dreamer",
         "env": "rs",
         "task": ["CustomLift"],
         "seed": [1,2,3],

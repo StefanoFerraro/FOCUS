@@ -45,7 +45,7 @@ JOB_CONFIG = { user :
             "mem": 64,
             "gpu": 1,
             "gpu_model": "V100",
-            # "gpu_mem" : 32
+            "gpu_mem" : 32,
         },
         "interactive": False,
         "bid": 0,
