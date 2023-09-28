@@ -11,7 +11,7 @@ from groundingdino.util.inference import load_model, predict, annotate, Model
 from torchvision.ops import box_convert
 
 from env.tracker.base_tracker import BaseTracker
-from env import MW_TASKS_PROMPT, MS_TASKS_PROMPT, RS_TASKS_PROMPT
+from env import MW_TASKS_PROMPT, MS_TASKS_PROMPT, RS_TASKS_PROMPT, DMC_TASKS_PROMPT
 
 
 class Tracking:

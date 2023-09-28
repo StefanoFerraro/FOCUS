@@ -10,6 +10,7 @@ from robosuite.wrappers import Wrapper
 
 from gym.core import Env
 from gym import spaces
+import cv2
 
 
 class ExtendedTimeStep(NamedTuple):
@@ -165,6 +166,11 @@ class FrameStackWrapper(dm_env.Environment):
             pixels = pixels[0]
         return pixels.transpose(2, 0, 1).copy()
 
+    def _extract_proprio(self, time_step):
+        proprio = time_step.observation["observations"]
+        # remove batch dim
+        return proprio.copy()
+
     def reset(self):
         time_step = self._env.reset()
         pixels = self._extract_pixels(time_step)
@@ -175,7 +181,9 @@ class FrameStackWrapper(dm_env.Environment):
     def step(self, action):
         time_step = self._env.step(action)
         pixels = self._extract_pixels(time_step)
+        proprio = self._extract_proprio(time_step)
         self._frames.append(pixels)
+        self._proprios.append(proprio)
         return self._transform_observation(time_step)
 
     def observation_spec(self):
@@ -280,70 +288,6 @@ class ExtendedTimeStepWrapper(dm_env.Environment):
 
     def __getattr__(self, name):
         return getattr(self._env, name)
-
-
-class DreamerObsWrapper:
-    def __init__(self, env):
-        self._env = env
-        self._ignored_keys = []
-
-    @property
-    def obs_space(self):
-        spaces = {
-            "observation": self._env.observation_spec(),
-            "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
-            "is_first": gym.spaces.Box(0, 1, (), dtype=np.bool),
-            "is_last": gym.spaces.Box(0, 1, (), dtype=np.bool),
-            "is_terminal": gym.spaces.Box(0, 1, (), dtype=np.bool),
-        }
-        return spaces
-
-    @property
-    def act_space(self):
-        spec = self._env.action_spec()
-        action = gym.spaces.Box(
-            (spec.minimum) * spec.shape[0],
-            (spec.maximum) * spec.shape[0],
-            shape=spec.shape,
-            dtype=np.float32,
-        )
-        return {"action": action}
-
-    def step(self, action):
-        # assert np.isfinite(action['action']).all(), action['action']
-        time_step = self._env.step(action)
-        assert time_step.discount in (0, 1)
-        obs = {
-            "reward": time_step.reward,
-            "is_first": False,
-            "is_last": time_step.last(),
-            "is_terminal": time_step.discount == 0,
-            "observation": time_step.observation,
-            "action": action,
-            "discount": time_step.discount,
-        }
-        return obs
-
-    def reset(self):
-        time_step = self._env.reset()
-        obs = {
-            "reward": 0.0,
-            "is_first": True,
-            "is_last": False,
-            "is_terminal": False,
-            "observation": time_step.observation,
-            "action": np.zeros_like(self.act_space["action"].sample()),
-            "discount": time_step.discount,
-        }
-        return obs
-
-    def __getattr__(self, name):
-        if name == "obs_space":
-            return self.obs_space
-        if name == "act_space":
-            return self.act_space
-        return getattr(self._env, name)
-
 
 class TimeLimit:
     def __init__(self, env, duration):

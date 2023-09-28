@@ -10,6 +10,7 @@ os.environ["MUJOCO_GL"] = "egl"
 from pathlib import Path
 
 import hydra
+from hydra.utils import get_original_cwd
 import numpy as np
 import torch
 import wandb
@@ -80,7 +81,8 @@ def segmentation_visualization(
 
 
 class Workspace:
-    def __init__(self, cfg, savedir=None, workdir=None):
+    def __init__(self, cfg, maindir=None, workdir=None):
+        self.maindir = Path.cwd() if maindir is None else maindir
         self.workdir = Path.cwd() if workdir is None else workdir
         print(f"workspace: {self.workdir}")
 
@@ -99,7 +101,7 @@ class Workspace:
         frame_stack = 1
 
         os.chdir(
-            ("/mnt/home/focus/")
+            self.maindir
         )  # change to original working directory for loading URDF models
 
         self.train_env = make(
@@ -122,13 +124,14 @@ class Workspace:
             cfg.env,
         )
 
-        os.chdir(self.workdir)
+        os.chdir(self.maindir)
 
         objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
 
         if cfg.agent.world_model.name == "focus":
             cfg.agent.world_model.objects = objets_list
 
+        self.train_env.reset()
         # create agent
         self.agent = make_dreamer_agent(
             self.train_env.obs_space,
@@ -174,7 +177,7 @@ class Workspace:
 
     def reset(self, func):
         os.chdir(
-          ("/mnt/home/focus/")
+          (self.maindir)
         )  # change to original working directory for loading URDF models
         obs = func.reset()
         os.chdir(self.workdir)
@@ -507,10 +510,10 @@ class Workspace:
                 cfg = self.cfg
                 exp_name = "_".join(
                     [
+                        "Pretrain",
                         cfg.agent.name,
+                        cfg.env.name,
                         cfg.task,
-                        cfg.env.renderer.camera,
-                        str(cfg.comment),
                     ]
                 )
                 wandb.init(
@@ -533,12 +536,13 @@ class Workspace:
         snapshot = snapshot_dir
         return snapshot_dir
     
-def toolkit_main(cfg, savedir, workdir):
+def toolkit_main(cfg, maindir, workdir):
     from dreamer_pretrain import Workspace as W
     root_dir = Path.cwd()
     cfg.use_tb = False
+    maindir="/mnt/home/focus" # get_original_cwd() does not work in this contenxt 
 
-    workspace = W(cfg, savedir, workdir)
+    workspace = W(cfg, maindir, workdir)
     workspace.root_dir = root_dir
     snapshot = workspace.root_dir / 'last_snapshot.pt'
     if snapshot.exists():
@@ -554,7 +558,7 @@ def main(cfg):
     from dreamer_pretrain import Workspace as W
     root_dir = Path.cwd()
 
-    workspace = W(cfg)
+    workspace = W(cfg, maindir=get_original_cwd())
     workspace.root_dir = root_dir
     print("ROOT DIR: ", root_dir)
     snapshot = workspace.root_dir / "last_snapshot.pt"

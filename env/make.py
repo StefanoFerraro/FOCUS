@@ -1,7 +1,8 @@
 from env.ms import PandaManiSkill
 from env.rs import PandaRoboSuite
 from env.mw import Metaworld
-from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ
+from env.dmc import DMCSuiteWrapper
+from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, DMC_TASKS_OBJ
 
 import custom_dmc_tasks as cdmc
 from dm_control import suite
@@ -77,7 +78,7 @@ def _make_dmc(
         # zoom in camera for quadruped
         camera_id = dict(quadruped=2).get(domain, 0)
         render_kwargs = dict(height=img_size, width=img_size, camera_id=camera_id)
-        env = pixels.Wrapper(env, pixels_only=True, render_kwargs=render_kwargs)
+        env = pixels.Wrapper(env, pixels_only=False, render_kwargs=render_kwargs)
         env._size = (img_size, img_size)
         env._camera = camera_id
     return env
@@ -96,10 +97,10 @@ def make(
     # domain = dict(cup="ball_in_cup", point="point_mass").get(domain, domain)
 
     obj_envs = ["rs", "ms", "mw"]
+    objs = globals()[domain.upper() + "_TASKS_OBJ"][task]
 
     if domain in obj_envs:
         make_fn = _make
-        objs = globals()[domain.upper() + "_TASKS_OBJ"][task]
         env_type = domain[:2]
 
         env = make_fn(
@@ -112,25 +113,26 @@ def make(
         )
         return env
 
-    else:
-        make_fn = _make_jaco if domain == "jaco" else _make_dmc
+    elif domain == "dmc":
+        make_fn = _make_dmc
     
-    env = make_fn(
-        obs_type,
-        domain,
-        task,
-        frame_stack,
-        action_repeat,
-        seed,
-        64,
-    )
+        env = make_fn(
+            obs_type,
+            domain,
+            task,
+            frame_stack,
+            action_repeat,
+            seed,
+            64,
+        )
 
-    if obs_type == "pixels":
-        env = FrameStackWrapper(env, frame_stack)
+        # if obs_type == "pixels":
+        #     env = FrameStackWrapper(env, frame_stack)
+        # else:
+        #     env = ObservationDTypeWrapper(env, np.float32)
+
+        env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
+        env = ExtendedTimeStepWrapper(env)
+        return DMCSuiteWrapper(env, task, env_config, objs, seed)
     else:
-        env = ObservationDTypeWrapper(env, np.float32)
-
-    env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
-    env = ExtendedTimeStepWrapper(env)
-
-    return DreamerObsWrapper(env)
+        raise NotImplementedError
