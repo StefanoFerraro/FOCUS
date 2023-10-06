@@ -54,7 +54,7 @@ def _make_dmc(
     img_size,
 ):
     visualize_reward = False
-    domain, task = task.split("_")
+    domain, task = task.split("_", 1)
     
     if (domain, task) in suite.ALL_TASKS:
         env = suite.load(
@@ -98,7 +98,6 @@ def make(
 
     obj_envs = ["rs", "ms", "mw"]
     objs = globals()[domain.upper() + "_TASKS_OBJ"][task]
-
     if domain in obj_envs:
         make_fn = _make
         env_type = domain[:2]
@@ -131,8 +130,9 @@ def make(
         # else:
         #     env = ObservationDTypeWrapper(env, np.float32)
 
+        target_name = globals()["DMC_TASKS_OBJ"][task]
         env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
         env = ExtendedTimeStepWrapper(env)
-        return DMCSuiteWrapper(env, task, env_config, objs, seed)
+        return DMCSuiteWrapper(env, task, env_config, target_name, seed)
     else:
         raise NotImplementedError

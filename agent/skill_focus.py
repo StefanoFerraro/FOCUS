@@ -22,7 +22,8 @@ class SkillFocusAgent(FocusAgent):
         self.exploration_area = self.cfg.env.init_exploration_area
         # sample a circle from the center of the workspace
         self._rad_circle = self.exploration_area[0]
-        self.fixed_height = self.exploration_area[1]
+        if len(self.exploration_area) > 1: # 3D scenario
+            self.fixed_height = self.exploration_area[1]
         
         self.update_target()
         
@@ -39,7 +40,8 @@ class SkillFocusAgent(FocusAgent):
 
     def update_target(self):
         new_target = np.random.uniform([-self._rad_circle] * 2, [self._rad_circle] * 2)
-        new_target= np.append(new_target, self.fixed_height) # z dimension fixed  
+        if len(self.exploration_area) > 1: #3D scenario
+            new_target= np.append(new_target, self.fixed_height) # z dimension fixed  
         self._target_pos = torch.Tensor([[[new_target]]]).to(device="cuda") 
         
     def set_radius_target(self, rad):

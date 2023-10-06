@@ -13,7 +13,7 @@ from .base_env import BaseEnv
 from env.segmenter import Segmenter
 
 os.environ["MUJOCO_GL"] = "egl"
-os.environ["DISPLAY"] = ":0"
+# os.environ["DISPLAY"] = ":0"
 
 class DMCSuiteWrapper():
     def __init__(
@@ -38,6 +38,7 @@ class DMCSuiteWrapper():
         self.task = task
         
         self.segmentation_instances = objs
+        self.target_name = objs
         self.gt_segmentation = env_config.renderer.gt_segmentation
         if not self.gt_segmentation:
             self.segmenter = Segmenter(
@@ -47,13 +48,14 @@ class DMCSuiteWrapper():
                 img_size=self.seg_size,
                 device="cuda:0",
             )
+        
 
     @property
     def obs_space(self):
         spaces = {
             "rgb": gym.spaces.Box(0, 255, (3,) + self.size, dtype=np.uint8),
             "objects_pos": gym.spaces.Box(
-                -2, 2, (len(self.segmentation_instances), 3), dtype=np.float32
+                -2, 2, (len(self.segmentation_instances), 2), dtype=np.float32
             ),
             "segmentation": gym.spaces.Box(
                 0,
@@ -96,25 +98,21 @@ class DMCSuiteWrapper():
         if self.gt_segmentation:
             raise NotImplementedError
         else:
-            high_res_rgb = self._env.physics.render(height=self.seg_size[0], width=self.seg_size[1])
+            # hide target from the scene
+            self._env.physics.named.model.geom_rgba[self.target_name, 3] = 0
+            high_res_rgb = self._env.physics.render(height=self.seg_size[0], width=self.seg_size[1], camera_id=0)
+            self._env.physics.named.model.geom_rgba[self.target_name, 3] = 1
             seg, _, _ = self.segmenter.generate(high_res_rgb, self.is_first)
             seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
 
         return proprio, rgb, seg
 
     def compute_displacements(self, true_objs_pos):
-        true_pos_displacement = 0
-        true_ori_displacement = 0
-
-
-        for obj in self.segmentation_instances:
-            true_pos_displacement += (
-                np.sqrt(np.sum(((true_objs_pos[obj] - self.obj_pos[obj]) ** 2)))
+        true_pos_displacement = (
+                np.sqrt(np.sum(((true_objs_pos - self.obj_pos) ** 2)))
             )
 
-        return (
-            true_pos_displacement,
-        )
+        return true_pos_displacement
 
     def segmentation_channel_split(self, seg, include_background=False):
 
@@ -139,7 +137,7 @@ class DMCSuiteWrapper():
         return seg_map
 
     def get_object_pose(self, seg):
-        centroid_obj = np.mean(np.argwhere(seg[0]), axis=0).astype(int)
+        centroid_obj = np.mean(np.argwhere(seg), axis=0).astype(int)
         return centroid_obj
         
     def step(self, action):
@@ -150,7 +148,7 @@ class DMCSuiteWrapper():
         self.is_first = False
         time_step = self._env.step(action)
         # env_state, rew, done, info = self._env.step(action)
-        success = True if time_step.rew >= 1 else False
+        success = True if time_step.reward >= 1 else False
 
         proprio, rgb, seg = self._state_extraction(time_step)
 
@@ -176,7 +174,7 @@ class DMCSuiteWrapper():
             "is_terminal": time_step.discount == 0,
             "rgb": rgb,
             "proprio": np.array(proprio).astype(np.float32),
-            "objects_pos": np.array(objects_pos).astype(np.float32),
+            "objects_pos": np.array(objects_pos).astype(np.float32)/100, # reduce the pixel values to decimals
             "segmentation": seg,
             "success": success,
             "in_areas": [False, False, False, False, False],
@@ -211,7 +209,7 @@ class DMCSuiteWrapper():
             "is_terminal": time_step.discount == 0,
             "rgb": rgb,
             "proprio": np.array(proprio).astype(np.float32),
-            "objects_pos": np.array(objects_pos).astype(np.float32),
+            "objects_pos": np.array(objects_pos).astype(np.float32)/100, # reduce the pixel values to decimals
             "segmentation": seg,
             "success": False,
             "in_areas": [False, False, False, False, False],

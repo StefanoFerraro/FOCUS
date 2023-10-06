@@ -59,12 +59,14 @@ MW_TASKS_OBJ = {
 
 DMC_TASKS_OBJ = {
     "walker_run": ["leg"],
-    "reacher_hard": ["ball"],    
+    "reacher_hard": ["target"],   
+    "manipulator_bring_ball": ["target_ball"] 
 }
 
 DMC_TASKS_PROMPT = {
     "walker_run": ["text", "leg"],
-    "reacher_hard": ["text", "red ball"],
+    "reacher_hard": ["text", "orange ball"],
+    "manipulator_bring_ball": ["text", "orange ball"],
 }
 
 RS_TASKS_PROMPT = {
