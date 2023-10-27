@@ -1339,6 +1339,13 @@ exp_configs = {
         "seed": [1,2,3],
     },
     
+    "focus_skill_dmc_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["manipulator_bring_ball"],
+        "seed": [1,2,3],
+    },
+    
     "focus_mw_sparse_pretrain" : {
         "agent": ["apt_dreamer", "plan2explore"],
         "env": "mw",

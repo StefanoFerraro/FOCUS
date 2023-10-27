@@ -158,4 +158,6 @@ exp_local
 data
 models
 env/recordings
+wandb
+checkpoints
 # notebooks

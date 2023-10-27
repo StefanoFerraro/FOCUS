@@ -104,6 +104,11 @@ class Workspace:
             self.maindir
         )  # change to original working directory for loading URDF models
 
+        # adapt object target pose center for specific task 
+        # TODO create a function that takes care of it for all different cases
+        if self.cfg.task == "manipulator_bring_ball" or self.cfg.task == "manipulator_bring_peg":
+            self.cfg.env.object_start_pos = [0.5, 0.32]
+                
         self.train_env = make(
             domain,
             task,
@@ -306,7 +311,6 @@ class Workspace:
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
-                    target_pos = self.agent._target_pos.cpu().numpy()[..., :2]
                     elapsed_time, total_time = self.timer.reset()
                     episode_frame = episode_step * self.cfg.action_repeat
                     with self.logger.log_and_dump_ctx(
@@ -340,34 +344,37 @@ class Workspace:
                         log("pos_displacement", cumm_pos_displacement)
                         log("ang_displacement", cumm_ang_displacement)
                         log("vertical_displacement", cumm_vertical_displacement)
-                        log(
-                            "move_to_target_final",
-                            np.exp(- np.linalg.norm(
-                                obj_pos[-1] - target_pos)
-                            / np.linalg.norm(target_pos)) # exponential distance from the target at the end of episode
-                        )
-                        log(
-                            "move_to_target_min",
-                            np.exp(- np.linalg.norm(
-                                obj_pos - target_pos, axis=-1)
-                            / np.linalg.norm(target_pos)).max() # exponential min distance to target during the entire episode
-                        )
-                        log(
-                            "move_to_target_max",
-                            np.exp(- np.linalg.norm(
-                                obj_pos - target_pos, axis=-1)
-                            / np.linalg.norm(target_pos)).min() # exponential max distance to target during the entire episode
-                        )
-                        log(
-                            "move_to_target_mean",
-                            np.exp(- np.linalg.norm(
-                                obj_pos - target_pos, axis=-1)
-                            / np.linalg.norm(
-                                target_pos)).mean() # exponential max distance to target during the entire episode
-                        )
+                        if self.cfg.agent.train_target_reach:
+                            target_pos = self.agent._target_pos.cpu().numpy()[..., :2]
+                            log(
+                                "move_to_target_final",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos[-1] - target_pos)
+                                / np.linalg.norm(target_pos)) # exponential distance from the target at the end of episode
+                            )
+                            log(
+                                "move_to_target_min",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos - target_pos, axis=-1)
+                                / np.linalg.norm(target_pos)).max() # exponential min distance to target during the entire episode
+                            )
+                            log(
+                                "move_to_target_max",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos - target_pos, axis=-1)
+                                / np.linalg.norm(target_pos)).min() # exponential max distance to target during the entire episode
+                            )
+                            log(
+                                "move_to_target_mean",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos - target_pos, axis=-1)
+                                / np.linalg.norm(
+                                    target_pos)).mean() # exponential max distance to target during the entire episode
+                            )
                         
-                if self.cfg.scheduler_target: self.target_update() # update pos target according to scheduler 
-                else: self.agent.update_target()
+                if self.cfg.agent.train_target_reach:
+                    if self.cfg.scheduler_target: self.target_update(self.cfg.env.target_modulator) # update pos target according to scheduler 
+                    else: self.agent.update_target()
                 
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
@@ -489,10 +496,16 @@ class Workspace:
         with snapshot.open("wb") as f:
             torch.save(payload, f)
 
-    def target_update(self):        
-        exp_func = lambda x: (np.exp(x /1000000 - 3)) # 0 -> 0.05 | 1M -> 0.135 | 2M -> 0.36
-        rad = exp_func(self.global_episode)
-        self.agent.set_radius_target(rad)
+    def target_update(self, modulation_factor=10e6):        
+        exp_func = lambda x: (np.exp(x / modulation_factor)) * self.agent.get_init_exploration_area() # 0 -> 0.05 | 1M -> 0.135 | 2M -> 0.36
+        new_exploration_area = exp_func(self.global_episode)
+        
+        # if self.cfg.task == "manipulator_bring_ball":
+        #     # y coordinate needs to be above ground level
+        #     while new_exploration_area[0] < 0: # TODO 
+        #         new_exploration_area = exp_func(self.global_episode)
+                
+        self.agent.set_exploration_area(new_exploration_area)
             
     def load_snapshot(self):
         try:

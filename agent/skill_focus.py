@@ -19,17 +19,16 @@ class SkillFocusAgent(FocusAgent):
     def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
         super().__init__(name, cfg, obs_space, act_spec, is_finetune, **kwargs)
         
-        self.exploration_area = self.cfg.env.init_exploration_area
+        self.init_exploration_area = self.cfg.env.init_exploration_area
         # sample a circle from the center of the workspace
-        self._rad_circle = self.exploration_area[0]
-        if len(self.exploration_area) > 1: # 3D scenario
-            self.fixed_height = self.exploration_area[1]
-        
+        self._exploration_area = np.array(self.init_exploration_area)
+        self._object_start_pos = np.array(self.cfg.env.object_start_pos)
+
         self.update_target()
         
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
-        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pos))["prior"][0][0]
+        self._fixed_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
         self.skill_dim = [self._fixed_skill.shape[-1]]
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
@@ -39,13 +38,21 @@ class SkillFocusAgent(FocusAgent):
         self.requires_grad_(requires_grad=False)
 
     def update_target(self):
-        new_target = np.random.uniform([-self._rad_circle] * 2, [self._rad_circle] * 2)
-        if len(self.exploration_area) > 1: #3D scenario
-            new_target= np.append(new_target, self.fixed_height) # z dimension fixed  
+        new_target = np.random.uniform(-self._exploration_area, self._exploration_area)
+        if self.cfg.task == "manipulator_bring_ball":
+            # y coordinate needs to be above ground level
+            while new_target[0] < 0: 
+                new_target = np.random.uniform(-self._exploration_area, self._exploration_area)
+        
+        new_target = new_target + self._object_start_pos 
+
         self._target_pos = torch.Tensor([[[new_target]]]).to(device="cuda") 
         
-    def set_radius_target(self, rad):
-        self._rad_circle = rad
+    def set_exploration_area(self, exploration_area):
+        self._exploration_area = exploration_area
+        
+    def get_init_exploration_area(self):
+        return self.init_exploration_area
     
     def object_context_position_reward_fn(self, seq):
         obj_id, obj_goal_pos = torch.split(seq['skill'] , self.skill_dim, dim=-1) 
@@ -56,15 +63,32 @@ class SkillFocusAgent(FocusAgent):
         T, B, O, P = obj_poses.shape
         obj_pos = obj_poses.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
         squared_distance = torch.sum(((obj_goal_pos - obj_pos) ** 2), dim=2).unsqueeze(-1) 
+        
         return -squared_distance
 
+    def distance_to_object_reward_fn(self, seq):
+        obj_id = 0
+        obj_poses = self.wm.heads["object_decoder"](seq["feat"])["objects_pos"].mean
+        obj_pos = obj_poses[:, :, obj_id]
+        
+        # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
+        id_eef = 21 if self.env == "rs" else 18
+        gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
+                :, :, id_eef : id_eef + 3
+            ]
+        
+        rw_dist_obj = torch.exp(-torch.linalg.norm(gripper_pos - obj_pos, dim=2)).unsqueeze(-1)
+        
+        return rw_dist_obj
+        
     def object_context_pose_reward_fn(self, seq):
         # obj_id = torch.eye(2)
         post_obj_state = self.wm.heads["object_decoder"](seq["feat"])["post"][:,:,0,:] #consider only first object
         # T, B, O, P = post_obj_state.shape
         # post_obj_state = post_obj_state.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
         squared_distance = torch.sum(((post_obj_state - self._fixed_skill) ** 2), dim=2).unsqueeze(-1) 
-        return -squared_distance
+        # dist_obj = self.distance_to_object_reward_fn(seq)
+        return - squared_distance # + 0.1 * dist_obj
 
     def update(self, data, step):
         state, outputs, metrics = self.update_wm(data, step)
@@ -72,7 +96,7 @@ class SkillFocusAgent(FocusAgent):
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
-        self._fixed_skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pos))["prior"][0][0]
+        self._fixed_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
         self._skill_behavior.solved_meta['skill'] = self._fixed_skill
         
         # update based on mode, save compute time
@@ -104,7 +128,7 @@ class SkillFocusAgent(FocusAgent):
 
         # only for debugging
         policy = self._skill_behavior.actor
-        skill = self.wm.heads["object_decoder"](poses=stop_gradient(self._target_pos))["prior"][0][0]
+        skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
         inp = torch.cat([feat, skill], dim=-1)
 
         actor = policy(inp)

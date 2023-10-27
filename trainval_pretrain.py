@@ -28,7 +28,7 @@ def trainval(exp_dict, savedir, args):
     # cfg.agent = Bunch(cfg.agent)
     config.snapshot_dir = f"/mnt/public/projects/{args.user}/{args.project_name}/pretrained_models/{exp_dict['agent']}/{exp_dict['env']}/{exp_dict['task']}/{exp_dict['seed']}"
 
-    toolkit_main(config, savedir=savedir, workdir=Path.cwd())
+    toolkit_main(config, maindir=savedir, workdir=Path.cwd())
 
     print("Experiment completed")
 

@@ -13,7 +13,6 @@ from agent.dreamer import ActorCritic, WorldModel
 def stop_gradient(x):
     return x.detach()
 
-
 Module = nn.Module
 
 
@@ -82,7 +81,7 @@ class FocusAgent(Module):
         )
         feat = self.wm.rssm.get_feat(latent)
 
-        # policy selsection based on exploration or finetune mode
+        # policy selection based on exploration or finetune mode
         policy = (
             self._task_behavior.actor if self.is_finetune else self._expl_behavior.actor
         )
@@ -294,14 +293,17 @@ class FocusAgent(Module):
 
 
 class OCWorldModel(WorldModel):
-    # world model between dreamer and focus needs to be aligned in processing of the in
+    # world model between dreamer and focus needs to be aligned in processing of the input
     def __init__(self, config, obs_space, act_dim, tfstep):
         super().__init__(config, obs_space, act_dim, tfstep)
 
         self.heads["object_decoder"] = common.ObjDecoder(
             self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size
         )
-
+        
+        if self.cfg.get("object_encoder", False):
+            self.object_encoder = common.ObjEncoder(self.shapes, **self.cfg.object_encoder)
+        
         self.model_init()
 
     def loss(self, data, state=None):
@@ -314,35 +316,22 @@ class OCWorldModel(WorldModel):
         ), kl_loss.shape
         likes = {}
         losses = {"kl": kl_loss}
-        prior_obj_loss = nn.MSELoss()
         feat = self.rssm.get_feat(post)
 
+        obj_states = {}
         for name, head in self.heads.items():
             grad_head = name in self.grad_heads
             inp = feat if grad_head else stop_gradient(feat)
 
             out = (
-                head(inp, masks=data["segmentation"], poses=data["objects_pos"])
+                head(inp, masks=data["segmentation"])
                 if name == "object_decoder"
                 else head(inp)
             )
 
             if name == "object_decoder":
-                obj_states = {}
-                obj_states["prior"] = out.pop("prior")
                 obj_states["post"] = out.pop("post")
-
-                # loss = nn.MSELoss()
-                # priot_loss = loss(obj_states["prior"], stop_gradient(obj_states["post"]))
-                # post_loss = loss(stop_gradient(obj_states["prior"]), obj_states["post"])
-                prior_loss = torch.sum(
-                    ((obj_states["prior"] - stop_gradient(obj_states["post"])) ** 2)
-                )
-                post_loss = torch.sum(
-                    ((stop_gradient(obj_states["prior"]) - obj_states["post"]) ** 2)
-                )
-                losses["pose_prior"] = 0.8 * prior_loss + 0.2 * post_loss
-
+                
             dists = out if isinstance(out, dict) else {name: out}
 
             for key, dist in dists.items():
@@ -355,11 +344,23 @@ class OCWorldModel(WorldModel):
                     instances_dim = dist.mean.shape[2]
                     images = data[key].unsqueeze(2).repeat(1, 1, instances_dim, 1, 1, 1)
                     like = dist.log_prob(images)
+                elif key == "post":
+                    obj_states["post"] = dist
                 else:
                     like = dist.log_prob(data[key])
 
                 likes[key] = like
                 losses[key] = -like.mean()
+            
+        if self.object_encoder in locals(): 
+            obj_states["prior"] = self.object_encoder(data["objects_pos"])("prior")
+            prior_loss = torch.sum(
+                ((obj_states["prior"] - stop_gradient(obj_states["post"])) ** 2)
+            )
+            post_loss = torch.sum(
+                ((stop_gradient(obj_states["prior"]) - obj_states["post"]) ** 2)
+            )
+            losses["pose_prior"] = 0.8 * prior_loss + 0.2 * post_loss
 
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()

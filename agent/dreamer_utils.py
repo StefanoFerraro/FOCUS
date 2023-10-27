@@ -501,7 +501,6 @@ class Encoder(Module):
         return output.reshape(batch_dims + output.shape[1:])
 
     def _cnn(self, data):
-
         x = torch.cat(list(data.values()), 1)
         x = self._conv_model(x)
         return x.reshape(tuple(x.shape[:-3]) + (-1,))
@@ -660,6 +659,126 @@ class Decoder(Module):
             # dists[key] = getattr(self, f"dense_{key}")(x) # removed for debugging reasons
         return dists
 
+class ObjEncoder(Module):
+    def __init__(self,
+        shapes,
+        cnn_keys=r".*",
+        mlp_keys=r".*",
+        act=nn.ELU,
+        norm="none",
+        cnn_depth=48,
+        cnn_kernels=(4, 4, 4, 4),
+        mlp_layers=[400, 400, 400, 400],
+    ):
+        super().__init__()
+        self._shapes = {**shapes}
+        self._shapes["segmentation"] = (1, *self._shapes["segmentation"][1:])
+        self.cnn_keys = [
+            k
+            for k, v in shapes.items()
+            if re.match(cnn_keys, k)
+        ]
+        self.mlp_keys = [
+            k
+            for k, v in shapes.items()
+            if re.match(mlp_keys, k)
+        ]
+        print("Object Encoder CNN inputs:", list(self.cnn_keys))
+        print("Object Encoder MLP inputs:", list(self.mlp_keys))
+
+        self._act = act()
+        self._norm = norm
+        self._cnn_depth = cnn_depth
+        self._cnn_kernels = cnn_kernels
+        self._mlp_layers = mlp_layers
+
+        self.instances_dim = (
+            shapes["segmentation"][0]  # this didn't got modified above
+        )
+
+        self.objects_dim = self.instances_dim - 1
+
+        self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
+
+        if len(self.cnn_keys) > 0:
+            self._conv_model = []
+            for i, kernel in enumerate(self._cnn_kernels):
+                if i == 0:
+                    prev_depth = sum([v[0] for k, v in shapes.items() if k in self.cnn_keys]) # intialize depth with sum of dimensions of considered observations
+                else:
+                    prev_depth = 2 ** (i - 1) * self._cnn_depth
+                depth = 2**i * self._cnn_depth
+                self._conv_model.append(
+                    nn.Conv2d(prev_depth, depth, kernel, stride=2)
+                )
+                self._conv_model.append(NormLayer(norm, depth))
+                self._conv_model.append(self._act)
+            self._conv_model = nn.Sequential(*self._conv_model)
+            
+        if len(self.mlp_keys) > 0:
+            self._mlp_model = []
+            for i, width in enumerate(self._mlp_layers):
+                if i == 0:
+                    # prev_width = np.prod(*[shapes[k] for k in self.mlp_keys])
+                    prev_width = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
+                else:
+                    prev_width = self._mlp_layers[i - 1]
+                
+                if i == len(self._mlp_layers) - 1: # condition to match the output to the number of encoded states
+                    width = 32 * self._cnn_depth
+                
+                self._mlp_model.append(nn.Linear(prev_width, width))
+                self._mlp_model.append(NormLayer(self._norm, width))
+                self._mlp_model.append(self._act)
+
+            self._mlp_model = nn.Sequential(*self._mlp_model)
+            
+    def forward(self, poses):
+        outputs = {}        
+        obj_onehot = torch.eye(
+            self.instances_dim, device=poses.device
+        ).repeat(
+            *poses.shape[:2], 1, 1
+        )  # last dim is obj idx
+
+        if self.cnn_keys:
+            raise NotImplementedError
+            # dist, post = self._cnn(features, obj_onehot, masks)
+            # outputs.update(dist)
+            # outputs["post"] = post
+        if self.mlp_keys and poses != None:
+            outputs["prior"] = self._mlp(poses, obj_onehot)
+        return outputs
+    
+
+    @staticmethod
+    def tile(a, dim, n_tile):
+        init_dim = a.size(dim)
+        repeat_idx = [1] * a.dim()
+        repeat_idx[dim] = n_tile
+        a = a.repeat(*(repeat_idx))
+        order_index = torch.LongTensor(
+            np.concatenate(
+                [init_dim * np.arange(n_tile) + i for i in range(init_dim)]
+            )
+        )
+        return torch.index_select(a, dim, order_index.to(device=a.device))
+
+    def _cnn(self, features, obj_onehot, masks):
+        raise NotImplementedError
+
+    def _mlp(self, poses, obj_onehot):
+        input = []
+        # concatenate corresponding (index i) one-hot encoding of instance to the full embedding
+        obj_feat = obj_onehot[..., 0, :]
+        input.append(torch.cat((poses[..., 0, :], obj_feat), dim=-1))
+
+        input = torch.stack(input, dim=2)
+        prior = self._mlp_model(input)
+
+        return prior
+    
+
 class ObjDecoder(Module):
     def __init__(
         self,
@@ -687,8 +806,8 @@ class ObjDecoder(Module):
             for k, v in shapes.items()
             if re.match(mlp_keys, k)
         ]
-        print("Object Decoder CNN outputs:", list(self.cnn_keys))
-        print("Object Decoder Pose key:", list(self.mlp_keys))
+        print("Decoder CNN outputs:", list(self.cnn_keys))
+        print("Decoder MLP outputs:", list(self.mlp_keys))
 
         self._act = act()
         self._norm = norm
@@ -698,6 +817,8 @@ class ObjDecoder(Module):
 
         self.instances_dim = (
             shapes["segmentation"][0]  # this didn't got modified above
+            if len(self.cnn_keys) > 0
+            else shapes[self.mlp_keys[0]][0] + 1
         )
 
         self.objects_dim = self.instances_dim - 1
@@ -711,6 +832,7 @@ class ObjDecoder(Module):
         )
 
         if len(self.cnn_keys) > 0:
+
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
@@ -742,36 +864,31 @@ class ObjDecoder(Module):
             self._mlp_model = []
             for i, width in enumerate(self._mlp_layers):
                 if i == 0:
-                    prev_width = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
+                    prev_width = 32 * self._cnn_depth
                 else:
                     prev_width = self._mlp_layers[i - 1]
-                if i == len(self._mlp_layers) - 1:
-                    width = 32 * self._cnn_depth
                 self._mlp_model.append(nn.Linear(prev_width, width))
                 self._mlp_model.append(NormLayer(self._norm, width))
                 self._mlp_model.append(self._act)
 
             self._mlp_model = nn.Sequential(*self._mlp_model)
-            # for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                # self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
+            for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
+                self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
 
-    def forward(self, features=None, masks=None, poses=None):
+    def forward(self, features, masks=None, only_mlp=False):
         outputs = {}
-        ref = features if features != None else poses
-        
         obj_onehot = torch.eye(
-            self.instances_dim, device=ref.device
+            self.instances_dim, device=features.device
         ).repeat(
-            *ref.shape[:2], 1, 1
+            *features.shape[:2], 1, 1
         )  # last dim is obj idx
 
-        if self.cnn_keys and features != None:
+        if self.cnn_keys and not only_mlp:
             dist, post = self._cnn(features, obj_onehot, masks)
             outputs.update(dist)
             outputs["post"] = post
-        if self.mlp_keys and poses != None:
-            prior = self._mlp(poses, obj_onehot)
-            outputs["prior"] = prior
+        if self.mlp_keys:
+            outputs.update(self._mlp(features, obj_onehot))
         return outputs
 
     @staticmethod
@@ -792,11 +909,11 @@ class ObjDecoder(Module):
         dists = {}
 
         # x is extracted feat, feat is = (embed, obj_onehot)
-        posterior, _ = self.object_latent_extractor(features, obj_onehot)
+        post, _ = self.object_latent_extractor(features, obj_onehot)
 
-        x = posterior.reshape(
+        x = post.reshape(
             [
-                -1,  # batch_dim x batch_time x     
+                -1,  # batch_dim x batch_time x num_obj
                 32 * self._cnn_depth,  # object_extractor output dimension
                 1,
                 1,
@@ -810,6 +927,7 @@ class ObjDecoder(Module):
             *x.shape[-2:],
         )
         means = torch.split(x, list(self.channels.values()), dim=-3)
+
 
         for key, mean in zip(self.channels.keys(), means):
             if key == "segmentation":
@@ -839,7 +957,7 @@ class ObjDecoder(Module):
                     *mean.shape[-2:],
                 )
                 dists[key] = D.Independent(D.Normal(mean, 1), 3)
-        return dists, posterior
+        return dists, post
 
     def object_latent_extractor(self, features, obj_onehot, instances=None):
         instances = self.instances_dim if instances == None else instances
@@ -856,29 +974,25 @@ class ObjDecoder(Module):
 
         return extracted_feat, feat
 
-    def _mlp(self, poses, obj_onehot, instances=None):
-        
+    def _mlp(self, features, obj_onehot):
+
         dists = {}
-        instances = self.instances_dim if instances == None else instances
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
 
-        feat = []
-        # for i in range(instances - 1): # remove background
-        # concatenate corresponding (index i) one-hot encoding of instance to the full embedding
-        obj_feat = obj_onehot[..., 0, :]
-        feat.append(torch.cat((poses[..., 0, :], obj_feat), dim=-1))
+        x, _ = self.object_latent_extractor(
+            features, obj_onehot, self.objects_dim
+        )
 
-        feat = torch.stack(feat, dim=2)
-        prior = self._mlp_model(feat)
+        x = self._mlp_model(x)
 
-        # for key, shape in shapes.items():
-        #     lin = getattr(self, f"dense_{key}")
-        #     means = lin._out(x)
+        for key, shape in shapes.items():
+            lin = getattr(self, f"dense_{key}")
+            means = lin._out(x)
 
-        #     dists[key] = D.Independent(D.Normal(means, 1.0), 1)
+            dists[key] = D.Independent(D.Normal(means, 1.0), 1)
 
-        return prior
-
+        return dists
+    
 class MLP(Module):
     def __init__(
         self, in_shape, shape, layers, units, act=nn.ELU, norm="none", **out
