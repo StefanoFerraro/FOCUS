@@ -25,6 +25,7 @@ class SkillFocusAgent(FocusAgent):
         self._object_start_pos = np.array(self.cfg.env.object_start_pos)
 
         self.update_target()
+        self._mode = "train"
         
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
@@ -36,7 +37,7 @@ class SkillFocusAgent(FocusAgent):
 
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
-
+    
     def update_target(self):
         new_target = np.random.uniform(-self._exploration_area, self._exploration_area)
         if self.cfg.task == "manipulator_bring_ball":
@@ -46,6 +47,10 @@ class SkillFocusAgent(FocusAgent):
         
         new_target = new_target + self._object_start_pos 
 
+        self._target_pos = torch.Tensor([[[new_target]]]).to(device="cuda") 
+    
+    def set_target(self, target_from_zero):
+        new_target = self._object_start_pos + target_from_zero
         self._target_pos = torch.Tensor([[[new_target]]]).to(device="cuda") 
         
     def set_exploration_area(self, exploration_area):

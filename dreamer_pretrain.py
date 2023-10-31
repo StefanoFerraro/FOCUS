@@ -221,9 +221,19 @@ class Workspace:
 
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         meta = self.agent.init_meta()
+        obj_pos = np.array([self.cfg.env.object_start_pos]).astype(np.float) 
+        
         while eval_until_episode(episode):
             episode_data = []
             dreamer_obs = self.eval_env.reset()
+            
+            if self.cfg.agent.train_target_reach:
+                target = np.zeros_like(dreamer_obs["objects_pos"][0])
+                target[0] = self.target_update(self.cfg.env.target_modulator)[0]
+                self.agent.set_target(target) # update pos target only along x axis 
+            if self.cfg.task == "reacher_hard": # in case of dmc environment move the target goal visual to the actual goal we set
+                self.eval_env._env.physics.named.data.geom_xpos[self.eval_env.target_name] = [target[0], target[1], 0.01]
+                dreamer_obs["rgb"] = self.eval_env._env.physics.render(height=self.eval_env.size[0], width=self.eval_env.size[1], camera_id=0).transpose(2,0,1)
             episode_data.append(dreamer_obs)
             agent_state = None
             while not bool(dreamer_obs["is_last"]):
@@ -245,13 +255,14 @@ class Workspace:
                         episode * self._horizon
                     )
 
+            obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0]]))
             total_success += dreamer_obs["success"]
             step_to_success_list += [step_to_success]
             step_to_success = self._horizon
             episode += 1
 
         self.agent.is_finetune = False if not self.cfg.is_finetune else True
-
+          
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
             log("episode_reward", total_reward / episode)
             log("avg_success", total_success / episode)
@@ -259,6 +270,34 @@ class Workspace:
             log("avg_step_to_success", sum(step_to_success_list) / episode)
             log("episode", self.global_episode)
             log("step", self.global_step)
+            if self.cfg.agent.train_target_reach:
+                target_pos = self.agent._target_pos.cpu().numpy()[..., :2]
+                log(
+                    "move_to_target_final",
+                    np.exp(- np.linalg.norm(
+                        obj_pos[-1] - target_pos)
+                    / np.linalg.norm(target_pos)) # exponential distance from the target at the end of episode
+                )
+                log(
+                    "move_to_target_min",
+                    np.exp(- np.linalg.norm(
+                        obj_pos - target_pos, axis=-1)
+                    / np.linalg.norm(target_pos)).max() # exponential min distance to target during the entire episode
+                )
+                log(
+                    "move_to_target_max",
+                    np.exp(- np.linalg.norm(
+                        obj_pos - target_pos, axis=-1)
+                    / np.linalg.norm(target_pos)).min() # exponential max distance to target during the entire episode
+                )
+                log(
+                    "move_to_target_mean",
+                    np.exp(- np.linalg.norm(
+                        obj_pos - target_pos, axis=-1)
+                    / np.linalg.norm(
+                        target_pos)).mean() # exponential max distance to target during the entire episode
+                )
+            
 
         # B, T, C, H, W = video.shape
         last_video = np.expand_dims(np.stack([ obs['rgb'] for obs in episode_data ], axis=0), axis=0)
@@ -298,7 +337,7 @@ class Workspace:
         metrics = None
         contact_count = 0
         in_areas = np.array([0, 0, 0, 0, 0])
-        obj_pos = np.array([[0, 0]]).astype(np.float)        
+        obj_pos = np.array([self.cfg.env.object_start_pos]).astype(np.float)     
         cumm_pos_displacement = 0
         cumm_ang_displacement = 0
         cumm_vertical_displacement = 0
@@ -374,11 +413,11 @@ class Workspace:
                         
                 if self.cfg.agent.train_target_reach:
                     if self.cfg.scheduler_target: self.target_update(self.cfg.env.target_modulator) # update pos target according to scheduler 
-                    else: self.agent.update_target()
+                    self.agent.update_target()
                 
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
-                obj_pos = np.array([[0, 0]]).astype(np.float)
+                obj_pos = np.array([self.cfg.env.object_start_pos]).astype(np.float) 
                 cumm_pos_displacement = 0
                 cumm_ang_displacement = 0
                 cumm_vertical_displacement = 0
@@ -451,7 +490,7 @@ class Workspace:
             self._global_step += 1
             contact_count += dreamer_obs["contact"]
             in_areas += np.array(dreamer_obs["in_areas"])
-            obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0][:2]]))
+            obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0]]))
             cumm_pos_displacement += dreamer_obs["pos_displacement"]
             cumm_ang_displacement += dreamer_obs["ang_displacement"]
             cumm_vertical_displacement += dreamer_obs["vertical_displacement"]
@@ -500,12 +539,9 @@ class Workspace:
         exp_func = lambda x: (np.exp(x / modulation_factor)) * self.agent.get_init_exploration_area() # 0 -> 0.05 | 1M -> 0.135 | 2M -> 0.36
         new_exploration_area = exp_func(self.global_episode)
         
-        # if self.cfg.task == "manipulator_bring_ball":
-        #     # y coordinate needs to be above ground level
-        #     while new_exploration_area[0] < 0: # TODO 
-        #         new_exploration_area = exp_func(self.global_episode)
-                
         self.agent.set_exploration_area(new_exploration_area)
+        
+        return new_exploration_area
             
     def load_snapshot(self):
         try:

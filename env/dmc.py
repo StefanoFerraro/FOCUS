@@ -137,7 +137,8 @@ class DMCSuiteWrapper():
         return seg_map
 
     def get_object_pose(self, seg):
-        centroid_obj = np.mean(np.argwhere(seg), axis=0).astype(int)
+        centroid_obj = np.clip(np.mean(np.argwhere(seg), axis=0).astype(int), 0, self.size[1])
+    
         return centroid_obj
         
     def step(self, action):

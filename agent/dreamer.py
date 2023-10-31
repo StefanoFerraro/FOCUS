@@ -304,9 +304,11 @@ class WorldModel(Module):
         self.device = config.device
         self.tfstep = tfstep
         self.encoder = common.Encoder(self.shapes, **self.cfg.encoder)
+        self.encoder.to(self.device)
+        
         # Computing embed dim
         with torch.no_grad():
-            zeros = {k: torch.zeros((1,) + v) for k, v in self.shapes.items()}
+            zeros = {k: torch.zeros((1,) + v, device=self.device) for k, v in self.shapes.items()}
             outs = self.encoder(zeros)
             embed_dim = outs.shape[1]
         self.embed_dim = embed_dim

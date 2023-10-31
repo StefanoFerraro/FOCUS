@@ -352,8 +352,8 @@ class OCWorldModel(WorldModel):
                 likes[key] = like
                 losses[key] = -like.mean()
             
-        if self.object_encoder in locals(): 
-            obj_states["prior"] = self.object_encoder(data["objects_pos"])("prior")
+        if self.cfg.get("object_encoder", False): 
+            obj_states["prior"] = self.object_encoder(data["objects_pos"])["prior"]
             prior_loss = torch.sum(
                 ((obj_states["prior"] - stop_gradient(obj_states["post"])) ** 2)
             )

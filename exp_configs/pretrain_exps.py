@@ -1315,15 +1315,7 @@ exp_configs = {
         "task": ["CustomLift", "CustomStack"],
         "seed": [1,2,3],
     },
-    
-    "focus_skill_randTarget_scheduler_pretrain" : {
-        "scheduler_target": True,
-        "agent": "skill_focus",
-        "env": "rs",
-        "task": ["CustomStack"],
-        "seed": [1,2,3]
-    },
-    
+
     "focus_skill_randTarget_pretrain" : {
         "scheduler_target": False,
         "agent": "skill_focus",
@@ -1332,8 +1324,8 @@ exp_configs = {
         "seed": [1,2,3]
     },
     
-    "focus_skill_opengl_pretrain" : {
-        "agent": "dreamer",
+    "focus_skill_rs_pretrain" : {
+        "agent": ["focus", "skill_focus"],
         "env": "rs",
         "task": ["CustomLift"],
         "seed": [1,2,3],
@@ -1342,7 +1334,7 @@ exp_configs = {
     "focus_skill_dmc_pretrain" : {
         "agent": ["skill_focus"],
         "env": "dmc",
-        "task": ["manipulator_bring_ball"],
+        "task": ["reacher_hard"],
         "seed": [1,2,3],
     },
     
