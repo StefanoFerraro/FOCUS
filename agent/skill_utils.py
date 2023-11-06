@@ -51,7 +51,7 @@ class SkillActorCritic(common.Module):
           if type(self.solved_meta['skill']) == np.ndarray:
             img_skill = torch.from_numpy(self.solved_meta['skill']).repeat(B*T, 1).to(self.device)
           else:
-            img_skill = self.solved_meta['skill'].repeat(B*T, 1).to(self.device)
+            img_skill = self.solved_meta['skill'].repeat(B*T, 1).to(self.device) # target for the agent
         else:
           if self.sampling_strategy == 'discrete':
             img_skill = F.one_hot(torch.randint(0, self.skill_dim, 

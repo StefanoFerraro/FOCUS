@@ -14,6 +14,7 @@ import custom_robosuite_tasks
 import pyquaternion as pq
 from .utils import *
 from .base_env import BaseEnv
+import mujoco
 
 _LEFT = 0
 _RIGHT = 1
@@ -67,7 +68,8 @@ class PandaRoboSuite(BaseEnv):
         self.height_target = 0.05
         self.area_threshold = 0.4
         self.height_offset = 0.8 + self.cube_minsize[2]  # table height + cube height
-
+        self.object_start_pos = env_config.object_start_pos 
+        
         self.lift_norm = int(abs(1 / (self.area_threshold)) + 1)
         self.push_norm = int(abs(1 / (self.area_threshold - self.area_target)) + 1)
         
@@ -357,7 +359,9 @@ class PandaRoboSuite(BaseEnv):
 
         seg = self.segmentation_channel_split(seg, self.include_background)
 
-        objects_pos = self.pixel_to_world(seg, depth)
+        # objects_pos = self.pixel_to_world(seg, depth)
+        objects_pos = [self.true_obj_pos[self.target_obj]]
+        
         action = np.delete(action, [3, 4, 5])  # remove dummy orientation values
 
         self.is_first = False
@@ -398,7 +402,8 @@ class PandaRoboSuite(BaseEnv):
 
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
-        objects_pos = self.pixel_to_world(seg, depth)
+        # objects_pos = self.pixel_to_world(seg, depth)
+        objects_pos = [self.true_obj_pos[self.target_obj]]
 
         obs = {
             "reward": 0.0,
@@ -422,3 +427,19 @@ class PandaRoboSuite(BaseEnv):
         }
 
         return obs
+
+    def _target_hide(self):
+        self._env.sim.model.geom("target_g0_vis").rgba[-1] = 0
+        
+    def _target_show(self):
+        self._env.sim.model.geom("target_g0_vis").rgba[-1] = 0.5
+        
+    def set_target(self, target_pos):
+        self._env.env.target_pos = target_pos + np.array(self.object_start_pos)   
+        
+    def get_rgb_with_target(self):
+        self._target_show()
+        target_rgb = self._env.sim.render(height=self.size[0], width=self.size[1])[::-1].transpose(2, 0, 1)
+        self._target_hide()
+        return target_rgb
+    

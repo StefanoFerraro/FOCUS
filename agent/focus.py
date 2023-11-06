@@ -354,13 +354,14 @@ class OCWorldModel(WorldModel):
             
         if self.cfg.get("object_encoder", False): 
             obj_states["prior"] = self.object_encoder(data["objects_pos"])["prior"]
+            obj_states["post"] = obj_states["post"][:,:,0].unsqueeze(2) # consider only first object in the scene
             prior_loss = torch.sum(
-                ((obj_states["prior"] - stop_gradient(obj_states["post"])) ** 2)
-            )
+                ((obj_states["prior"] - stop_gradient(obj_states["post"])) ** 2), dim=-1
+            ).mean()
             post_loss = torch.sum(
-                ((stop_gradient(obj_states["prior"]) - obj_states["post"]) ** 2)
-            )
-            losses["pose_prior"] = 0.8 * prior_loss + 0.2 * post_loss
+                ((stop_gradient(obj_states["prior"]) - obj_states["post"]) ** 2), dim=-1
+            ).mean()
+            losses["pose_prior"] = self.cfg.objEnc_MSE_ratio * prior_loss + (1 - self.cfg.objEnc_MSE_ratio) * post_loss
 
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()

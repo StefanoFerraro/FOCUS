@@ -11,7 +11,7 @@ scheduler_target: true
 
 # experiment
 experiment: pt
-project_name: RSS_benchmark
+project_name: focus_skill
 
 # misc
 seed: 1
@@ -31,16 +31,16 @@ precision: 32
 # model specs
 batch_size: 16
 batch_length: 16
-imag_horizon: 16
+imag_horizon: 8
 eval_state_mean: False
-train_every_actions: 10
+train_every_actions: 20
 
 # train settings
 num_train_frames: 2000010
 num_seed_frames: 4000
 # eval settings
 eval_every_frames: 25000
-num_eval_episodes: 10
+num_eval_episodes: 3
 # snapshot
 snapshots: [100000, 500000, 1000000, 2000000] 
 snapshot_dir: ../../../models/${task}/${comment}/${agent.name}/${seed}

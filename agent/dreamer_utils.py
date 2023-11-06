@@ -436,6 +436,7 @@ class Encoder(Module):
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
         mlp_layers=[400, 400, 400, 400],
+        coordConv=False
     ):
         super().__init__()
         self.shapes = shapes
@@ -457,6 +458,7 @@ class Encoder(Module):
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
+        Conv = CoordConv2d if coordConv else nn.Conv2d
 
         if len(self.cnn_keys) > 0:
             self._conv_model = []
@@ -467,8 +469,7 @@ class Encoder(Module):
                     prev_depth = 2 ** (i - 1) * self._cnn_depth
                 depth = 2**i * self._cnn_depth
                 self._conv_model.append(
-                    # nn.Conv2d(prev_depth, depth, kernel, stride=2)
-                    CoordConv2d(prev_depth, depth, kernel, stride=2)
+                    Conv(prev_depth, depth, kernel, stride=2)
                 )
                 self._conv_model.append(NormLayer(norm, depth))
                 self._conv_model.append(self._act)

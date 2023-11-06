@@ -24,7 +24,7 @@ def trainval(exp_dict, savedir, args):
     sys.argv=["dreamer_pretrain.py"] + [ f"{k}={v}" for k,v in exp_dict.items()] 
     get_config()
     # original_cwd = hydra.utils.get_original_cwd()
-    config.project_name = args.project_name
+    config.comment = args.project_name
     # cfg.agent = Bunch(cfg.agent)
     config.snapshot_dir = f"/mnt/public/projects/{args.user}/{args.project_name}/pretrained_models/{exp_dict['world_model']}/{exp_dict['agent']}/{exp_dict['env']}/{exp_dict['task']}/{exp_dict['seed']}"
 
@@ -73,7 +73,7 @@ if __name__ == "__main__":
 
     hw.run_wizard(
         func=trainval,
-        exp_list=exp_configs.EXP_GROUPS[args.project_name+"_pretrain"],
+        exp_list=exp_configs.EXP_GROUPS[args.project_name + "_pretrain"],
         job_config=job_configs.JOB_CONFIG[args.user],
         python_binary_path=job_configs.PYTHON_BINARIES[args.user],
         savedir_base=args.savedir_base,

@@ -28,3 +28,4 @@ goal:
 init_exploration_area: [0.05, 0.05]
 object_start_pos: [0.32, 0.32]
 target_modulator: 500000
+visualize_target: True

@@ -29,11 +29,11 @@ class SkillFocusAgent(FocusAgent):
         
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
-        self._fixed_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
-        self.skill_dim = [self._fixed_skill.shape[-1]]
+        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
+        self.skill_dim = [self._target_skill.shape[-1]]
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
-                                                    sampling_strategy=self._skill_strategy, solved_meta={'skill' : self._fixed_skill}) 
+                                                    sampling_strategy=self._skill_strategy, solved_meta={'skill' : self._target_skill}) 
 
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
@@ -87,13 +87,9 @@ class SkillFocusAgent(FocusAgent):
         return rw_dist_obj
         
     def object_context_pose_reward_fn(self, seq):
-        # obj_id = torch.eye(2)
-        post_obj_state = self.wm.heads["object_decoder"](seq["feat"])["post"][:,:,0,:] #consider only first object
-        # T, B, O, P = post_obj_state.shape
-        # post_obj_state = post_obj_state.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
-        squared_distance = torch.sum(((post_obj_state - self._fixed_skill) ** 2), dim=2).unsqueeze(-1) 
-        # dist_obj = self.distance_to_object_reward_fn(seq)
-        return - squared_distance # + 0.1 * dist_obj
+        post_obj_state = self.wm.heads["object_decoder"](stop_gradient(seq["feat"]))["post"][:,:,0,:] #consider only first object
+        squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2).unsqueeze(-1) 
+        return - squared_distance
 
     def update(self, data, step):
         state, outputs, metrics = self.update_wm(data, step)
@@ -101,8 +97,8 @@ class SkillFocusAgent(FocusAgent):
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
-        self._fixed_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
-        self._skill_behavior.solved_meta['skill'] = self._fixed_skill
+        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
+        self._skill_behavior.solved_meta['skill'] = self._target_skill
         
         # update based on mode, save compute time
         metrics.update(

@@ -229,9 +229,10 @@ class DMCSuiteWrapper():
     def obs_specs(self):
         return obs_specs(self.obs_space)    
     
-    # def __getattr__(self, name):
-    #     if name == "obs_space":
-    #         return self.obs_space
-    #     if name == "act_space":
-    #         return self.act_space
-    #     return getattr(self._env, name)
+    def set_target(self, target_pos):
+        self._env.physics.named.data.geom_xpos[self.target_name] = [target_pos[1], target_pos[0], 0.01]
+        self._env.physics.named.model.geom_pos[self.target_name] = [target_pos[1], target_pos[0], 0.01]
+
+    def get_rgb_with_target(self):
+        target_rgb = self._env.sim.render(height=self.size[0], width=self.size[1])[::-1].transpose(2, 0, 1)
+        return target_rgb

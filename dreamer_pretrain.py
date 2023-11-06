@@ -225,15 +225,22 @@ class Workspace:
         
         while eval_until_episode(episode):
             episode_data = []
-            dreamer_obs = self.eval_env.reset()
             
+            # set target before reset of env
             if self.cfg.agent.train_target_reach:
-                target = np.zeros_like(dreamer_obs["objects_pos"][0])
-                target[0] = self.target_update(self.cfg.env.target_modulator)[0]
+                target = np.zeros_like(self.cfg.env.object_start_pos)
+                target[1] = self.target_update(self.cfg.env.target_modulator)[1]
                 self.agent.set_target(target) # update pos target only along x axis 
-            if self.cfg.task == "reacher_hard": # in case of dmc environment move the target goal visual to the actual goal we set
-                self.eval_env._env.physics.named.data.geom_xpos[self.eval_env.target_name] = [target[0], target[1], 0.01]
-                dreamer_obs["rgb"] = self.eval_env._env.physics.render(height=self.eval_env.size[0], width=self.eval_env.size[1], camera_id=0).transpose(2,0,1)
+            if self.cfg.env.visualize_target:   
+                self.eval_env.set_target(target)                    
+    
+            dreamer_obs = self.eval_env.reset()
+            # dmc envs adapt objects position after the res
+            if self.cfg.env.visualize_target:   
+                self.eval_env.set_target(target)
+                   
+            dreamer_obs["eval_rgb"] = dreamer_obs["rgb"]
+            
             episode_data.append(dreamer_obs)
             agent_state = None
             while not bool(dreamer_obs["is_last"]):
@@ -246,6 +253,12 @@ class Workspace:
                         state=agent_state,
                     )
                 dreamer_obs = self.eval_env.step(action)
+                
+                if self.cfg.domain == "rs":
+                    dreamer_obs["eval_rgb"] = self.eval_env.get_rgb_with_target()
+                else:
+                    dreamer_obs["eval_rgb"] = dreamer_obs["rgb"]
+                    
                 episode_data.append(dreamer_obs)
                 total_reward += dreamer_obs["reward"]
                 step += 1
@@ -271,7 +284,7 @@ class Workspace:
             log("episode", self.global_episode)
             log("step", self.global_step)
             if self.cfg.agent.train_target_reach:
-                target_pos = self.agent._target_pos.cpu().numpy()[..., :2]
+                target_pos = self.agent._target_pos.cpu().numpy()
                 log(
                     "move_to_target_final",
                     np.exp(- np.linalg.norm(
@@ -300,7 +313,8 @@ class Workspace:
             
 
         # B, T, C, H, W = video.shape
-        last_video = np.expand_dims(np.stack([ obs['rgb'] for obs in episode_data ], axis=0), axis=0)
+        last_video = np.expand_dims(np.stack([ obs['eval_rgb'] for obs in episode_data ], axis=0), axis=0)
+        last_video = np.uint8(last_video * 255)
         self.logger.log_video({'eval/video' : last_video }, self.global_frame)
 
     def train(self):
@@ -384,7 +398,7 @@ class Workspace:
                         log("ang_displacement", cumm_ang_displacement)
                         log("vertical_displacement", cumm_vertical_displacement)
                         if self.cfg.agent.train_target_reach:
-                            target_pos = self.agent._target_pos.cpu().numpy()[..., :2]
+                            target_pos = self.agent._target_pos.cpu().numpy()
                             log(
                                 "move_to_target_final",
                                 np.exp(- np.linalg.norm(
@@ -537,7 +551,7 @@ class Workspace:
 
     def target_update(self, modulation_factor=10e6):        
         exp_func = lambda x: (np.exp(x / modulation_factor)) * self.agent.get_init_exploration_area() # 0 -> 0.05 | 1M -> 0.135 | 2M -> 0.36
-        new_exploration_area = exp_func(self.global_episode)
+        new_exploration_area = exp_func(self.global_step)
         
         self.agent.set_exploration_area(new_exploration_area)
         
@@ -594,6 +608,8 @@ def toolkit_main(cfg, maindir, workdir):
     workspace = W(cfg, maindir, workdir)
     workspace.root_dir = root_dir
     snapshot = workspace.root_dir / 'last_snapshot.pt'
+    cfg.project_name = "_".join([cfg.project_name, cfg.domain])
+    
     if snapshot.exists():
         print(f'resuming: {snapshot}')
         workspace.load_snapshot()
@@ -611,6 +627,8 @@ def main(cfg):
     workspace.root_dir = root_dir
     print("ROOT DIR: ", root_dir)
     snapshot = workspace.root_dir / "last_snapshot.pt"
+    cfg.project_name = "_".join([cfg.project_name, cfg.domain])
+    
     if snapshot.exists():
         print(f"resuming: {snapshot}")
         workspace.load_snapshot()

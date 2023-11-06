@@ -4,7 +4,7 @@ import numpy as np
 
 from robosuite.environments.manipulation.single_arm_env import SingleArmEnv
 from robosuite.models.arenas import TableArena
-from robosuite.models.objects import BoxObject
+from robosuite.models.objects import BoxObject, BallObject
 from robosuite.models.tasks import ManipulationTask
 from robosuite.utils.mjcf_utils import CustomMaterial
 from robosuite.utils.observables import Observable, sensor
@@ -65,6 +65,7 @@ class CustomLift(SingleArmEnv):
         # object placement initializer
         self.placement_initializer = placement_initializer
         self.spawn_range = spawn_range
+        self.target_pos = [0, 0, 0.9]
 
         super().__init__(
             robots=robots,
@@ -193,15 +194,24 @@ class CustomLift(SingleArmEnv):
             rgba=self.cube_rgba,
             # material=redwood,
         )
+        
+        self.target = BallObject(
+            name="target",
+            size_min=[0.025],
+            size_max=[0.025] + [0.002],
+            rgba=(0, 1, 0, 0),
+            joints=None,
+            obj_type="visual"
+        )
 
         # Create placement initializer
         if self.placement_initializer is not None:
             self.placement_initializer.reset()
-            self.placement_initializer.add_objects(self.cube)
+            self.placement_initializer.add_objects([self.cube])
         else:
             self.placement_initializer = UniformRandomSampler(
                 name="ObjectSampler",
-                mujoco_objects=self.cube,
+                mujoco_objects=[self.cube],
                 y_range=[-0.03, 0.03],
                 x_range=list(self.spawn_range),
                 rotation=None,
@@ -215,7 +225,7 @@ class CustomLift(SingleArmEnv):
         self.model = ManipulationTask(
             mujoco_arena=mujoco_arena,
             mujoco_robots=[robot.robot_model for robot in self.robots],
-            mujoco_objects=self.cube,
+            mujoco_objects=[self.cube, self.target],
         )
 
     def _setup_references(self):
@@ -228,6 +238,7 @@ class CustomLift(SingleArmEnv):
 
         # Additional object references from this env
         self.cube_body_id = self.sim.model.body_name2id(self.cube.root_body)
+        self.target_body_id = self.sim.model.body_name2id(self.target.root_body)
 
     def _setup_observables(self):
         """
@@ -295,7 +306,10 @@ class CustomLift(SingleArmEnv):
                     obj.joints[0],
                     np.concatenate([np.array(obj_pos), np.array(obj_quat)]),
                 )
-
+            
+            # position of the target in the scene 
+            self.sim.model.body_pos[self.target_body_id] = np.array(self.target_pos)
+            
     def visualize(self, vis_settings):
         """
         In addition to super call, visualize gripper site proportional to the distance to the cube.

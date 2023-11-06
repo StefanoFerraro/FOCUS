@@ -1324,18 +1324,20 @@ exp_configs = {
         "seed": [1,2,3]
     },
     
-    "focus_skill_rs_pretrain" : {
-        "agent": ["focus", "skill_focus"],
+    "focus_skill_rs_MSEcoeff_search_pretrain" : {
+        "agent": ["skill_focus"],
         "env": "rs",
         "task": ["CustomLift"],
         "seed": [1,2,3],
+        "agent|world_model|objEnc_MSE_ratio": [0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.975, 1]
     },
     
-    "focus_skill_dmc_pretrain" : {
+    "focus_skill_dmc_MSEcoeff_search_pretrain" : {
         "agent": ["skill_focus"],
         "env": "dmc",
         "task": ["reacher_hard"],
         "seed": [1,2,3],
+        "agent|world_model|objEnc_MSE_ratio": [0.8, 0.9, 0.95, 0.975, 1]
     },
     
     "focus_mw_sparse_pretrain" : {
