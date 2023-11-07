@@ -214,7 +214,7 @@ class Workspace:
         # return
         step, episode, total_reward, total_success = 0, 0, 0, 0
         step_to_success = self._horizon
-        step_to_success_list = []
+        step_to_success_list = []        
 
         # set to True to use task_behaviour, zero_shot performance
         self.agent.is_finetune = True
@@ -355,6 +355,8 @@ class Workspace:
         cumm_pos_displacement = 0
         cumm_ang_displacement = 0
         cumm_vertical_displacement = 0
+        segmentation_obj_pixels = 0
+        
 
         while train_until_step(self.global_step):
             if bool(dreamer_obs["is_last"]):
@@ -424,6 +426,10 @@ class Workspace:
                                 / np.linalg.norm(
                                     target_pos)).mean() # exponential max distance to target during the entire episode
                             )
+                            log(
+                                "segmentation_obj_pixels",
+                                float(segmentation_obj_pixels / episode_step)  # episode average number of pixels for main object segmentation mask
+                            )
                         
                 if self.cfg.agent.train_target_reach:
                     if self.cfg.scheduler_target: self.target_update(self.cfg.env.target_modulator) # update pos target according to scheduler 
@@ -435,6 +441,8 @@ class Workspace:
                 cumm_pos_displacement = 0
                 cumm_ang_displacement = 0
                 cumm_vertical_displacement = 0
+                segmentation_obj_pixels = 0
+                
 
                 # save last model
                 if self.global_step % 5000 == 0:
@@ -508,6 +516,7 @@ class Workspace:
             cumm_pos_displacement += dreamer_obs["pos_displacement"]
             cumm_ang_displacement += dreamer_obs["ang_displacement"]
             cumm_vertical_displacement += dreamer_obs["vertical_displacement"]
+            segmentation_obj_pixels += np.sum(dreamer_obs["segmentation"][0])
 
     @utils.retry
     def save_snapshot(self):

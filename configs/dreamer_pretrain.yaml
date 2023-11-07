@@ -30,10 +30,10 @@ precision: 32
 
 # model specs
 batch_size: 16
-batch_length: 16
-imag_horizon: 8
+batch_length: 32
+imag_horizon: 10
 eval_state_mean: False
-train_every_actions: 20
+train_every_actions: 5
 
 # train settings
 num_train_frames: 2000010

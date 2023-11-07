@@ -780,7 +780,6 @@ class ObjEncoder(Module):
         prior = self._mlp_model(input)
 
         return prior
-    
 
 class ObjDecoder(Module):
     def __init__(
@@ -1026,7 +1025,6 @@ class MLP(Module):
             x = self._act(x)
         x = x.reshape(list(features.shape[:-1]) + [x.shape[-1]])
         return self._out(x)
-
 
 class GRUCell(Module):
     def __init__(
