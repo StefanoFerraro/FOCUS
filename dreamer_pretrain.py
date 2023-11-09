@@ -231,12 +231,12 @@ class Workspace:
                 target = np.zeros_like(self.cfg.env.object_start_pos)
                 target[1] = self.target_update(self.cfg.env.target_modulator)[1]
                 self.agent.set_target(target) # update pos target only along x axis 
-            if self.cfg.env.visualize_target:   
-                self.eval_env.set_target(target)                    
+                if self.cfg.env.visualize_target:   
+                    self.eval_env.set_target(target)                    
     
             dreamer_obs = self.eval_env.reset()
             # dmc envs adapt objects position after the res
-            if self.cfg.env.visualize_target:   
+            if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:   
                 self.eval_env.set_target(target)
                    
             dreamer_obs["eval_rgb"] = dreamer_obs["rgb"]
@@ -254,8 +254,9 @@ class Workspace:
                     )
                 dreamer_obs = self.eval_env.step(action)
                 
-                if self.cfg.domain == "rs":
-                    dreamer_obs["eval_rgb"] = self.eval_env.get_rgb_with_target()
+                if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:
+                    if self.cfg.domain == "rs":
+                        dreamer_obs["eval_rgb"] = self.eval_env.get_rgb_with_target()
                 else:
                     dreamer_obs["eval_rgb"] = dreamer_obs["rgb"]
                     

@@ -29,7 +29,7 @@ class SkillFocusAgent(FocusAgent):
         
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
-        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
+        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["sample"][0][0]
         self.skill_dim = [self._target_skill.shape[-1]]
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
@@ -87,7 +87,7 @@ class SkillFocusAgent(FocusAgent):
         return rw_dist_obj
         
     def object_context_pose_reward_fn(self, seq):
-        post_obj_state = self.wm.heads["object_decoder"](stop_gradient(seq["feat"]))["post"][:,:,0,:] #consider only first object
+        post_obj_state = self.wm.heads["object_decoder"](stop_gradient(seq["feat"]))["post"]["sample"][:,:,0,:] #consider only first object
         squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2).unsqueeze(-1) 
         return - squared_distance
 
@@ -97,7 +97,7 @@ class SkillFocusAgent(FocusAgent):
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
-        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
+        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["sample"][0][0]
         self._skill_behavior.solved_meta['skill'] = self._target_skill
         
         # update based on mode, save compute time
@@ -129,7 +129,7 @@ class SkillFocusAgent(FocusAgent):
 
         # only for debugging
         policy = self._skill_behavior.actor
-        skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"][0][0]
+        skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["sample"][0][0]
         inp = torch.cat([feat, skill], dim=-1)
 
         actor = policy(inp)

@@ -424,14 +424,13 @@ class EnsembleRSSM(Module):
             loss = mix * loss_lhs + (1 - mix) * loss_rhs
         return loss, value
 
-
 class Encoder(Module):
     def __init__(
         self,
         shapes,
         cnn_keys=r".*",
         mlp_keys=r".*",
-        act=nn.ELU,
+        act="ELU",
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
@@ -453,7 +452,7 @@ class Encoder(Module):
 
         print("Encoder CNN inputs:", list(self.cnn_keys))
         print("Encoder MLP inputs:", list(self.mlp_keys))
-        self._act = act()
+        self._act = getattr(nn, act)()
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -529,7 +528,7 @@ class Decoder(Module):
         shapes,
         cnn_keys=r".*",
         mlp_keys=r".*",
-        act=nn.ELU,
+        act="ELU",
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
@@ -552,7 +551,7 @@ class Decoder(Module):
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
 
-        self._act = act()
+        self._act = getattr(nn, act)()
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -666,11 +665,12 @@ class ObjEncoder(Module):
         shapes,
         cnn_keys=r".*",
         mlp_keys=r".*",
-        act=nn.ELU,
+        act="ELU",
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
         mlp_layers=[400, 400, 400, 400],
+        mse_mode=False,
     ):
         super().__init__()
         self._shapes = {**shapes}
@@ -688,7 +688,7 @@ class ObjEncoder(Module):
         print("Object Encoder CNN inputs:", list(self.cnn_keys))
         print("Object Encoder MLP inputs:", list(self.mlp_keys))
 
-        self._act = act()
+        self._act = getattr(nn, act)()
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -726,14 +726,14 @@ class ObjEncoder(Module):
                 else:
                     prev_width = self._mlp_layers[i - 1]
                 
-                if i == len(self._mlp_layers) - 1: # condition to match the output to the number of encoded states
-                    width = 32 * self._cnn_depth
+                # if i == len(self._mlp_layers) - 1: # condition to match the output to the number of encoded states + distribution output
+                    # width = 32 * self._cnn_depth
                 
                 self._mlp_model.append(nn.Linear(prev_width, width))
                 self._mlp_model.append(NormLayer(self._norm, width))
-                if i != len(self._mlp_layers) - 1: # remove activation for last layer
-                    self._mlp_model.append(self._act)
-
+                # if i != len(self._mlp_layers) - 1: # no activation for last layer (comment out for not mse approach)
+                self._mlp_model.append(self._act)
+            self._mlp_model.append(MultivariateNormal(width, 32 * self._cnn_depth, only_mean=mse_mode))
             self._mlp_model = nn.Sequential(*self._mlp_model)
             
     def forward(self, poses):
@@ -746,11 +746,8 @@ class ObjEncoder(Module):
 
         if self.cnn_keys:
             raise NotImplementedError
-            # dist, post = self._cnn(features, obj_onehot, masks)
-            # outputs.update(dist)
-            # outputs["post"] = post
         if self.mlp_keys and poses != None:
-            outputs["prior"] = self._mlp(poses, obj_onehot)
+            outputs["prior"] = self._mlp(poses, obj_onehot) 
         return outputs
     
 
@@ -778,7 +775,6 @@ class ObjEncoder(Module):
 
         input = torch.stack(input, dim=2)
         prior = self._mlp_model(input)
-
         return prior
 
 class ObjDecoder(Module):
@@ -787,12 +783,13 @@ class ObjDecoder(Module):
         shapes,
         cnn_keys=r".*",
         mlp_keys=r".*",
-        act=nn.ELU,
+        act="ELU",
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
         mlp_layers=[400, 400, 400, 400],
         embed_dim=1024,
+        obj_extractor_cfg=None
     ):
         super().__init__()
         self._embed_dim = embed_dim
@@ -811,7 +808,7 @@ class ObjDecoder(Module):
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
 
-        self._act = act()
+        self._act = getattr(nn, act)()
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -826,12 +823,22 @@ class ObjDecoder(Module):
         self.objects_dim = self.instances_dim - 1
 
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
-
-        self._object_extractor = nn.Sequential(
-            nn.Linear(embed_dim + self.instances_dim, 512),
-            nn.Linear(512, 512),
-            nn.Linear(512, 32 * self._cnn_depth),
-        )
+        
+        if obj_extractor_cfg:
+            self._object_extractor = []
+            self.obj_extractor_act = getattr(nn, obj_extractor_cfg.act)()
+            for i, width in enumerate(obj_extractor_cfg.mlp_layers):
+                if i == 0:
+                    prev_width = embed_dim + self.instances_dim
+                else:
+                    prev_width = obj_extractor_cfg.mlp_layers[i - 1] 
+                
+                self._object_extractor.append(nn.Linear(prev_width, width))
+                self._object_extractor.append(NormLayer(obj_extractor_cfg.norm, width))
+                self._object_extractor.append(self.obj_extractor_act)                
+            self._object_extractor.append(MultivariateNormal(512, 32 * self._cnn_depth, only_mean=obj_extractor_cfg.mse_mode))
+            
+            self._object_extractor = nn.Sequential(*self._object_extractor)
 
         if len(self.cnn_keys) > 0:
 
@@ -875,8 +882,7 @@ class ObjDecoder(Module):
 
             self._mlp_model = nn.Sequential(*self._mlp_model)
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                self.add_module(f"dense_{key}", DistLayer(width, shape[1]))
-                # self._mlp_model.append(nn.Linear(width, shape[1]))
+                self.add_module(f"dense_{key}", DistLayer(width, shape[1]))     
 
     def forward(self, features, masks=None, only_mlp=False):
         outputs = {}
@@ -887,9 +893,8 @@ class ObjDecoder(Module):
         )  # last dim is obj idx
 
         if self.cnn_keys and not only_mlp:
-            dist, post = self._cnn(features, obj_onehot, masks)
+            dist = self._cnn(features, obj_onehot, masks)
             outputs.update(dist)
-            outputs["post"] = post
         if self.mlp_keys:
             outputs.update(self._mlp(features, obj_onehot))
         return outputs
@@ -912,9 +917,9 @@ class ObjDecoder(Module):
         dists = {}
 
         # x is extracted feat, feat is = (embed, obj_onehot)
-        post, _ = self.object_latent_extractor(features, obj_onehot)
+        dists["post"], _ = self.object_latent_extractor(features, obj_onehot)
 
-        x = post.reshape(
+        x = dists["post"]["sample"].reshape(
             [
                 -1,  # batch_dim x batch_time x num_obj
                 32 * self._cnn_depth,  # object_extractor output dimension
@@ -922,6 +927,7 @@ class ObjDecoder(Module):
                 1,
             ]
         )
+        
         x = self._conv_model(x)
         x = x.reshape(
             *features.shape[:2],
@@ -960,7 +966,7 @@ class ObjDecoder(Module):
                     *mean.shape[-2:],
                 )
                 dists[key] = D.Independent(D.Normal(mean, 1), 3)
-        return dists, post
+        return dists
 
     def object_latent_extractor(self, features, obj_onehot, instances=None):
         instances = self.instances_dim if instances == None else instances
@@ -986,7 +992,7 @@ class ObjDecoder(Module):
             features, obj_onehot, self.objects_dim
         )
 
-        x = self._mlp_model(x)
+        x = self._mlp_model(x["sample"])
 
         for key, shape in shapes.items():
             lin = getattr(self, f"dense_{key}")
@@ -1069,6 +1075,73 @@ class GRUCell(Module):
         output = update * cand + (1 - update) * state
         return output, [output]
 
+class MultivariateNormal(Module):
+    def __init__(self, in_dim, out_dim, min_std=0.1, only_mean=False):
+        super().__init__()
+        self._in_dim = in_dim
+        self._min_std = min_std
+        self._only_mean = only_mean
+        self._mean = nn.Linear(in_dim, out_dim, bias=True)
+        if not only_mean:
+            self._std = nn.Sequential(nn.Linear(in_dim, out_dim, bias=True), nn.Softplus())     
+
+    def forward(self, input):
+        state = {}
+        state["mean"] = self._mean(input)
+        dist = None
+        if not self._only_mean: 
+            state["std"] = self._std(input)
+            dist = self._get_dist(state)
+            state["sample"] = self.sample(dist)
+        else:
+            state["sample"] = state["mean"]
+        return state
+    
+    @staticmethod
+    def sample(dist, num_samples=1):
+        if num_samples==1:
+            return dist.rsample()
+        dist = dist.expand((num_samples, *dist.batch_shape))
+        sample = torch.mean(dist.rsample())
+        return sample 
+    
+    def _get_dist(self, state):
+        dist = D.Normal(state["mean"], state["std"])
+        return dist     
+    
+    @staticmethod
+    def kl_loss(post, prior, balance):
+        def _get_dist(state):
+            dist = D.Normal(state["mean"], state["std"])
+            return dist 
+
+        kld = D.kl_divergence
+        sg = lambda x: {k: v.detach() for k, v in x.items()}
+        lhs, rhs = post, prior
+        dtype = post["mean"].dtype
+        device = post["mean"].device
+        free_tensor = torch.tensor([1], dtype=dtype, device=device)
+
+        value_lhs = kld(_get_dist(lhs), _get_dist(sg(rhs)))
+        value_rhs = kld(_get_dist(sg(lhs)), _get_dist(rhs))
+        loss_lhs = torch.maximum(value_lhs.mean(), free_tensor)
+        loss_rhs = torch.maximum(value_rhs.mean(), free_tensor)
+        loss = balance * loss_rhs + (1 - balance) * loss_lhs
+        return loss
+    
+    @staticmethod 
+    def mse_loss(post, prior, balance):
+        post = post["mean"]
+        prior = prior["mean"]
+        
+        prior_loss = torch.sum(
+            ((prior - post.detach()) ** 2), dim=-1
+        ).mean()
+        post_loss = torch.sum(((prior.detach() - post) ** 2), dim=-1
+        ).mean()
+        
+        loss = balance * prior_loss + (1 - balance) * post_loss
+        return loss
 
 class DistLayer(Module):
     def __init__(
@@ -1081,7 +1154,7 @@ class DistLayer(Module):
         self._min_std = min_std
         self._init_std = init_std
         self._out = nn.Linear(in_dim, int(np.prod(shape)), bias=bias)
-        if dist in ("normal", "tanh_normal", "trunc_normal"):
+        if dist in ("normal", "tanh_normal", "trunc_normal", "multivariat_normal"):
             self._std = nn.Sequential(
                 nn.Linear(in_dim, int(np.prod(shape))), nn.Softplus()
             )
@@ -1115,6 +1188,8 @@ class DistLayer(Module):
             return D.Independent(dist, 1)
         if self._dist == "onehot":
             return OneHotDist(out)
+
+            
         raise NotImplementedError(self._dist)
 
 

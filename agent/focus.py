@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 from torch.nn.functional import normalize
+import torch.distributions as D
 
 import utils
 import agent.dreamer_utils as common
@@ -8,6 +9,7 @@ from collections import OrderedDict
 import numpy as np
 
 from agent.dreamer import ActorCritic, WorldModel
+
 
 
 def stop_gradient(x):
@@ -179,7 +181,7 @@ class FocusAgent(Module):
         rw_intr = 0
         if self.reward_coeff["rw_intr"] > 0:
             for i in range(self.obj_instances):
-                rw_intr += self.compute_intr_reward(x[:, :, i])
+                rw_intr += self.compute_intr_reward(x["sample"][:, :, i])
         # rw_intr = self.compute_intr_reward(obj_pos) intrinsic reward computation over object positon in space
 
         rw_task = torch.zeros_like(rw_intr)
@@ -298,7 +300,7 @@ class OCWorldModel(WorldModel):
         super().__init__(config, obs_space, act_dim, tfstep)
 
         self.heads["object_decoder"] = common.ObjDecoder(
-            self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size
+            self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size, obj_extractor_cfg=self.cfg.object_extractor 
         )
         
         if self.cfg.get("object_encoder", False):
@@ -344,24 +346,18 @@ class OCWorldModel(WorldModel):
                     instances_dim = dist.mean.shape[2]
                     images = data[key].unsqueeze(2).repeat(1, 1, instances_dim, 1, 1, 1)
                     like = dist.log_prob(images)
-                elif key == "post":
-                    obj_states["post"] = dist
                 else:
                     like = dist.log_prob(data[key])
 
                 likes[key] = like
                 losses[key] = -like.mean()
             
-        if self.cfg.get("object_encoder", False): 
+        if self.cfg.get("object_encoder", False):
             obj_states["prior"] = self.object_encoder(data["objects_pos"])["prior"]
-            obj_states["post"] = obj_states["post"][:,:,0].unsqueeze(2) # consider only first object in the scene
-            prior_loss = torch.sum(
-                ((obj_states["prior"] - stop_gradient(obj_states["post"])) ** 2), dim=-1
-            ).mean()
-            post_loss = torch.sum(
-                ((stop_gradient(obj_states["prior"]) - obj_states["post"]) ** 2), dim=-1
-            ).mean()
-            losses["pose_prior"] = self.cfg.objEnc_MSE_ratio * prior_loss + (1 - self.cfg.objEnc_MSE_ratio) * post_loss
+            obj_states["post"] = {k: v[:,:,0].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
+
+            loss_fn = common.MultivariateNormal.kl_loss if not self.cfg.object_encoder.mse_mode  else common.MultivariateNormal.mse_loss
+            losses["pose_prior"] = loss_fn(obj_states["post"], obj_states["prior"], self.cfg.objEnc_MSE_ratio)
 
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()
