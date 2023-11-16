@@ -168,15 +168,15 @@ def fast_show_mask_gpu(
     annotation = annotation[sorted_indices]
     index = (annotation != 0).to(torch.long).argmax(dim=0)
     if random_color == True:
-        color = torch.rand((msak_sum, 1, 1, 3)).to(annotation.device)
+        color = torch.rand((msak_sum, 1, 1, 3), device=annotation.device)
     else:
-        color = torch.ones((msak_sum, 1, 1, 3)).to(annotation.device) * torch.tensor(
+        color = torch.ones((msak_sum, 1, 1, 3), device=annotation.device) * torch.tensor(
             [30 / 255, 144 / 255, 255 / 255]
-        ).to(annotation.device)
-    transparency = torch.ones((msak_sum, 1, 1, 1)).to(annotation.device) * 0.6
+        , device=annotation.device)
+    transparency = torch.ones((msak_sum, 1, 1, 1), device=annotation.device) * 0.6
     visual = torch.cat([color, transparency], dim=-1)
     mask_image = torch.unsqueeze(annotation, -1) * visual
-    show = torch.zeros((height, weight, 4)).to(annotation.device)
+    show = torch.zeros((height, weight, 4), device=annotation.device)
     h_indices, w_indices = torch.meshgrid(
         torch.arange(height), torch.arange(weight), indexing="ij"
     )

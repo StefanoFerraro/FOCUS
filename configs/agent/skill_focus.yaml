@@ -14,9 +14,9 @@ train_target_reach: True
 world_model:
   encoder: {mlp_keys: 'proprio', cnn_keys: 'rgb', norm: none, cnn_depth: 48, cnn_kernels: [4, 4, 4, 4], mlp_layers: [400, 400, 400, 400], coordConv: False} # act: elu
   decoder: {mlp_keys: 'proprio', cnn_keys: '$^', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
-  object_encoder: {mlp_keys: 'objects_pos', cnn_keys: '$^', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400], mse_mode: True, act: 'ReLU'} 
+  object_encoder: {mlp_keys: 'objects_pos', cnn_keys: '$^', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400], mse_mode: False, act: 'ReLU'} 
   object_decoder: {mlp_keys: 'objects_pos', cnn_keys: 'rgb|segmentation', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: [400, 400, 400, 400]} # act: elu
-  object_extractor: {norm: none, act: 'ReLU', mlp_layers: [512, 512], mse_mode: True}
+  object_extractor: {norm: none, act: 'ReLU', mlp_layers: [512, 512], mse_mode: False}
   grad_heads: [decoder, object_decoder]
   replay.capacity: 5e5
   objEnc_MSE_ratio: 1

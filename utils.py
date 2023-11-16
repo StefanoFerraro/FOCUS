@@ -272,8 +272,8 @@ class RMS(object):
     """running mean and std"""
 
     def __init__(self, device, epsilon=1e-4, shape=(1,)):
-        self.M = torch.zeros(shape).to(device)
-        self.S = torch.ones(shape).to(device)
+        self.M = torch.zeros(shape, device=device)
+        self.S = torch.ones(shape, device=device)
         self.n = epsilon
 
     def __call__(self, x):
@@ -325,7 +325,7 @@ class PBE(object):
             reward /= self.rms(reward)[0] if self.knn_rms else 1.0
             reward = (
                 torch.maximum(
-                    reward - self.knn_clip, torch.zeros_like(reward).to(self.device)
+                    reward - self.knn_clip, torch.zeros_like(reward, device=self.device)
                 )
                 if self.knn_clip >= 0.0
                 else reward
@@ -335,7 +335,7 @@ class PBE(object):
             reward /= self.rms(reward)[0] if self.knn_rms else 1.0
             reward = (
                 torch.maximum(
-                    reward - self.knn_clip, torch.zeros_like(reward).to(self.device)
+                    reward - self.knn_clip, torch.zeros_like(reward, device=self.device)
                 )
                 if self.knn_clip >= 0.0
                 else reward

@@ -1324,20 +1324,83 @@ exp_configs = {
         "seed": [1,2,3]
     },
     
-    "focus_skill_rs_MSEcoeff_search_pretrain" : {
+    "focus_skill_rs_NormalDist_objLatent_pretrain" : {
         "agent": ["skill_focus"],
         "env": "rs",
         "task": ["CustomLift"],
         "seed": [1,2,3],
-        "agent|world_model|objEnc_MSE_ratio": [0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.975, 1]
+        "agent|world_model|objEnc_MSE_ratio": [0.9, 0.95, 0.975, 0.99, 1],
+        "agent|world_model|object_encoder|mse_mode": False,
+        "agent|world_model|object_extractor|mse_mode": False
     },
     
-    "focus_skill_dmc_MSEcoeff_search_pretrain" : {
+    "focus_skill_rs_MSE_objLatent_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1,2,3],
+        "agent|world_model|objEnc_MSE_ratio": [0.9, 0.95, 0.975, 0.99, 1],
+        "agent|world_model|object_encoder|mse_mode": True,
+        "agent|world_model|object_extractor|mse_mode": True,
+    },
+    
+    "focus_skill_dmc_NormalDist_objLatent_kl_bias_3_pretrain" : {
         "agent": ["skill_focus"],
         "env": "dmc",
         "task": ["reacher_hard"],
         "seed": [1,2,3],
-        "agent|world_model|objEnc_MSE_ratio": [0.8, 0.9, 0.95, 0.975, 1]
+        "agent|world_model|objEnc_MSE_ratio": [0.9, 0.95, 0.975, 0.99, 1],
+        "agent|world_model|object_encoder|mse_mode": False,
+        "agent|world_model|object_extractor|mse_mode": False,
+        "train_every_actions": [10]
+    },
+    
+    "focus_skill_dmc_MSE_objLatent_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "agent|world_model|objEnc_MSE_ratio": [0.95, 0.975, 1],
+        "agent|world_model|object_encoder|mse_mode": True,
+        "agent|world_model|object_extractor|mse_mode": True,
+        "train_every_actions": [5, 10],
+        "agent|world_model|object_extractor|act": ["ELU", "none"],
+        "target_modulator": [500000, 250000]
+    },
+    
+    "focus_skill_dmc_NormalDist_objLatent_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "agent|world_model|objEnc_MSE_ratio": [0.95, 0.975, 1],
+        "agent|world_model|object_encoder|mse_mode": False,
+        "agent|world_model|object_extractor|mse_mode": False,
+        "train_every_actions": [5, 10],
+        "agent|world_model|object_extractor|act": ["ELU", "none"],
+        "target_modulator": [500000, 250000]
+    },
+    
+    "focus_skill_dmc_MSE_train_steps_sweep_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "agent|world_model|objEnc_MSE_ratio": [0.975, 0.99],
+        "agent|world_model|object_encoder|mse_mode": True,
+        "agent|world_model|object_extractor|mse_mode": True,
+        "train_every_actions": [5, 10]
+    },
+    
+    "focus_skill_dmc_MSE_target_modulator_sweep_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "agent|world_model|objEnc_MSE_ratio": [0.975, 0.99],
+        "agent|world_model|object_encoder|mse_mode": True,
+        "agent|world_model|object_extractor|mse_mode": True,
+        "target_modulator": [100000, 250000, 500000]
     },
     
     "focus_mw_sparse_pretrain" : {

@@ -174,14 +174,14 @@ class FocusAgent(Module):
             self.obj_instances + 1, device=seq["feat"].device
         ).repeat(*seq["feat"].shape[:2], 1, 1)
 
-        x, _ = self.wm.heads["object_decoder"].object_latent_extractor(
+        x, _ = self.wm.heads["object_decoder"]._object_latent_extractor(
             seq["feat"], obj_onehot
         )
 
         rw_intr = 0
         if self.reward_coeff["rw_intr"] > 0:
             for i in range(self.obj_instances):
-                rw_intr += self.compute_intr_reward(x["sample"][:, :, i])
+                rw_intr += self.compute_intr_reward(x["mean"][:, :, i])
         # rw_intr = self.compute_intr_reward(obj_pos) intrinsic reward computation over object positon in space
 
         rw_task = torch.zeros_like(rw_intr)

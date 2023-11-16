@@ -20,6 +20,7 @@ save_video: false
 save_train_video: true
 use_tb: true
 use_wandb: true
+target_modulator: 500000
 
 # mode
 obs_type: pixels
@@ -30,10 +31,10 @@ precision: 32
 
 # model specs
 batch_size: 16
-batch_length: 24
+batch_length: 32
 imag_horizon: 10
 eval_state_mean: False
-train_every_actions: 5
+train_every_actions: 10
 
 # train settings
 num_train_frames: 2000010

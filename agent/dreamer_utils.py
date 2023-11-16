@@ -7,6 +7,8 @@ import torch
 import torch.distributions as D
 import torch.nn.functional as F
 
+from torch.profiler import profile, record_function, ProfilerActivity
+import time
 # We thank the authors of the repo: https://github.com/jsikyoon/dreamer-torch
 # For their open source re-implementation, which was used as a reference to develop our code faster
 
@@ -643,7 +645,7 @@ class Decoder(Module):
                 # @pietro: this needs to be 2, cause the OneHot dimension is not counted
                 dists[key] = D.Independent(OneHotDist(mean), 2)
             else:
-                dists[key] = D.Independent(D.Normal(mean, 1), 3)
+                dists[key] = D.Independent(D.Normal(mean, 1.0), 3)
 
         return dists
 
@@ -750,19 +752,18 @@ class ObjEncoder(Module):
             outputs["prior"] = self._mlp(poses, obj_onehot) 
         return outputs
     
-
-    @staticmethod
-    def tile(a, dim, n_tile):
-        init_dim = a.size(dim)
-        repeat_idx = [1] * a.dim()
-        repeat_idx[dim] = n_tile
-        a = a.repeat(*(repeat_idx))
-        order_index = torch.LongTensor(
-            np.concatenate(
-                [init_dim * np.arange(n_tile) + i for i in range(init_dim)]
-            )
-        )
-        return torch.index_select(a, dim, order_index.to(device=a.device))
+    # @staticmethod
+    # def tile(a, dim, n_tile):
+    #     init_dim = a.size(dim)
+    #     repeat_idx = [1] * a.dim()
+    #     repeat_idx[dim] = n_tile
+    #     a = a.repeat(*(repeat_idx))
+    #     order_index = torch.tensor(
+    #         np.concatenate(
+    #             [init_dim * np.arange(n_tile) + i for i in range(init_dim)]
+    #         ), device=a.device
+    #     )
+    #     return torch.index_select(a, dim, order_index)
 
     def _cnn(self, features, obj_onehot, masks):
         raise NotImplementedError
@@ -824,9 +825,15 @@ class ObjDecoder(Module):
 
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
         
+        # tilling tensors
+        self.tile_tensors = {}
+        for key in self.cnn_keys:
+            init_dim = self.instances_dim
+            n_tile = self._shapes[key][0]
+            self.tile_tensors[key]  = torch.cat([init_dim * torch.arange(n_tile) + i for i in range(init_dim)]).cuda()
+            
         if obj_extractor_cfg:
             self._object_extractor = []
-            self.obj_extractor_act = getattr(nn, obj_extractor_cfg.act)()
             for i, width in enumerate(obj_extractor_cfg.mlp_layers):
                 if i == 0:
                     prev_width = embed_dim + self.instances_dim
@@ -835,7 +842,7 @@ class ObjDecoder(Module):
                 
                 self._object_extractor.append(nn.Linear(prev_width, width))
                 self._object_extractor.append(NormLayer(obj_extractor_cfg.norm, width))
-                self._object_extractor.append(self.obj_extractor_act)                
+                self._object_extractor.append(ActLayer(obj_extractor_cfg.act))                
             self._object_extractor.append(MultivariateNormal(512, 32 * self._cnn_depth, only_mean=obj_extractor_cfg.mse_mode))
             
             self._object_extractor = nn.Sequential(*self._object_extractor)
@@ -898,26 +905,31 @@ class ObjDecoder(Module):
         if self.mlp_keys:
             outputs.update(self._mlp(features, obj_onehot))
         return outputs
-
-    @staticmethod
-    def tile(a, dim, n_tile):
-        init_dim = a.size(dim)
+    
+    def object_latent_extractor(self, features):
+        outputs = {}
+        obj_onehot = torch.eye(
+            self.instances_dim, device=features.device
+        ).repeat(
+            *features.shape[:2], 1, 1
+        )  # last dim is obj idx
+        outputs["post"], _ = self._object_latent_extractor(features, obj_onehot)
+        return outputs
+    
+    def tile(self, a, dim, n_tile, key):
         repeat_idx = [1] * a.dim()
         repeat_idx[dim] = n_tile
         a = a.repeat(*(repeat_idx))
-        order_index = torch.LongTensor(
-            np.concatenate(
-                [init_dim * np.arange(n_tile) + i for i in range(init_dim)]
-            )
-        )
-        return torch.index_select(a, dim, order_index.to(device=a.device))
+        order_index = self.tile_tensors[key]
+
+        return torch.index_select(a, dim, order_index)
 
     def _cnn(self, features, obj_onehot, masks):
 
         dists = {}
 
         # x is extracted feat, feat is = (embed, obj_onehot)
-        dists["post"], _ = self.object_latent_extractor(features, obj_onehot)
+        dists["post"], _ = self._object_latent_extractor(features, obj_onehot)
 
         x = dists["post"]["sample"].reshape(
             [
@@ -948,27 +960,33 @@ class ObjDecoder(Module):
                     OneHotDist(mean), 2
                 )  # output is a binary mask
             else:
-                mean = mean.reshape(
-                    *features.shape[:2],
+                # with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+                mean = torch.reshape(mean,
+                    (*features.shape[:2],
                     self.instances_dim * self.channels[key],
-                    *x.shape[-2:],
+                    *x.shape[-2:])
                 )
                 if masks != None:
                     ch = int(mean.shape[2] / self.instances_dim)
-                    mask = self.tile(masks, 2, ch)
+                    mask = self.tile(masks, 2, ch, key)
                     mean = (
                         mean * mask
                     )  # mask means to avoid reconstruction in pixels out of objects
-                mean = mean.reshape(
-                    *mean.shape[:2],
+                
+                mean = torch.reshape(mean,
+                    (*mean.shape[:2],
                     self.instances_dim,
                     self.channels[key],
-                    *mean.shape[-2:],
+                    *mean.shape[-2:])
                 )
-                dists[key] = D.Independent(D.Normal(mean, 1), 3)
+                
+                # ones = torch.ones_like(mean, device=mean.device)
+                
+                dists[key] = D.Independent(D.Normal(mean, 1.0), 3) #TODO cause 30ms slow down everytime it is called
+                # prof.export_chrome_trace(f"/mnt/home/focus/log/skill_focus/{time.time()}.json")
         return dists
 
-    def object_latent_extractor(self, features, obj_onehot, instances=None):
+    def _object_latent_extractor(self, features, obj_onehot, instances=None):
         instances = self.instances_dim if instances == None else instances
 
         # TODO(pmazzagl) : batchify this loop
@@ -988,7 +1006,7 @@ class ObjDecoder(Module):
         dists = {}
         shapes = {k: self._shapes[k] for k in self.mlp_keys}
 
-        x, _ = self.object_latent_extractor(
+        x, _ = self._object_latent_extractor(
             features, obj_onehot, self.objects_dim
         )
 
@@ -1107,12 +1125,14 @@ class MultivariateNormal(Module):
     
     def _get_dist(self, state):
         dist = D.Normal(state["mean"], state["std"])
+        dist =  D.Independent(dist, 1)
         return dist     
     
     @staticmethod
     def kl_loss(post, prior, balance):
         def _get_dist(state):
             dist = D.Normal(state["mean"], state["std"])
+            dist =  D.Independent(dist, 1)
             return dist 
 
         kld = D.kl_divergence
@@ -1120,7 +1140,7 @@ class MultivariateNormal(Module):
         lhs, rhs = post, prior
         dtype = post["mean"].dtype
         device = post["mean"].device
-        free_tensor = torch.tensor([1], dtype=dtype, device=device)
+        free_tensor = torch.tensor([3], dtype=dtype, device=device)
 
         value_lhs = kld(_get_dist(lhs), _get_dist(sg(rhs)))
         value_rhs = kld(_get_dist(sg(lhs)), _get_dist(rhs))
@@ -1209,6 +1229,20 @@ class NormLayer(Module):
             return features
         return self._layer(features)
 
+class ActLayer(Module):
+    def __init__(self, name):
+        super().__init__()
+        if name == "none":
+            self._act = None
+        elif name != "none":
+            self._act = getattr(nn, name)()
+        else:
+            raise NotImplementedError(name)
+
+    def forward(self, features):
+        if self._act is None:
+            return features
+        return self._act(features)
 
 class Optimizer:
     def __init__(
@@ -1296,7 +1330,7 @@ class StreamNorm:
         self._momentum = momentum
         self._scale = scale
         self._eps = eps
-        self.mag = torch.ones(shape).to(self.device)
+        self.mag = torch.ones(shape, device=self.device)
 
     def __call__(self, inputs):
         metrics = {}
@@ -1309,7 +1343,7 @@ class StreamNorm:
         return outputs, metrics
 
     def reset(self):
-        self.mag = torch.ones_like(self.mag).to(self.device)
+        self.mag = torch.ones_like(self.mag, device=self.device)
 
     def update(self, inputs):
         batch = inputs.reshape((-1,) + self._shape)
