@@ -110,15 +110,16 @@ class BaseTracker:
         # map back
         for k, v in self.mapper.remappings.items():
             final_mask[out_mask == v] = k
-
-        num_objs = final_mask.max()
-        painted_image = frame
-        for obj in range(1, num_objs + 1):
-            if np.max(final_mask == obj) == 0:
-                continue
-            painted_image = mask_painter(
-                painted_image, (final_mask == obj).astype("uint8"), mask_color=obj + 1
-            )
+        
+        painted_image = None
+        # num_objs = final_mask.max()
+        # painted_image = frame
+        # for obj in range(1, num_objs + 1):
+        #     if np.max(final_mask == obj) == 0:
+        #         continue
+        #     painted_image = mask_painter(
+        #         painted_image, (final_mask == obj).astype("uint8"), mask_color=obj + 1
+        #     )
 
         # print(f'max memory allocated: {torch.cuda.max_memory_allocated()/(2**20)} MB')
 

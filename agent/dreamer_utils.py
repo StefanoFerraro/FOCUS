@@ -665,6 +665,7 @@ class Decoder(Module):
 class ObjEncoder(Module):
     def __init__(self,
         shapes,
+        obj_latent_as_dist,
         cnn_keys=r".*",
         mlp_keys=r".*",
         act="ELU",
@@ -672,7 +673,7 @@ class ObjEncoder(Module):
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
         mlp_layers=[400, 400, 400, 400],
-        mse_mode=False,
+        distance_mode="mse",
     ):
         super().__init__()
         self._shapes = {**shapes}
@@ -704,6 +705,8 @@ class ObjEncoder(Module):
 
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
 
+        self.distance_mode = distance_mode
+        
         if len(self.cnn_keys) > 0:
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
@@ -735,7 +738,7 @@ class ObjEncoder(Module):
                 self._mlp_model.append(NormLayer(self._norm, width))
                 # if i != len(self._mlp_layers) - 1: # no activation for last layer (comment out for not mse approach)
                 self._mlp_model.append(self._act)
-            self._mlp_model.append(MultivariateNormal(width, 32 * self._cnn_depth, only_mean=mse_mode))
+            self._mlp_model.append(MultivariateNormal(width, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist))
             self._mlp_model = nn.Sequential(*self._mlp_model)
             
     def forward(self, poses):
@@ -843,7 +846,7 @@ class ObjDecoder(Module):
                 self._object_extractor.append(nn.Linear(prev_width, width))
                 self._object_extractor.append(NormLayer(obj_extractor_cfg.norm, width))
                 self._object_extractor.append(ActLayer(obj_extractor_cfg.act))                
-            self._object_extractor.append(MultivariateNormal(512, 32 * self._cnn_depth, only_mean=obj_extractor_cfg.mse_mode))
+            self._object_extractor.append(MultivariateNormal(512, 32 * self._cnn_depth, dist_mode=obj_extractor_cfg.obj_latent_as_dist))
             
             self._object_extractor = nn.Sequential(*self._object_extractor)
 
@@ -982,7 +985,7 @@ class ObjDecoder(Module):
                 
                 # ones = torch.ones_like(mean, device=mean.device)
                 
-                dists[key] = D.Independent(D.Normal(mean, 1.0), 3) #TODO cause 30ms slow down everytime it is called
+                dists[key] = D.Independent(D.Normal(mean, torch.tensor(1.0, device="cuda:0", dtype=torch.float32)), 3) #TODO cause 30ms slow down everytime it is called
                 # prof.export_chrome_trace(f"/mnt/home/focus/log/skill_focus/{time.time()}.json")
         return dists
 
@@ -1014,9 +1017,7 @@ class ObjDecoder(Module):
 
         for key, shape in shapes.items():
             lin = getattr(self, f"dense_{key}")
-            means = lin._out(x)
-
-            dists[key] = D.Independent(D.Normal(means, 1.0), 1)
+            dists[key] = lin(x)
 
         return dists
     
@@ -1094,20 +1095,20 @@ class GRUCell(Module):
         return output, [output]
 
 class MultivariateNormal(Module):
-    def __init__(self, in_dim, out_dim, min_std=0.1, only_mean=False):
+    def __init__(self, in_dim, out_dim, min_std=0.1, dist_mode=False):
         super().__init__()
         self._in_dim = in_dim
         self._min_std = min_std
-        self._only_mean = only_mean
+        self._dist_mode = dist_mode
         self._mean = nn.Linear(in_dim, out_dim, bias=True)
-        if not only_mean:
+        if dist_mode:
             self._std = nn.Sequential(nn.Linear(in_dim, out_dim, bias=True), nn.Softplus())     
 
     def forward(self, input):
         state = {}
         state["mean"] = self._mean(input)
         dist = None
-        if not self._only_mean: 
+        if self._dist_mode: 
             state["std"] = self._std(input)
             dist = self._get_dist(state)
             state["sample"] = self.sample(dist)
@@ -1135,12 +1136,14 @@ class MultivariateNormal(Module):
             dist =  D.Independent(dist, 1)
             return dist 
 
+        if 'std' not in post.keys() and 'std' not in prior.keys():
+            raise ValueError("Distance mode kl is available with distribution mode") 
         kld = D.kl_divergence
         sg = lambda x: {k: v.detach() for k, v in x.items()}
         lhs, rhs = post, prior
         dtype = post["mean"].dtype
         device = post["mean"].device
-        free_tensor = torch.tensor([3], dtype=dtype, device=device)
+        free_tensor = torch.tensor([1], dtype=dtype, device=device)
 
         value_lhs = kld(_get_dist(lhs), _get_dist(sg(rhs)))
         value_rhs = kld(_get_dist(sg(lhs)), _get_dist(rhs))
@@ -1151,6 +1154,9 @@ class MultivariateNormal(Module):
     
     @staticmethod 
     def mse_loss(post, prior, balance):
+        if 'std' in post.keys() and 'std' in prior.keys():
+            raise ValueError("Distance mode mse is not available with distribution mode") 
+
         post = post["mean"]
         prior = prior["mean"]
         
@@ -1162,7 +1168,36 @@ class MultivariateNormal(Module):
         
         loss = balance * prior_loss + (1 - balance) * post_loss
         return loss
-
+    
+    @staticmethod 
+    def cosine_loss(post, prior, balance):
+        if 'std' in post.keys() and 'std' in prior.keys():
+            raise ValueError("Distance mode max_cosine is not available with distribution mode")         
+        post = post["mean"]
+        prior = prior["mean"]
+        
+        # cosine similarity dot(post, prior)/(norm(post)*norm(prior))
+        prior_loss = torch.einsum("ijkl,ijkl->ijk", (post.detach(), prior)) / (torch.norm(post.detach(), dim=-1) * torch.norm(prior, dim=-1) + 1e-8) # be sure that we are never dividing by 0
+        post_loss = torch.einsum("ijkl,ijkl->ijk", (post, prior.detach())) / (torch.norm(post, dim=-1) * torch.norm(prior.detach(), dim=-1) + 1e-8 )# be sure that we are never dividing by 0
+        
+        loss = balance * prior_loss.mean() + (1 - balance) * post_loss.mean()
+        
+        return -loss # 1 = max similarity | -1 = max dissimilarity
+    
+    
+    @staticmethod 
+    def max_cosine_loss(post, prior, balance):
+        if 'std' in post.keys() and 'std' in prior.keys():
+            raise ValueError("Distance mode cosine is not available with distribution mode") 
+                
+        post = post["mean"].detach()
+        prior = prior["mean"]
+        
+        norm = torch.max(torch.norm(post, dim=-1, keepdim=True), torch.norm(prior, dim=-1, keepdim=True)) + 1e-12
+        loss = torch.einsum("ijkl,ijkl->ijk", post / norm, prior / norm) # be sure that we are never dividing by 0
+        
+        return -loss.mean() # 1 = max similarity | -1 = max dissimilarity
+    
 class DistLayer(Module):
     def __init__(
         self, in_dim, shape, dist="mse", min_std=0.1, init_std=0.0, bias=True

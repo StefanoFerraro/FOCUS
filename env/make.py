@@ -52,6 +52,7 @@ def _make_dmc(
     action_repeat,
     seed,
     img_size,
+    horizon_steps = 250
 ):
     visualize_reward = False
     domain, task = task.split("_", 1)
@@ -60,7 +61,7 @@ def _make_dmc(
         env = suite.load(
             domain,
             task,
-            task_kwargs=dict(random=seed),
+            task_kwargs=dict(random=seed, time_limit = horizon_steps * 0.02), # 0.02 is the timestep length
             environment_kwargs=dict(flat_observation=True),
             visualize_reward=visualize_reward,
         )
@@ -123,6 +124,7 @@ def make(
             action_repeat,
             seed,
             64,
+            env_config.horizon
         )
 
         # if obs_type == "pixels":

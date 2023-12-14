@@ -20,9 +20,13 @@ class SkillFocusAgent(FocusAgent):
         super().__init__(name, cfg, obs_space, act_spec, is_finetune, **kwargs)
         
         self.init_exploration_area = self.cfg.env.init_exploration_area
+        self.init_lower_bound_expl_area = np.array([x[0] for x in self.init_exploration_area])
+        self.init_upper_bound_expl_area = np.array([x[1] for x in self.init_exploration_area])
+        self.min_exploration_area = np.array([x[0] for x in self.cfg.env.limits_exploration_area])
+        self.max_exploration_area = np.array([x[1] for x in self.cfg.env.limits_exploration_area])
+        
         # sample a circle from the center of the workspace
-        self._exploration_area = np.array(self.init_exploration_area)
-        self._object_start_pos = np.array(self.cfg.env.object_start_pos)
+        self._exploration_area = [self.min_exploration_area, self.max_exploration_area]
 
         self.update_target()
         self._mode = "train"
@@ -39,20 +43,17 @@ class SkillFocusAgent(FocusAgent):
         self.requires_grad_(requires_grad=False)
     
     def update_target(self):
-        new_target = np.random.uniform(-self._exploration_area, self._exploration_area)
-        if self.cfg.task == "manipulator_bring_ball":
-            # y coordinate needs to be above ground level
-            while new_target[0] < 0: 
-                new_target = np.random.uniform(-self._exploration_area, self._exploration_area)
+        new_target = np.random.uniform(*self._exploration_area)
         
-        new_target = new_target + self._object_start_pos 
-
-        self._target_pos = torch.tensor([[[new_target]]], dtype=torch.float, device="cuda") 
+        self.set_target(new_target)
     
     def set_target(self, target_from_zero):
-        new_target = self._object_start_pos + target_from_zero
-        self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float32) 
-        
+        new_target =  target_from_zero
+        self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float) 
+    
+    def get_target(self):
+        return self._target_pos
+       
     def set_exploration_area(self, exploration_area):
         self._exploration_area = exploration_area
         
@@ -88,10 +89,14 @@ class SkillFocusAgent(FocusAgent):
         
     def object_context_pose_reward_fn(self, seq):
         post_obj_state = self.wm.heads["object_decoder"].object_latent_extractor(stop_gradient(seq["feat"]))["post"]["mean"][:,:,0,:] #consider only first object
-        squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2).unsqueeze(-1) 
-        return - squared_distance
-
+        if self.cfg.agent.distance_mode == "mse":
+            squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2)
+        elif self.cfg.agent.distance_mode == "cosine":
+            squared_distance = - (torch.einsum("ijl,ijl->ij", (self._target_skill.unsqueeze(0), post_obj_state)) / (torch.norm(post_obj_state, dim=-1) * torch.norm(self._target_skill, dim=-1) + 1e-12))
+        return - squared_distance.unsqueeze(-1)
+    
     def update(self, data, step):
+        
         state, outputs, metrics = self.update_wm(data, step)
 
         start = outputs["post"]
@@ -101,11 +106,25 @@ class SkillFocusAgent(FocusAgent):
         self._skill_behavior.solved_meta['skill'] = self._target_skill
         
         # update based on mode, save compute time
+        # if self.is_finetune:
+        #     metrics.update(
+        #         self._task_behavior.update(
+        #             self.wm, start, data["is_terminal"], self.task_reward_fn
+        #         )
+        #     )
+        # else:
+        
+        # agent update based on the achievement on the given skill 
         metrics.update(
             self._skill_behavior.update(
                 self.wm, start, data["is_terminal"], getattr(self, f'{self._skill_strategy}_reward_fn')
             )
         )
+        metrics.update(
+                self._expl_behavior.update(
+                    self.wm, start, data["is_terminal"], self.expl_reward_fn
+                )
+            )
         return state, metrics
 
     def act(self, obs, meta, step, eval_mode, state):
@@ -127,11 +146,19 @@ class SkillFocusAgent(FocusAgent):
         )
         feat = self.wm.rssm.get_feat(latent)
 
-        # only for debugging
-        policy = self._skill_behavior.actor
-        skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
-        inp = torch.cat([feat, skill], dim=-1)
-
+        if self.is_finetune:
+            policy =  self._skill_behavior.actor
+            skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+            inp = torch.cat([feat, skill], dim=-1)
+        else:
+            if meta["use_skill_behaviour"]:
+                policy = self._skill_behavior.actor 
+                skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+                inp = torch.cat([feat, skill], dim=-1)
+            else:
+                policy = self._expl_behavior.actor
+                inp = feat
+            
         actor = policy(inp)
         if eval_mode:
             action = actor.mean

@@ -7,6 +7,7 @@ import robosuite.utils.transform_utils as T
 import mujoco
 import metaworld
 from copy import deepcopy
+import custom_metaworld_tasks
 
 class Metaworld(BaseEnv):
     def __init__(
@@ -18,13 +19,15 @@ class Metaworld(BaseEnv):
         action_repeat=1,
     ):
         super().__init__(env_config, task, objs, seed, action_repeat)
-
+            
         # Construct the benchmark, sampling tasks
-        self.ml1 = metaworld.ML1(f"{task}-v2", seed=seed)
-
-        # Create an environment with task `pick_place`
-        env_cls = self.ml1.train_classes[f"{task}-v2"]
-        self._env = env_cls()
+        if task == "robobin":
+            self._env = custom_metaworld_tasks.RoboBinEnv(2)
+        else:
+            self.ml1 = metaworld.ML1(f"{task}-v2", seed=seed)
+            env_cls = self.ml1.train_classes[f"{task}-v2"]
+            self._env = env_cls()
+        
         self._env._freeze_rand_vec = True
         self._env._last_rand_vec = [0, 0.9, 0]
         self._tasks = self.ml1.test_tasks
@@ -265,6 +268,8 @@ class Metaworld(BaseEnv):
 
     def reset_with_task_id(self, task_id):
         if self.camera == "corner2":
+            self._env.model.cam_pos[2][:] = [0.5, 0.3, 0.5]
+        if self.camera == "robobin_custom":
             self._env.model.cam_pos[2][:] = [0.5, 0.3, 0.5]
 
         # Change table aspect (improve contract for object recognition)

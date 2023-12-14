@@ -110,8 +110,8 @@ class Workspace:
 
         # adapt object target pose center for specific task 
         # TODO create a function that takes care of it for all different cases
-        if self.cfg.task == "manipulator_bring_ball" or self.cfg.task == "manipulator_bring_peg":
-            self.cfg.env.object_start_pos = [0.5, 0.32]
+        # if self.cfg.task == "manipulator_bring_ball" or self.cfg.task == "manipulator_bring_peg":
+        #     self.cfg.env.object_start_pos = [0.5, 0.32]
                 
         self.train_env = make(
             domain,
@@ -225,15 +225,19 @@ class Workspace:
 
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         meta = self.agent.init_meta()
-        obj_pos = np.array([self.cfg.env.object_start_pos]).astype(np.float) 
+        obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
+        video = np.empty([1, int(self._horizon/2) + 1 , 3, *self.cfg.env.renderer.size])
+        move_to_target_final, move_to_target_min, move_to_target_max, move_to_target_mean = [], [], [], []
         
         while eval_until_episode(episode):
             episode_data = []
             
             # set target before reset of env
             if self.cfg.agent.train_target_reach:
-                target = np.zeros_like(self.cfg.env.object_start_pos)
-                target[1] = self.target_update(self.cfg.env.target_modulator)[1]
+                # target = np.zeros_like(self.cfg.env.object_start_pos)
+                # target[1] = self.target_update(self.cfg.env.target_modulator)[1]
+                # pick random goal for evaluation
+                target = self.eval_env.get_random_goal()[1]
                 self.agent.set_target(target) # update pos target only along x axis 
                 if self.cfg.env.visualize_target:   
                     self.eval_env.set_target(target)                    
@@ -258,11 +262,11 @@ class Workspace:
                     )
                 dreamer_obs = self.eval_env.step(action)
                 
-                if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target and self.cfg.domain == "rs":
-                    dreamer_obs["eval_rgb"] = self.eval_env.get_rgb_with_target()
-                else:
-                    dreamer_obs["eval_rgb"] = dreamer_obs["rgb"]
-                    
+                # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
+                
+                if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:
+                    dreamer_obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target)
+
                 episode_data.append(dreamer_obs)
                 total_reward += dreamer_obs["reward"]
                 step += 1
@@ -271,13 +275,38 @@ class Workspace:
                     step_to_success = (step * self.cfg.action_repeat) - (
                         episode * self._horizon
                     )
+                    
+                obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0]]))
 
-            obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0]]))
-            total_success += dreamer_obs["success"]
+            # log specs
+            if self.cfg.agent.train_target_reach:
+                target_pos = self.agent._target_pos.cpu().numpy()
+                move_to_target_final.append(np.exp(- np.linalg.norm(
+                        obj_pos[-1] - target_pos)
+                    / np.linalg.norm(target_pos))) # exponential distance from the target at the end of episode
+                move_to_target_min.append(np.exp(- np.linalg.norm(
+                        obj_pos - target_pos, axis=-1)
+                    / np.linalg.norm(target_pos)).max()) # exponential min distance to target during the entire episode
+                move_to_target_max.append(np.exp(- np.linalg.norm(
+                        obj_pos - target_pos, axis=-1)
+                    / np.linalg.norm(target_pos)).min()) # exponential max distance to target during the entire episode
+                move_to_target_mean.append(np.exp(- np.linalg.norm(
+                        obj_pos - target_pos, axis=-1)
+                    / np.linalg.norm(
+                        target_pos)).mean()) # exponential max distance to target during the entire episode
+                
+            if episode==0:
+                video = np.expand_dims(np.stack([obs['eval_rgb'] for obs in episode_data], axis=0), axis=0)    
+            else:
+                video = np.concatenate([video, np.expand_dims(np.stack([obs['eval_rgb'] for obs in episode_data], axis=0), axis=0)], axis=-1)    
+            
+            episode += 1
             step_to_success_list += [step_to_success]
             step_to_success = self._horizon
-            episode += 1
+            total_success += dreamer_obs["success"]
+            obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
 
+        
         self.agent.is_finetune = False if not self.cfg.is_finetune else True
           
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
@@ -288,39 +317,23 @@ class Workspace:
             log("episode", self.global_episode)
             log("step", self.global_step)
             if self.cfg.agent.train_target_reach:
-                target_pos = self.agent._target_pos.cpu().numpy()
                 log(
-                    "move_to_target_final",
-                    np.exp(- np.linalg.norm(
-                        obj_pos[-1] - target_pos)
-                    / np.linalg.norm(target_pos)) # exponential distance from the target at the end of episode
-                )
+                    "move_to_target_final", np.mean(move_to_target_final))
                 log(
-                    "move_to_target_min",
-                    np.exp(- np.linalg.norm(
-                        obj_pos - target_pos, axis=-1)
-                    / np.linalg.norm(target_pos)).max() # exponential min distance to target during the entire episode
-                )
+                    "move_to_target_min", np.mean(move_to_target_min))
                 log(
-                    "move_to_target_max",
-                    np.exp(- np.linalg.norm(
-                        obj_pos - target_pos, axis=-1)
-                    / np.linalg.norm(target_pos)).min() # exponential max distance to target during the entire episode
-                )
+                    "move_to_target_max", np.mean(move_to_target_max))
                 log(
-                    "move_to_target_mean",
-                    np.exp(- np.linalg.norm(
-                        obj_pos - target_pos, axis=-1)
-                    / np.linalg.norm(
-                        target_pos)).mean() # exponential max distance to target during the entire episode
-                )
-            
+                    "move_to_target_mean", np.mean(move_to_target_mean))
 
         # B, T, C, H, W = video.shape
-        last_video = np.expand_dims(np.stack([ obs['eval_rgb'] for obs in episode_data ], axis=0), axis=0)
-        last_video = np.uint8(last_video * 255)
-        self.logger.log_video({'eval/video' : last_video }, self.global_frame)
+        # last_video = np.expand_dims(np.stack([obs['eval_rgb'] for obs in episode_data ], axis=0), axis=0)
+        video = np.uint8(video * 255)
+        self.logger.log_video({'eval_video' : video }, self.global_frame)
 
+        # Eval episodes for testing the prior model (get fixed poses, decode the observation of the prior)
+         
+          
     def train(self):
         # predicates
         train_until_step = utils.Until(
@@ -355,153 +368,160 @@ class Workspace:
         metrics = None
         contact_count = 0
         in_areas = np.array([0, 0, 0, 0, 0])
-        obj_pos = np.array([self.cfg.env.object_start_pos]).astype(np.float)     
+        obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
+   
         cumm_pos_displacement = 0
         cumm_ang_displacement = 0
         cumm_vertical_displacement = 0
         segmentation_obj_pixels = 0
-        with torch.profiler.profile(
-            schedule=torch.profiler.schedule(wait=1, warmup=2490, active=10, repeat=1),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler('/mnt/home/focus/log/skill_focus'),
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=True
-        ) as prof:
+        # with torch.profiler.profile(
+        #     schedule=torch.profiler.schedule(wait=1, warmup=490, active=10, repeat=1),
+        #     on_trace_ready=torch.profiler.tensorboard_trace_handler('/mnt/home/focus/log/skill_focus'),
+        #     record_shapes=True,
+        #     profile_memory=True,
+        #     with_stack=True
+        # ) as prof:
             # import time
-            while train_until_step(self.global_step):
-                prof.step()
-                if self._global_step == 2490:
-                    pass
-                if self._global_step == 2500:
-                    prof.stop()
-                    
-                if bool(dreamer_obs["is_last"]):
-                    self._global_episode += 1
-                    # if should_log_recon(self._global_step):
-                    #     if self.cfg.obs_type == 'pixels':
-                    # wait until all the metrics schema is populated
-                    if metrics is not None:
-                        # log stats
-                        elapsed_time, total_time = self.timer.reset()
-                        episode_frame = episode_step * self.cfg.action_repeat
-                        with self.logger.log_and_dump_ctx(
-                            self.global_frame, ty="train"
-                        ) as log:
-                            log("fps", episode_frame / elapsed_time)
-                            log("total_time", total_time)
-                            log("episode_reward", episode_reward)
-                            log("episode_length", episode_frame)
-                            log("episode", self.global_episode)
-                            log("buffer_size", len(self.replay_storage))
-                            log("step", self.global_step)
-                            log("success", dreamer_obs["success"])
-                            log("step_to_success", step_to_success)
-                            log("contact", float(contact_count / episode_frame))
-                            # TODO: for the future, put everything in a dict and cycle through the keys
-                            log(
-                                "left_placement",
-                                float(in_areas[0] / episode_frame),
-                            )
-                            log(
-                                "right_placement",
-                                float(in_areas[1] / episode_frame),
-                            )
-                            log(
-                                "close_placement",
-                                float(in_areas[2] / episode_frame),
-                            )
-                            log("far_placement", float(in_areas[3] / episode_frame))
-                            log("up_placement", float(in_areas[4] / episode_frame))
-                            log("pos_displacement", cumm_pos_displacement)
-                            log("ang_displacement", cumm_ang_displacement)
-                            log("vertical_displacement", cumm_vertical_displacement)
-                            if self.cfg.agent.train_target_reach:
-                                target_pos = self.agent._target_pos.cpu().numpy()
-                                log(
-                                    "move_to_target_final",
-                                    np.exp(- np.linalg.norm(
-                                        obj_pos[-1] - target_pos)
-                                    / np.linalg.norm(target_pos)) # exponential distance from the target at the end of episode
-                                )
-                                log(
-                                    "move_to_target_min",
-                                    np.exp(- np.linalg.norm(
-                                        obj_pos - target_pos, axis=-1)
-                                    / np.linalg.norm(target_pos)).max() # exponential min distance to target during the entire episode
-                                )
-                                log(
-                                    "move_to_target_max",
-                                    np.exp(- np.linalg.norm(
-                                        obj_pos - target_pos, axis=-1)
-                                    / np.linalg.norm(target_pos)).min() # exponential max distance to target during the entire episode
-                                )
-                                log(
-                                    "move_to_target_mean",
-                                    np.exp(- np.linalg.norm(
-                                        obj_pos - target_pos, axis=-1)
-                                    / np.linalg.norm(
-                                        target_pos)).mean() # exponential max distance to target during the entire episode
-                                )
-                                log(
-                                    "segmentation_obj_pixels",
-                                    float(segmentation_obj_pixels / episode_step)  # episode average number of pixels for main object segmentation mask
-                                )
-                            
-                    if self.cfg.agent.train_target_reach:
-                        if self.cfg.scheduler_target: self.target_update(self.cfg.env.target_modulator) # update pos target according to scheduler 
-                        self.agent.update_target()
-                    
-                    contact_count = 0
-                    in_areas = np.array([0, 0, 0, 0, 0])
-                    obj_pos = np.array([self.cfg.env.object_start_pos]).astype(np.float) 
-                    cumm_pos_displacement = 0
-                    cumm_ang_displacement = 0
-                    cumm_vertical_displacement = 0
-                    segmentation_obj_pixels = 0
-                    
-                    # save last model
-                    if self.global_step % 50000 == 0:
-                        self.save_last_model()
-
-                    # reset env
-                    dreamer_obs = self.reset(self.train_env)
-
-                    agent_state = None  # Resetting agent's latent state
-                    meta = self.agent.init_meta()
-                    data = dreamer_obs
-                    self.replay_storage.add(data, meta)
-                    # try to save snapshot
-                    if self.global_frame in self.cfg.snapshots:
-                        self.save_snapshot()
-                    episode_step = 0
-                    episode_reward = 0
-                    step_to_success = self._horizon
-
-                # try to evaluate
-                if eval_every_step(self.global_step):
-                    self.logger.log(
-                        "eval_total_time",
-                        self.timer.total_time(),
-                        self.global_frame,
-                    )
-                    self.eval()
-
-                meta = self.agent.update_meta(meta, self.global_step, dreamer_obs)
-
-                with torch.no_grad(), utils.eval_mode(self.agent):
-                    if seed_until_step(self.global_step):
-                        action = self.train_env.act_space["action"].sample()
-                    else:
-                        action, agent_state = self.agent.act(
-                            dreamer_obs,
-                            meta,
-                            self.global_step,
-                            eval_mode=False,
-                            state=agent_state,
-                        )
+        while train_until_step(self.global_step):
+            # prof.step()
+            # if self._global_step == 490:
+            #     pass
+            # if self._global_step == 500:
+            #     prof.stop()
                 
-                # try to update the agent
-                if not seed_until_step(self.global_step):
+            if bool(dreamer_obs["is_last"]):
+                self._global_episode += 1
+                # if should_log_recon(self._global_step):
+                #     if self.cfg.obs_type == 'pixels':
+                # wait until all the metrics schema is populated
+                if metrics is not None:
+                    # log stats
+                    elapsed_time, total_time = self.timer.reset()
+                    episode_frame = episode_step * self.cfg.action_repeat
+                    with self.logger.log_and_dump_ctx(
+                        self.global_frame, ty="train"
+                    ) as log:
+                        log("fps", episode_frame / elapsed_time)
+                        log("total_time", total_time)
+                        log("episode_reward", episode_reward)
+                        log("episode_length", episode_frame)
+                        log("episode", self.global_episode)
+                        log("buffer_size", len(self.replay_storage))
+                        log("step", self.global_step)
+                        log("success", dreamer_obs["success"])
+                        log("step_to_success", step_to_success)
+                        log("contact", float(contact_count / episode_frame))
+                        # TODO: for the future, put everything in a dict and cycle through the keys
+                        log(
+                            "left_placement",
+                            float(in_areas[0] / episode_frame),
+                        )
+                        log(
+                            "right_placement",
+                            float(in_areas[1] / episode_frame),
+                        )
+                        log(
+                            "close_placement",
+                            float(in_areas[2] / episode_frame),
+                        )
+                        log("far_placement", float(in_areas[3] / episode_frame))
+                        log("up_placement", float(in_areas[4] / episode_frame))
+                        log("pos_displacement", cumm_pos_displacement)
+                        log("ang_displacement", cumm_ang_displacement)
+                        log("vertical_displacement", cumm_vertical_displacement)
+                        if self.cfg.agent.train_target_reach:
+                            target_pos = self.agent._target_pos.cpu().numpy()
+                            log(
+                                "move_to_target_final",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos[-1] - target_pos)
+                                / np.linalg.norm(target_pos)) # exponential distance from the target at the end of episode
+                            )
+                            log(
+                                "move_to_target_min",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos - target_pos, axis=-1)
+                                / np.linalg.norm(target_pos)).max() # exponential min distance to target during the entire episode
+                            )
+                            log(
+                                "move_to_target_max",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos - target_pos, axis=-1)
+                                / np.linalg.norm(target_pos)).min() # exponential max distance to target during the entire episode
+                            )
+                            log(
+                                "move_to_target_mean",
+                                np.exp(- np.linalg.norm(
+                                    obj_pos - target_pos, axis=-1)
+                                / np.linalg.norm(
+                                    target_pos)).mean() # exponential max distance to target during the entire episode
+                            )
+                            log(
+                                "segmentation_obj_pixels",
+                                float(segmentation_obj_pixels / episode_step)  # episode average number of pixels for main object segmentation mask
+                            )
+                        
+                if self.cfg.agent.train_target_reach:
+                    self.expl_area_update(self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
+                    self.agent.update_target() # update target in the agent based on the new exploration area 
+                    self.train_env.set_target(self.agent.get_target()[0,0,0].detach().cpu().numpy().copy())  # visually set the target                  
+                
+                contact_count = 0
+                in_areas = np.array([0, 0, 0, 0, 0])
+                obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
+
+                cumm_pos_displacement = 0
+                cumm_ang_displacement = 0
+                cumm_vertical_displacement = 0
+                segmentation_obj_pixels = 0
+                
+                # save last model
+                if self.global_step % 50000 == 0:
+                    self.save_last_model()
+
+                # reset env
+                dreamer_obs = self.reset(self.train_env)
+
+                agent_state = None  # Resetting agent's latent state
+                meta = self.agent.init_meta()
+                data = dreamer_obs
+                self.replay_storage.add(data, meta)
+                # try to save snapshot
+                if self.global_frame in self.cfg.snapshots:
+                    self.save_snapshot()
+                episode_step = 0
+                episode_reward = 0
+                step_to_success = self._horizon
+
+            # try to evaluate
+            if eval_every_step(self.global_step):
+                self.logger.log(
+                    "eval_total_time",
+                    self.timer.total_time(),
+                    self.global_frame,
+                )
+                self.eval()
+
+            meta = self.agent.update_meta(meta, self.global_step, dreamer_obs)
+
+            with torch.no_grad(), utils.eval_mode(self.agent):
+                if seed_until_step(self.global_step):
+                    action = self.train_env.act_space["action"].sample()
+                else:
+                    if self.cfg.agent.name=="skill_focus":
+                        # In this case we want to have the skill agent acting 50% of the time, and the rest made by an exploratory agent
+                        meta = {"use_skill_behaviour": self.global_episode % 2}
+                    action, agent_state = self.agent.act(
+                        dreamer_obs,
+                        meta,
+                        self.global_step,
+                        eval_mode=False,
+                        state=agent_state,
+                    )
+            
+            # try to update the agent
+            if not seed_until_step(self.global_step): # fill the replay buffer before training WM and agent
+                if self.replay_storage._total_steps > 0:
                     if should_train_step(self.global_step):
                         metrics = self.agent.update(
                             next(self.replay_iter), self.global_step
@@ -514,29 +534,29 @@ class Workspace:
                         self.logger.log_video(videos, self.global_frame)
                         self.logger.log_text(text, self.global_frame)
 
-                # take env step
-                dreamer_obs = self.train_env.step(action)
+            # take env step
+            dreamer_obs = self.train_env.step(action)
 
-                episode_reward += dreamer_obs["reward"]
-                data = dreamer_obs
-                self.replay_storage.add(data, meta)
+            episode_reward += dreamer_obs["reward"]
+            data = dreamer_obs
+            self.replay_storage.add(data, meta)
 
-                # if self._global_step >= 4000:
-                #     print(time.time() - t1)
-                
-                episode_step += 1
-                # Hacky way to say that step_to_success was set
-                if step_to_success == self._horizon and dreamer_obs["success"]:
-                    step_to_success = episode_step
-                self._global_step += 1
-                contact_count += dreamer_obs["contact"]
-                in_areas += np.array(dreamer_obs["in_areas"])
-                obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0]]))
-                cumm_pos_displacement += dreamer_obs["pos_displacement"]
-                cumm_ang_displacement += dreamer_obs["ang_displacement"]
-                cumm_vertical_displacement += dreamer_obs["vertical_displacement"]
-                segmentation_obj_pixels += np.sum(dreamer_obs["segmentation"][0])
-                
+            # if self._global_step >= 4000:
+            #     print(time.time() - t1)
+            
+            episode_step += 1
+            # Hacky way to say that step_to_success was set
+            if step_to_success == self._horizon and dreamer_obs["success"]:
+                step_to_success = episode_step
+            self._global_step += 1
+            contact_count += dreamer_obs["contact"]
+            in_areas += np.array(dreamer_obs["in_areas"])
+            obj_pos = np.concatenate((obj_pos, [dreamer_obs["objects_pos"][0]]))
+            cumm_pos_displacement += dreamer_obs["pos_displacement"]
+            cumm_ang_displacement += dreamer_obs["ang_displacement"]
+            cumm_vertical_displacement += dreamer_obs["vertical_displacement"]
+            segmentation_obj_pixels += np.sum(dreamer_obs["segmentation"][0])
+        
 
     @utils.retry
     def save_snapshot(self):
@@ -578,12 +598,21 @@ class Workspace:
         with snapshot.open("wb") as f:
             torch.save(payload, f)
 
-    def target_update(self, modulation_factor=10e6):        
-        exp_func = lambda x: np.clip((np.exp(x / modulation_factor)) * self.agent.get_init_exploration_area(), 0, 0.3) # 0 -> 0.05 | 1M -> 0.135 | 2M -> 0.36
-        new_exploration_area = exp_func(self.global_step)
+    def exp_func(self, x, modulation_factor):
+        init_low_bea, init_up_bea, min_ea, max_ea = self.agent.init_lower_bound_expl_area, self.agent.init_upper_bound_expl_area, self.agent.min_exploration_area, self.agent.max_exploration_area
+        # clipping of lower and maximum values
+        lower_expl_area = np.clip((np.exp(x / modulation_factor) * init_low_bea), min_ea, max_ea)
+        upper_expl_area = np.clip((np.exp(x / modulation_factor) * init_up_bea), min_ea, max_ea)
+        return [lower_expl_area, upper_expl_area]
+
+    def expl_area_update(self, modulation_factor=10e6, curriculum_learning=True):        
+        if curriculum_learning:
+            new_exploration_area = self.exp_func(self.global_step, modulation_factor)
+        else:
+            # sample from full exploration area
+            new_exploration_area = [self.agent.min_exploration_area, self.agent.max_exploration_area]
         
         self.agent.set_exploration_area(new_exploration_area)
-        
         return new_exploration_area
             
     def load_snapshot(self):

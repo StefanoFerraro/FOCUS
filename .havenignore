@@ -12,3 +12,6 @@ codes
 gifs
 notebooks
 gpulab
+wandb
+log
+checkpoints

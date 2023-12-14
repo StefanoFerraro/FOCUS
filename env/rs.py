@@ -80,7 +80,7 @@ class PandaRoboSuite(BaseEnv):
         obj_ori = {}
         for obj in self.segmentation_instances:
             obj_id = getattr(self._env, obj + "_body_id")
-            obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy()
+            obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy() - self.object_start_pos #remove fixed offset 
             obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
 
         return obj_pos.copy(), obj_ori.copy()
@@ -434,12 +434,43 @@ class PandaRoboSuite(BaseEnv):
     def _target_show(self):
         self._env.sim.model.geom("target_g0_vis").rgba[-1] = 0.5
         
-    def set_target(self, target_pos):
+    def set_target(self, target_pos): 
+        # set target in env (visualization purposes)
         self._env.env.target_pos = target_pos + np.array(self.object_start_pos)   
         
-    def get_rgb_with_target(self):
+    def get_rgb_with_target(self, target):
         self._target_show()
         target_rgb = self._env.sim.render(height=self.size[0], width=self.size[1])[::-1].transpose(2, 0, 1)
         self._target_hide()
         return target_rgb
     
+    #### ADDED FUNCTIONS ####
+
+    def get_goals(self):
+        return self.goals
+  
+    def set_goals_for_task(self):
+        if self.task in ["CustomLift"]: # TODO first dimension to define properly
+            full_right = [[0], [0.25, 0, 0]]
+            full_left = [[0], [-0.25, 0, 0]]
+            full_down = [[0], [0, 0.25, 0]]
+            full_up = [[0], [0, -0.25, 0]]
+            right_down = [[0], [0.12, 0.12, 0]]
+            left_up = [[0], [-0.12, -0.12, 0]]
+            left_down = [[0], [-0.12, 0.12, 0]]
+            right_up = [[0], [0.12, -0.12, 0]]
+
+            self.goals = np.stack([full_right, full_left, full_down, full_up,
+                                   right_down, left_up, left_down, right_up])
+        else:
+            raise NotImplementedError
+        return self.goals
+    
+    def get_random_goal(self):
+        goals = self.set_goals_for_task()
+        return goals[np.random.randint(len(goals))]
+    
+    def render(self):
+        return self._env.sim.render(height=self.size[0], width=self.size[1])[::-1].transpose(2, 0, 1)
+    
+                
