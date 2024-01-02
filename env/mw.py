@@ -101,7 +101,7 @@ class Metaworld(BaseEnv):
             else len(self.segmentation_instances)
         )
 
-        seg, _, _ = self.segmenter.generate(rgb, self.is_first)
+        seg = self.segmenter.generate(rgb, self.is_first)
         seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
 
         seg_map = np.zeros(

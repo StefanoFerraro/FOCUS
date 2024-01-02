@@ -11,7 +11,7 @@ renderer:
   depths: True
   segmentation_level: "element" # None, class, instance or element 
   seg_size: [256, 256]
-  gt_segmentation: True
+  gt_segmentation: False
 reward_shaping: False
 task_reward: "lift"
 objects:

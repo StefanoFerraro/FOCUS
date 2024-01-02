@@ -200,7 +200,8 @@ exp_configs = {
         "train_every_actions": [10],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus",
         "agent|world_model|encoder|coordConv": [True, False],  
-        "num_train_frames": 1000010,   
+        "num_train_frames": 1000010,  
+        "curriculum_learning": False, 
     },
     
     "focus_skill_manipulator_fix_start_pretrain" : {

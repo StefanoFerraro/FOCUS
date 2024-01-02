@@ -7,7 +7,7 @@ defaults:
 task: none
 domain: ${env.name}
 comment: ""
-curriculum_learning: true
+curriculum_learning: false
 
 # experiment
 experiment: pt

@@ -155,12 +155,12 @@ class PandaRoboSuite(BaseEnv):
 
         else:
             seg_map = np.zeros(
-                (channels, seg.shape[0], seg.shape[1]),
+                (channels, seg.shape[1], seg.shape[2]),
                 dtype=np.uint8,
             )
 
             for i, instance in enumerate(self.segmentation_instances):
-                seg_map[i][seg == i + 1] = 1
+                seg_map[i][seg[i] == i + 1] = 1
 
         if include_background:
             background_mask = np.all(seg_map == 0, axis=0)
@@ -237,14 +237,16 @@ class PandaRoboSuite(BaseEnv):
             high_res_rgb = self._env.sim.render(
                 camera_name=self.camera, height=self.seg_size[0], width=self.seg_size[1]
             )[::-1]
-            seg, _, _ = self.segmenter.generate(high_res_rgb, self.is_first)
-            seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
+            seg = self.segmenter.generate(high_res_rgb, self.is_first)[:-1] # discard background layer
+            seg_resized = np.zeros((seg.shape[0], self.size[0], self.size[1]), dtype=np.uint8)
+            for i in range(len(seg)):
+                seg_resized[i] = cv2.resize(seg[i], self.size, interpolation=cv2.INTER_NEAREST)
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
             state[key] = env_state[key]
 
-        return proprio, rgb, depth_map, seg, state
+        return proprio, rgb, depth_map, seg_resized, state
 
     def check_contact(self):
         contact = 0

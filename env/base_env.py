@@ -48,7 +48,6 @@ class BaseEnv:
             self.segmenter = Segmenter(
                 env_config,
                 self.task,
-                self.num_objects,
                 img_size=self.seg_size,
                 device="cuda:0",
             )

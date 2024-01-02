@@ -1,6 +1,6 @@
 segmenter:
-  fastSAM_url: https://huggingface.co/spaces/An-619/FastSAM/resolve/main/weights/FastSAM.pt
-  xmem_url: https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth
+  mobileSAM_url: https://huggingface.co/dhkim2810/MobileSAM/resolve/main/mobile_sam.pt
+  DEVA_url: https://github.com/hkchengrex/Tracking-Anything-with-DEVA/releases/download/v1.0/DEVA-propagation.pth
   GroundingDino_url: https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth
   checkpoints_folder: ./checkpoints/ # with respect to main dir
   mode: None
@@ -12,4 +12,37 @@ segmenter:
   randomcolor: True # mask random color
   better_quality: False # better quality using morphologyEx
   retina: True # draw high-resolution segmentation masks
-  withContours: True # draw the edges of the masks
+  withContours: True # draw the edges of the mask
+  DEVA:
+    amp: True
+    model: checkpoints/DEVA.pth
+    key_dim: 64
+    value_dim: 512
+    pix_feat_dim: 512
+    disable_long_term: True
+    enable_long_term: False
+    max_mid_term_frames: 10
+    min_mid_term_frames: 5
+    max_long_term_elements: 10000
+    num_prototypes: 128
+    top_k: 30
+    mem_every: 10
+    chunk_size: 4
+    size: 480
+    detection_every: 1000
+    num_voting_frames: 1
+    temporal_setting: "online"
+    sam_variant: "mobile"
+    pluralize: True
+    max_missed_detection_count: 10
+    GROUNDING_DINO_CONFIG_PATH: 'env/tracker/config/GroundingDINO_SwinT_OGC.py' 
+    GROUNDING_DINO_CHECKPOINT_PATH: 'checkpoints/groundingdino_swint_ogc.pth'
+    DINO_THRESHOLD: 0.35
+    DINO_NMS_THRESHOLD: 0.8
+    SAM_ENCODER_VERSION: 'vit_h'
+    SAM_CHECKPOINT_PATH: 'null.pht'
+    MOBILE_SAM_CHECKPOINT_PATH: 'checkpoints/mobileSAM.pt'
+    SAM_NUM_POINTS_PER_SIDE: 64
+    SAM_NUM_POINTS_PER_BATCH: 64
+    SAM_PRED_IOU_THRESHOLD: 0.88
+    SAM_OVERLAP_THRESHOLD: 0.8

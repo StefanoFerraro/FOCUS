@@ -1221,7 +1221,8 @@ class DistLayer(Module):
             std = self._std(inputs)
             std = std.reshape(list(inputs.shape[:-1]) + list(self._shape))
         if self._dist == "mse":
-            dist = D.Normal(out, 1.0)
+            _ones = torch.ones_like(out, device=out.device)
+            dist = D.Normal(out, _ones)
             return D.Independent(dist, len(self._shape))
         if self._dist == "normal":
             dist = D.Normal(out, std)
