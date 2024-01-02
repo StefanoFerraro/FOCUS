@@ -55,12 +55,11 @@ MW_TASKS_OBJ = {
     "door-close": [["door", "door_link"]],
     "peg-insert-side": [["peg"]],
     "hammer": [["hammerbody"]],
-    "robobin": [["cubeA", "cubeB"]],
 }
 
 DMC_TASKS_OBJ = {
+    "walker_run": ["leg"],
     "reacher_hard": ["target"],   
-    "reacher_easy": ["target"],   
     "manipulator_bring_ball": ["target_ball"], 
     "manipulator_bring_peg": [["target_blade", "target_guard", "target_pommel"]] 
 }
@@ -68,8 +67,7 @@ DMC_TASKS_OBJ = {
 DMC_TASKS_PROMPT = {
     "walker_run": ["text", "leg"],
     "reacher_hard": ["text", "small orange ball"],
-    "reacher_easy": ["text", "small orange ball"],
-    "manipulator_bring_ball": ["text", "green ball", "orange robot"],
+    "manipulator_bring_ball": ["text", "small orange ball"],
     "manipulator_bring_peg": ["text", "orange sword"] 
 }
 
@@ -102,7 +100,6 @@ MW_TASKS_PROMPT = {
     "door-close": ["text", "a grey door"],
     "peg-insert-side": ["text", "a green peg"],
     "hammer": ["text", "hammer"],
-    "robobin": ["text", "green cube"],
 }
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS
