@@ -480,7 +480,7 @@ class Encoder(Module):
             self._mlp_model = []
             for i, width in enumerate(self._mlp_layers):
                 if i == 0:
-                    prev_width = np.prod(*[shapes[k] for k in self.mlp_keys])
+                    prev_width = np.sum([np.prod(shapes[k]) for k in self.mlp_keys])
                 else:
                     prev_width = self._mlp_layers[i - 1]
                 self._mlp_model.append(nn.Linear(prev_width, width))
@@ -490,6 +490,7 @@ class Encoder(Module):
 
     def forward(self, data):
         key, shape = list(self.shapes.items())[0]
+        
         batch_dims = data[key].shape[: -len(shape)]
         data = {
             k: v.reshape((-1,) + tuple(v.shape)[len(batch_dims) :])
@@ -499,6 +500,8 @@ class Encoder(Module):
         if self.cnn_keys:
             outputs.append(self._cnn({k: data[k] for k in self.cnn_keys}))
         if self.mlp_keys:
+            if "objects_pos" in self.mlp_keys: 
+                data["objects_pos"] = torch.flatten(data["objects_pos"], start_dim=1)
             outputs.append(self._mlp({k: data[k] for k in self.mlp_keys}))
         output = torch.cat(outputs, -1)
         return output.reshape(batch_dims + output.shape[1:])
@@ -509,6 +512,8 @@ class Encoder(Module):
         return x.reshape(tuple(x.shape[:-3]) + (-1,))
 
     def _mlp(self, data):
+        # if "objects_pos" in data.keys() and len(data["objects_pos"].shape) > 2:
+        #     data["objects_pos"] = data["objects_pos"][..., 0, :]
         x = torch.cat(list(data.values()), -1)
         x = self._mlp_model(x)
         return x
@@ -616,9 +621,9 @@ class Decoder(Module):
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(width, shape))
 
-    def forward(self, features):
+    def forward(self, features, only_mlp=False):
         outputs = {}
-        if self.cnn_keys:
+        if self.cnn_keys and not only_mlp:
             outputs.update(self._cnn(features))
         if self.mlp_keys:
             outputs.update(self._mlp(features))

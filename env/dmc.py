@@ -114,10 +114,8 @@ class DMCSuiteWrapper():
             self._env.physics.named.model.geom_rgba[self.target_name, 3] = 0
             high_res_rgb = self._env.physics.render(height=self.seg_size[0], width=self.seg_size[1], camera_id=0)
             self._env.physics.named.model.geom_rgba[self.target_name, 3] = 1
-            seg = self.segmenter.generate(high_res_rgb, self.is_first)[:-1] # discard background layer
-            seg_resized = np.zeros((seg.shape[0], self.size[0], self.size[1]), dtype=np.uint8)
-            for i in range(len(seg)):
-                seg_resized[i] = cv2.resize(seg[i], self.size, interpolation=cv2.INTER_NEAREST)
+            seg = self.segmenter.generate(high_res_rgb, self.is_first)
+            seg_resized = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
         return proprio, rgb, seg_resized
 
     def compute_displacements(self, true_objs_pos):
@@ -136,12 +134,12 @@ class DMCSuiteWrapper():
         )
 
         seg_map = np.zeros(
-            (channels, seg.shape[1], seg.shape[2]),
+            (channels, seg.shape[0], seg.shape[1]),
             dtype=np.uint8,
         )
 
         for i, _ in enumerate(self.segmentation_instances):
-            seg_map[i][seg[i] == i + 1] = 1
+            seg_map[i][seg == i + 1] = 1
 
         if include_background:
             background_mask = np.all(seg_map == 0, axis=0)
@@ -325,7 +323,7 @@ class DMCSuiteWrapper():
     def set_goal_state(self, goal):
         size = self._env.physics.get_state().shape[0] - np.array(goal).shape[0]
         self._env.physics.set_state(np.concatenate((goal, np.zeros([size]))))
-        self._env.step(np.zeros_like(self.action_space.sample()))
+        self._env.step(np.zeros_like(self.act_space["action"].sample()))
         # self._env.physics.named.data.geom_xpos["target"] = self._env.physics.named.data.xpos[self.ee_id]
         # self._env.physics.named.model.geom_pos["target"] = self._env.physics.named.data.xpos[self.ee_id]
                 

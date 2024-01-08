@@ -216,6 +216,26 @@ exp_configs = {
         "env|segmenter|checkpoints_folder": "/mnt/home/focus",
         "curriculum_learning": False,
     },
+    
+    "dreamer_reacher_hard_position_rw_pretrain" : {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "train_every_actions": [5, 10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus",
+        "curriculum_learning": False,
+    },
+    
+    "focus_reacher_hard_position_rw_pretrain" : {
+        "agent": ["focus"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "train_every_actions": [5, 10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus",
+        "curriculum_learning": False,
+    },
 
 }
 

@@ -18,17 +18,7 @@ Module = nn.Module
 class SkillFocusAgent(FocusAgent):
     def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
         super().__init__(name, cfg, obs_space, act_spec, is_finetune, **kwargs)
-        
-        self.init_exploration_area = self.cfg.env.init_exploration_area
-        self.init_lower_bound_expl_area = np.array([x[0] for x in self.init_exploration_area])
-        self.init_upper_bound_expl_area = np.array([x[1] for x in self.init_exploration_area])
-        self.min_exploration_area = np.array([x[0] for x in self.cfg.env.limits_exploration_area])
-        self.max_exploration_area = np.array([x[1] for x in self.cfg.env.limits_exploration_area])
-        
-        # sample a circle from the center of the workspace
-        self._exploration_area = [self.min_exploration_area, self.max_exploration_area]
 
-        self.update_target()
         self._mode = "train"
         
         # NOTE: Only for debugging
@@ -41,24 +31,6 @@ class SkillFocusAgent(FocusAgent):
 
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
-    
-    def update_target(self):
-        new_target = np.random.uniform(*self._exploration_area)
-        
-        self.set_target(new_target)
-    
-    def set_target(self, target_from_zero):
-        new_target =  target_from_zero
-        self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float) 
-    
-    def get_target(self):
-        return self._target_pos
-       
-    def set_exploration_area(self, exploration_area):
-        self._exploration_area = exploration_area
-        
-    def get_init_exploration_area(self):
-        return self.init_exploration_area
     
     def object_context_position_reward_fn(self, seq):
         obj_id, obj_goal_pos = torch.split(seq['skill'] , self.skill_dim, dim=-1) 

@@ -11,7 +11,7 @@ class BaseEnv:
     def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
         # render parameters
         os.environ["MUJOCO_GL"] = "egl"
-        # os.environ["DISPLAY"] = ":0"
+        os.environ["DISPLAY"] = ":0"
 
         # object specs
         self.cube_rgba = env_config.objects.rgba

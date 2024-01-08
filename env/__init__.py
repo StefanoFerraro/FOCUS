@@ -55,6 +55,7 @@ MW_TASKS_OBJ = {
     "door-close": [["door", "door_link"]],
     "peg-insert-side": [["peg"]],
     "hammer": [["hammerbody"]],
+    "bin-picking": [["objA"]]
 }
 
 DMC_TASKS_OBJ = {
@@ -100,6 +101,7 @@ MW_TASKS_PROMPT = {
     "door-close": ["text", "a grey door"],
     "peg-insert-side": ["text", "a green peg"],
     "hammer": ["text", "hammer"],
+    "bin-picking": ["text", "green cube"]
 }
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS

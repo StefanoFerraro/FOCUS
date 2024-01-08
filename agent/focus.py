@@ -32,6 +32,16 @@ class FocusAgent(Module):
         self.is_finetune = is_finetune
         self.obj_instances = self.obs_space["objects_pos"].shape[0]
 
+        self.init_exploration_area = self.cfg.env.init_exploration_area
+        self.init_lower_bound_expl_area = np.array([x[0] for x in self.init_exploration_area])
+        self.init_upper_bound_expl_area = np.array([x[1] for x in self.init_exploration_area])
+        self.min_exploration_area = np.array([x[0] for x in self.cfg.env.limits_exploration_area])
+        self.max_exploration_area = np.array([x[1] for x in self.cfg.env.limits_exploration_area])
+        
+        # sample a circle from the center of the workspace
+        self._exploration_area = [self.min_exploration_area, self.max_exploration_area]
+        self.update_target()
+        
         self.tfstep = None
         self._use_amp = cfg.precision == 16
         self.device = cfg.device
@@ -64,6 +74,23 @@ class FocusAgent(Module):
             self.device,
         )
 
+    def update_target(self):
+        new_target = np.random.uniform(*self._exploration_area)
+        self.set_target(new_target)
+    
+    def set_target(self, target_from_zero):
+        new_target =  target_from_zero
+        self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float) 
+    
+    def get_target(self):
+        return self._target_pos
+       
+    def set_exploration_area(self, exploration_area):
+        self._exploration_area = exploration_area
+        
+    def get_init_exploration_area(self):
+        return self.init_exploration_area
+    
     def act(self, obs, meta, step, eval_mode, state):
         obs = {
             k: torch.as_tensor(np.copy(v), device=self.device).unsqueeze(0)
@@ -115,7 +142,7 @@ class FocusAgent(Module):
         if self.is_finetune:
             metrics.update(
                 self._task_behavior.update(
-                    self.wm, start, data["is_terminal"], self.task_reward_fn
+                    self.wm, start, data["is_terminal"], self.pos_reward_fn
                 )
             )
         else:
@@ -127,7 +154,7 @@ class FocusAgent(Module):
 
             metrics.update(
                 self._task_behavior.update(
-                    self.wm, start, data["is_terminal"], self.task_reward_fn
+                    self.wm, start, data["is_terminal"], self.pos_reward_fn
                 )
             )
         return state, metrics
@@ -139,6 +166,14 @@ class FocusAgent(Module):
         reward = self.pbe(rep, cdist=True)
         reward = reward.reshape(B, T, 1)
         return reward
+    
+    def pos_reward_fn(self, seq):
+        pos_pred = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean
+        # distance from current predicted position to the target
+        squared_distance = torch.sum(((pos_pred - self._target_pos) ** 2), dim=-1) 
+        met = {"task_rw_mean": - squared_distance.mean()}
+        return - squared_distance, met # maximization of reward coincide with the minimization of the distance
+
 
     def expl_reward_fn(self, seq):
         # to optimize execution execute computation of distance and object movement reward only if needed

@@ -5,7 +5,7 @@ import utils
 import agent.dreamer_utils as common
 from collections import OrderedDict
 import numpy as np
-
+import gym 
 
 def stop_gradient(x):
     return x.detach()
@@ -27,18 +27,44 @@ class DreamerAgent(Module):
         self._use_amp = cfg.precision == 16
         self.device = cfg.device
         self.act_dim = act_spec.shape[0]
+        
         self.wm = WorldModel(cfg, obs_space, self.act_dim, self.tfstep)
+        
         self.wm.model_init()
 
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep, name="task")
 
-        # self.task_rewnorm = common.StreamNorm(
-        #     **self.cfg.reward_norm, device=self.device
-        # )
+        self.init_exploration_area = self.cfg.env.init_exploration_area
+        self.init_lower_bound_expl_area = np.array([x[0] for x in self.init_exploration_area])
+        self.init_upper_bound_expl_area = np.array([x[1] for x in self.init_exploration_area])
+        self.min_exploration_area = np.array([x[0] for x in self.cfg.env.limits_exploration_area])
+        self.max_exploration_area = np.array([x[1] for x in self.cfg.env.limits_exploration_area])
+        
+        # sample a circle from the center of the workspace
+        self._exploration_area = [self.min_exploration_area, self.max_exploration_area]
+
+        self.update_target()
 
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
+    def update_target(self):
+        new_target = np.random.uniform(*self._exploration_area)    
+        self.set_target(new_target)
+    
+    def set_target(self, target_from_zero):
+        new_target =  target_from_zero
+        self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float) 
+    
+    def get_target(self):
+        return self._target_pos
+    
+    def set_exploration_area(self, exploration_area):
+        self._exploration_area = exploration_area
+        
+    def get_init_exploration_area(self):
+        return self.init_exploration_area
+    
     def act(self, obs, meta, step, eval_mode, state):
         obs = {
             k: torch.as_tensor(np.copy(v), device=self.device).unsqueeze(0)
@@ -77,6 +103,13 @@ class DreamerAgent(Module):
         rw = self.wm.heads["reward"](seq["feat"]).mean
         met = {"task_rw_mean": rw.mean(), "task_rw_svd": rw.std()}
         return rw, met
+    
+    def pos_reward_fn(self, seq):
+        pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean
+        # distance from current predicted position to the target
+        squared_distance = torch.sum(((pos_pred - self._target_pos[0]) ** 2), dim=2)
+        met = {"task_rw_mean": - squared_distance.mean()}
+        return - squared_distance.unsqueeze(-1), met # maximization of reward coincide with the minimization of the distance
 
     def update(self, data, step):
         state, outputs, metrics = self.update_wm(data, step)
@@ -89,7 +122,7 @@ class DreamerAgent(Module):
 
         metrics.update(
             self._task_behavior.update(
-                self.wm, start, data["is_terminal"], self.reward_fn
+                self.wm, start, data["is_terminal"], self.pos_reward_fn
             )
         )
         return state, metrics
@@ -309,6 +342,7 @@ class WorldModel(Module):
         # Computing embed dim
         with torch.no_grad():
             zeros = {k: torch.zeros((1,) + v, device=self.device) for k, v in self.shapes.items()}
+            
             outs = self.encoder(zeros)
             embed_dim = outs.shape[1]
         self.embed_dim = embed_dim
@@ -373,6 +407,8 @@ class WorldModel(Module):
             out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
+                if key == "objects_pos":
+                    data[key] = data[key].squeeze(-2)
                 like = dist.log_prob(data[key])
                 likes[key] = like
                 losses[key] = -like.mean()

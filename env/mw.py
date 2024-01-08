@@ -453,6 +453,9 @@ class Metaworld(BaseEnv):
         self._env.obj_init_pos = self._env.hammer_init_pos.copy()
         self._env._set_hammer_xyz(self._env.hammer_init_pos)
 
+    def bin_picking_init_pos(self):
+        pass
+
     def touching_object(self, object_geom_id):
         leftpad_geom_id = self._env.data.geom("leftpad_geom").id
         rightpad_geom_id = self._env.data.geom("rightpad_geom").id
@@ -486,3 +489,50 @@ class Metaworld(BaseEnv):
         )
 
         return 0 < leftpad_object_contact_force or 0 < rightpad_object_contact_force
+
+
+    #### ADDED FUNCTIONS ####
+    
+    # def get_object_pose(self):
+    #     self.ee_id = 3 if self.task == "reacher_hard" else NotImplementedError
+    #     obj_pos = self._env.physics.named.data.xpos[self.ee_id].copy()
+    #     return obj_pos
+    def set_target(self, target_pos):
+        if "bin-picking" in self.task:
+            self._env._set_obj_xyz(target_pos)
+            self._env.obj_init_pos = self._env._get_pos_objects()            
+        else:
+            raise NotImplementedError
+           
+    def get_rgb_with_target(self, target=None):
+        # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
+        return self.render()
+    
+    def get_goals(self):
+        return self.goals
+  
+    def set_goals_for_task(self):
+        if self.task in ["bin-picking"]:
+            full_right = [[0,0,0], [0.24, 0, 0]]
+            full_left = [[3.14, 0, 0], [-0.24, 0, 0]]
+            full_down = [[-1.57, 0, 0], [0, 0.24, 0]]
+            full_up = [[1.57, 0, 0], [0, -0.24, 0]]
+            top_left_V = [[1.57, 2., 0], [-0.11, 0.07, 0]]
+            down_right_V = [[-1.57, 2., 0], [0.11, -0.07, 0]]
+            top_right_openV = [[0.5, 1, 0], [0.11, 0.18, 0]]
+            down_left_openV = [[-2.64, 1, 0], [-0.11, -0.18, 0]]
+            close_wrist_right = [[-0.75, 2.5, 0], [0.066, 0.036, 0]]
+            close_wrist_left = [[2.5, 2.5, 0], [-0.062, -0.043, 0]]
+        
+            self.goals = np.stack([full_right, full_left, full_down, full_up,
+                                   top_left_V, down_right_V, top_right_openV,
+                                   down_left_openV, close_wrist_right, close_wrist_left])
+        
+        return self.goals
+    
+    def get_random_goal(self):
+        goals = self.set_goals_for_task()
+        return goals[np.random.randint(len(goals))]
+    
+    def render(self):
+        return cv2.resize(self._env.mujoco_renderer.render(render_mode="rgb_array", camera_name=self.camera)[::-1].copy(), self.size, interpolation=cv2.INTER_NEAREST).transpose(2, 0, 1)

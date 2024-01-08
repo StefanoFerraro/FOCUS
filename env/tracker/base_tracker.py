@@ -103,13 +103,13 @@ class BaseTracker:
 
         # convert to mask
         out_mask = torch.argmax(probs, dim=0)
-        out_mask = (out_mask.detach().cpu().numpy()).astype(np.uint8)
+        out_mask_numpy = (out_mask.detach().cpu().numpy()).astype(np.uint8)
 
-        final_mask = np.zeros_like(out_mask)
+        final_mask = np.zeros_like(out_mask_numpy)
 
         # map back
         for k, v in self.mapper.remappings.items():
-            final_mask[out_mask == v] = k
+            final_mask[out_mask_numpy == v] = k
         
         # painted_image = None
         # num_objs = final_mask.max()
