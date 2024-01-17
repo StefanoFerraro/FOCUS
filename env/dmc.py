@@ -59,7 +59,8 @@ class DMCSuiteWrapper():
         else:
             self.object_id = object_ids[self.task]   
             
-        self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]            
+        self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
+                
 
     @property
     def obs_space(self):

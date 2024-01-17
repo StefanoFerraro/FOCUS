@@ -101,7 +101,7 @@ MW_TASKS_PROMPT = {
     "door-close": ["text", "a grey door"],
     "peg-insert-side": ["text", "a green peg"],
     "hammer": ["text", "hammer"],
-    "bin-picking": ["text", "green cube"]
+    "bin-picking": ["text", "a green cube in a red bin"]
 }
 
 TASKS = WALKER_TASKS + QUADRUPED_TASKS + JACO_TASKS

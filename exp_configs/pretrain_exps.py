@@ -165,7 +165,7 @@ exp_configs = {
         "task": ["reacher_easy"],
         "seed": [1,2,3],
         "is_finetune": True,
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus"
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints"
     },
     
     "skill_focus_reacher_easy_mse_pretrain" : {
@@ -174,7 +174,7 @@ exp_configs = {
         "task": ["reacher_easy"],
         "seed": [1,2,3],
         "is_finetune": True,
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus"
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints"
     },
     
     "skill_focus_reacher_easy_dist_pretrain" : {
@@ -185,7 +185,7 @@ exp_configs = {
         "is_finetune": True,
         "agent|world_model|object_extractor|obj_latent_as_dist": True,
         "agent|world_model|object_encoder|distance_mode": "kl",        
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus"
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints"
     },
     
     "focus_skill_dmc_sweep_distance_mode_coordConv_pretrain" : {
@@ -193,13 +193,29 @@ exp_configs = {
         "env": "dmc",
         "task": ["reacher_hard"],
         "seed": [1,2],
-        "agent|world_model|objEnc_MSE_ratio": [0.99, 1],
+        "agent|world_model|objEnc_MSE_ratio": [0.95, 0.99],
         "agent|world_model|object_extractor|obj_latent_as_dist": False,
         "agent|world_model|object_encoder|distance_mode": ["mse", "cosine"],
         "agent|distance_mode": ["mse", "cosine"],
         "train_every_actions": [10],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus",
-        "agent|world_model|encoder|coordConv": [True, False],  
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|coordConv": [False],  
+        "num_train_frames": 1000010,  
+        "curriculum_learning": False, 
+    },
+    
+    "focus_skill_dmc_test_stoch_features_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2],
+        "agent|world_model|objEnc_MSE_ratio": [0.95, 0.99],
+        "agent|world_model|object_extractor|obj_latent_as_dist": False,
+        "agent|world_model|object_encoder|distance_mode": ["mse", "cosine"],
+        "agent|distance_mode": ["mse", "cosine"],
+        "train_every_actions": [10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|coordConv": [False],  
         "num_train_frames": 1000010,  
         "curriculum_learning": False, 
     },
@@ -213,7 +229,35 @@ exp_configs = {
         "agent|world_model|object_extractor|obj_latent_as_dist": False,
         "agent|world_model|object_encoder|distance_mode": ["mse", "cosine"],
         "train_every_actions": [5, 10],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus",
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "curriculum_learning": False,
+    },
+    
+    "focus_skill_metaworld_15jan_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "mw",
+        "task": ["bin-picking"],
+        "seed": [1, 2],
+        "agent|world_model|objEnc_MSE_ratio": [0.95, 0.99],
+        "agent|world_model|object_extractor|obj_latent_as_dist": False,
+        "agent|world_model|object_encoder|distance_mode": ["cosine", "mse"],
+        "agent|distance_mode": ["mse", "cosine"],
+        "train_every_actions": [10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints/checkpoints",
+        "env|renderer|camera": ["corner2"], 
+        "curriculum_learning": False,
+    },
+    
+    "focus_skill_rs_test_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1, 2],
+        "agent|world_model|objEnc_MSE_ratio": [0.99],
+        "agent|world_model|object_extractor|obj_latent_as_dist": False,
+        "agent|world_model|object_encoder|distance_mode": ["cosine"],
+        "train_every_actions": [10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "curriculum_learning": False,
     },
     
@@ -223,9 +267,19 @@ exp_configs = {
         "task": ["reacher_hard"],
         "seed": [1,2,3],
         "train_every_actions": [5, 10],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus",
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "curriculum_learning": False,
     },
+    
+    "dreamer_reacher_hard_only_pos_rw_pretrain" : {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "train_every_actions": [10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "curriculum_learning": False,
+    },  
     
     "focus_reacher_hard_position_rw_pretrain" : {
         "agent": ["focus"],
@@ -233,10 +287,19 @@ exp_configs = {
         "task": ["reacher_hard"],
         "seed": [1,2,3],
         "train_every_actions": [5, 10],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus",
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "curriculum_learning": False,
     },
-
+    
+    "dreamer_reacher_hard_only_pos_detached_pretrain" : {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_hard"],
+        "seed": [1,2,3],
+        "train_every_actions": [10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "curriculum_learning": False,
+    },  
 }
 
 EXP_GROUPS = { k : hu.cartesian_exp_group(v) for k,v in exp_configs.items()} 

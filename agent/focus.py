@@ -205,12 +205,13 @@ class FocusAgent(Module):
         #     rw_dist_obj = torch.Tensor([0.0]).to(self.device)
 
         # computation of intrinsic reward
+        stoch = seq["stoch"].flatten(-2)
         obj_onehot = torch.eye(
-            self.obj_instances + 1, device=seq["feat"].device
-        ).repeat(*seq["feat"].shape[:2], 1, 1)
+            self.obj_instances + 1, device=stoch.device
+        ).repeat(*stoch.shape[:2], 1, 1)
 
         x, _ = self.wm.heads["object_decoder"]._object_latent_extractor(
-            seq["feat"], obj_onehot
+            stoch, obj_onehot
         )
 
         rw_intr = 0
@@ -333,9 +334,8 @@ class OCWorldModel(WorldModel):
     # world model between dreamer and focus needs to be aligned in processing of the input
     def __init__(self, config, obs_space, act_dim, tfstep):
         super().__init__(config, obs_space, act_dim, tfstep)
-
         self.heads["object_decoder"] = common.ObjDecoder(
-            self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size, obj_extractor_cfg=self.cfg.object_extractor 
+            self.shapes, **self.cfg.object_decoder, embed_dim=self.cfg.rssm.stoch * self.cfg.rssm.discrete, obj_extractor_cfg=self.cfg.object_extractor 
         )
         
         if self.cfg.get("object_encoder", False):
@@ -354,11 +354,13 @@ class OCWorldModel(WorldModel):
         likes = {}
         losses = {"kl": kl_loss}
         feat = self.rssm.get_feat(post)
+        stoch = post["stoch"].flatten(-2)
 
         obj_states = {}
         for name, head in self.heads.items():
             grad_head = name in self.grad_heads
-            inp = feat if grad_head else stop_gradient(feat)
+            inp = feat if name != "object_decoder" else stoch # add on to test if performance of object centric decoder improves only with positional information and not the dynamic one
+            inp = inp if grad_head else stop_gradient(inp)
 
             out = (
                 head(inp, masks=data["segmentation"])
@@ -370,9 +372,10 @@ class OCWorldModel(WorldModel):
                 obj_states["post"] = out.pop("post")
                 
             dists = out if isinstance(out, dict) else {name: out}
-
+            
             for key, dist in dists.items():
                 like = 0
+                
                 # handled differently with respects to parent class, needs to be separated per instance
                 if key == "segmentation":
                     seg = data[key].permute(0, 1, 3, 4, 2)
@@ -539,21 +542,21 @@ class OCWorldModel(WorldModel):
                 data["action"][:nvid, :5],
                 data["is_first"][:nvid, :5],
             )
-
+            stoch = states["stoch"].flatten(-2)
             recon = decoder(
-                self.rssm.get_feat(states), data["segmentation"][:nvid, :5]
+                stoch, data["segmentation"][:nvid, :5]
             )[key].mean[:nvid]
 
-            recon_unmasked = decoder(self.rssm.get_feat(states))[key].mean[:nvid]
+            recon_unmasked = decoder(stoch)[key].mean[:nvid]
 
             init = {k: v[:, -1] for k, v in states.items()}
             prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
 
             prior_recon = decoder(
-                self.rssm.get_feat(prior), data["segmentation"][:nvid, 5:]
+                prior["stoch"].flatten(-2), data["segmentation"][:nvid, 5:]
             )[key].mean
 
-            prior_recon_unmasked = decoder(self.rssm.get_feat(prior))[key].mean
+            prior_recon_unmasked = decoder(prior["stoch"].flatten(-2))[key].mean
 
             model = torch.clip(
                 torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1
@@ -602,12 +605,13 @@ class OCWorldModel(WorldModel):
                 data["action"][:nvid, :5],
                 data["is_first"][:nvid, :5],
             )
-
-            recon = decoder(self.rssm.get_feat(states))[key].mean[:nvid]  # mode
+            
+            stoch = states["stoch"].flatten(-2)
+            recon = decoder(stoch)[key].mean[:nvid]  # mode
 
             init = {k: v[:, -1] for k, v in states.items()}
             prior = self.rssm.imagine(data["action"][:nvid, 5:], init)
-            prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
+            prior_recon = decoder(prior["stoch"].flatten(-2))[key].mean  # mode
 
             model = torch.clip(
                 torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1

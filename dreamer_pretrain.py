@@ -699,7 +699,7 @@ def toolkit_main(cfg, maindir, workdir):
     workspace = W(cfg, maindir, workdir)
     workspace.root_dir = root_dir
     snapshot = workspace.root_dir / 'last_snapshot.pt'
-    cfg.project_name = "_".join([cfg.agent, cfg.domain])
+    cfg.project_name = "_".join([cfg.agent.name, cfg.domain])
     
     if snapshot.exists():
         print(f'resuming: {snapshot}')

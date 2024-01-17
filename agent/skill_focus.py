@@ -60,7 +60,8 @@ class SkillFocusAgent(FocusAgent):
         return rw_dist_obj
         
     def object_context_pose_reward_fn(self, seq):
-        post_obj_state = self.wm.heads["object_decoder"].object_latent_extractor(stop_gradient(seq["feat"]))["post"]["mean"][:,:,0,:] #consider only first object
+        stoch = seq["stoch"].flatten(-2)
+        post_obj_state = self.wm.heads["object_decoder"].object_latent_extractor(stop_gradient(stoch))["post"]["mean"][:,:,0,:] #consider only first object
         if self.cfg.agent.distance_mode == "mse":
             squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2)
         elif self.cfg.agent.distance_mode == "cosine":

@@ -109,7 +109,7 @@ class DreamerAgent(Module):
         # distance from current predicted position to the target
         squared_distance = torch.sum(((pos_pred - self._target_pos[0]) ** 2), dim=2)
         met = {"task_rw_mean": - squared_distance.mean()}
-        return - squared_distance.unsqueeze(-1), met # maximization of reward coincide with the minimization of the distance
+        return - squared_distance.unsqueeze(-1).detach(), met # maximization of reward coincide with the minimization of the distance
 
     def update(self, data, step):
         state, outputs, metrics = self.update_wm(data, step)

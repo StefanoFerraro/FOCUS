@@ -8,6 +8,7 @@ import mujoco
 import metaworld
 from copy import deepcopy
 import custom_metaworld_tasks
+from gymnasium.envs.mujoco.mujoco_rendering import OffScreenViewer
 
 class Metaworld(BaseEnv):
     def __init__(
@@ -45,7 +46,6 @@ class Metaworld(BaseEnv):
             self.segmentation_instances
         )  # initialize to zero
 
-        self.true_obj_pos, self.true_obj_ori = self.get_objects_pose()
         self.joints_names = [
             "l_close",
             "r_close",
@@ -61,6 +61,12 @@ class Metaworld(BaseEnv):
         self._duration = 0
         self.is_last = False
         self.main_object_id = [mujoco.mj_name2id(self._env.model, mujoco.mjtObj.mjOBJ_BODY, part) for part in self.segmentation_instances[0]]
+        self.object_start_pos = env_config.object_start_pos 
+        
+        self.seg_render = OffScreenViewer(self._env.model, self._env.data)
+        self.camera_id = self._env.model.camera(self.camera).id
+        self.obj_id = self._env.model.body(self.segmentation_instances[0][0]).geomadr
+        self.true_obj_pos, self.true_obj_ori = self.get_objects_pose()
 
     def action_spec(
         self,
@@ -100,17 +106,32 @@ class Metaworld(BaseEnv):
             if include_background
             else len(self.segmentation_instances)
         )
+        if self.gt_segmentation:
+            seg = cv2.resize(self.seg_render.render(render_mode="rgb_array", camera_id=self.camera_id, segmentation=True), self.size, interpolation=cv2.INTER_NEAREST)[::-1]
+            seg = seg[:,:,1]
+            
+            seg_map = np.zeros(
+                (channels, seg.shape[0], seg.shape[1]),
+                dtype=np.uint8,
+            )
+            
+            for i, _ in enumerate(self.segmentation_instances):
+                seg_map[i][seg==self.obj_id] = 1
+        else:  
+            if self.task=="bin-picking":
+                im = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)  
+            else:
+                im = rgb
+            seg = self.segmenter.generate(im, self.is_first)
+            seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
 
-        seg = self.segmenter.generate(rgb, self.is_first)
-        seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
+            seg_map = np.zeros(
+                (channels, seg.shape[0], seg.shape[1]),
+                dtype=np.uint8,
+            )
 
-        seg_map = np.zeros(
-            (channels, seg.shape[0], seg.shape[1]),
-            dtype=np.uint8,
-        )
-
-        for i, instance in enumerate(self.segmentation_instances):
-            seg_map[i][seg == i + 1] = 1
+            for i, instance in enumerate(self.segmentation_instances):
+                seg_map[i][seg == i + 1] = 1
 
         if include_background:
             background_mask = np.all(seg_map == 0, axis=0)
@@ -128,12 +149,20 @@ class Metaworld(BaseEnv):
     def get_objects_pose(self):
         obj_pos = {}
         obj_ori = {}
-        for obj in self.segmentation_instances:
-            obj_pos[obj[0]] = []
-            obj_ori[obj[0]] = []
-            for part in obj:
-                obj_pos[obj[0]].append(self._env.data.body(part).xpos.copy())
-                obj_ori[obj[0]].append(self._env.data.body(part).xquat.copy())
+        
+        # for obj in self.segmentation_instances:
+        #     obj_pos[obj[0]] = []
+        #     obj_ori[obj[0]] = []
+        #     for part in obj:
+        #         obj_pos[obj[0]].append(self._env.data.body(part).xpos.copy())
+        #         obj_ori[obj[0]].append(self._env.data.body(part).xquat.copy())
+        
+        obj = self.segmentation_instances[0]
+        
+        # obj_pos[obj[0]] = self._env._get_pos_objects().copy() - self.object_start_pos #remove fixed offset 
+        # obj_ori[obj[0]] = self._env._get_quat_objects().copy()  
+        obj_pos[obj[0]] = self._env.data.body(self.segmentation_instances[0][0]).xpos.copy() - self.object_start_pos
+        obj_ori[obj[0]] = self._env.data.body(self.segmentation_instances[0][0]).xquat.copy()    
 
         return obj_pos, obj_ori
 
@@ -143,18 +172,18 @@ class Metaworld(BaseEnv):
         true_vertical_displacement = 0
 
         for obj in self.segmentation_instances:
-            for i in range(len(obj)):
-                true_pos_displacement += np.sqrt(
-                    np.sum(((true_objs_pos[obj[0]][i] - self.true_obj_pos[obj[0]][i]) ** 2))
-                )
+            # for i in range(len(obj)):
+            true_pos_displacement += np.sqrt(
+                np.sum(((true_objs_pos[obj[0]] - self.true_obj_pos[obj[0]]) ** 2))
+            )
 
-                true_ori_displacement += pq.Quaternion.absolute_distance(
-                    pq.Quaternion(self.true_obj_ori[obj[0]][i]),
-                    pq.Quaternion(true_objs_ori[obj[0]][i]),
-                )
-                true_vertical_displacement += abs(
-                    true_objs_pos[obj[0]][i][2] - self.true_obj_pos[obj[0]][i][2]
-                )
+            true_ori_displacement += pq.Quaternion.absolute_distance(
+                pq.Quaternion(self.true_obj_ori[obj[0]]),
+                pq.Quaternion(true_objs_ori[obj[0]]),
+            )
+            true_vertical_displacement += abs(
+                true_objs_pos[obj[0]][2] - self.true_obj_pos[obj[0]][2]
+            )
 
         return (
             true_pos_displacement,
@@ -211,9 +240,7 @@ class Metaworld(BaseEnv):
         proprio = self.get_proprio_data()
         seg = self.generate_segmentation(rgb)
 
-        # TODO check if state need to be modified
-
-        contact = any([deepcopy(self.touching_object(part_id)) for part_id in self.main_object_id])
+        # contact = any([deepcopy(self.touching_object(part_id)) for part_id in self.main_object_id])
         new_true_obj_pos, new_true_obj_ori = self.get_objects_pose()
         (
             true_pos_displacement,
@@ -225,7 +252,8 @@ class Metaworld(BaseEnv):
         self.true_obj_pos = new_true_obj_pos
         self.true_obj_ori = new_true_obj_ori
 
-        objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
+        # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
+        objects_pos = [self.true_obj_pos[self.segmentation_instances[0][0]]]
 
         self.is_first = False
 
@@ -250,9 +278,9 @@ class Metaworld(BaseEnv):
             "action": action,
             "success": bool(success),
             "in_areas": [False, False, False, False, False],
-            "contact": contact,
+            "contact": False,
             "pos_displacement": true_pos_displacement,
-            "ang_displacement": true_ori_displacement,
+            "ang_displacement": true_pos_displacement,
             "vertical_displacement": true_vertical_displacement,
             "discount": 1,
         }
@@ -270,7 +298,7 @@ class Metaworld(BaseEnv):
         if self.camera == "corner2":
             self._env.model.cam_pos[2][:] = [0.5, 0.3, 0.5]
         if self.camera == "robobin_custom":
-            self._env.model.cam_pos[2][:] = [0.5, 0.3, 0.5]
+            self._env.model.cam_pos[2][:] = [0, 0, 0.5]
 
         # Change table aspect (improve contract for object recognition)
         # self._env.model.material("table_wood").rgba = np.array([0.5, 0.5, 0.5, 1])
@@ -283,6 +311,8 @@ class Metaworld(BaseEnv):
         self._env.set_task(task)
 
         _ = self._env.reset()[0]
+        if self.task != "bin-picking":
+            self._env.model.site("goal").rgba[-1] = 0 # hide the goal in the scene
         getattr(
             self, self.task.replace("-", "_") + "_init_pos"
         )()  # fix position of starting point of object (for segmentation purposes)
@@ -303,7 +333,8 @@ class Metaworld(BaseEnv):
 
         self.true_obj_pos, self.true_obj_ori = self.get_objects_pose()
 
-        objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
+        # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
+        objects_pos = [self.true_obj_pos[self.segmentation_instances[0][0]]]
 
         obs = {
             "reward": 0.0,
@@ -396,7 +427,8 @@ class Metaworld(BaseEnv):
         )
 
         mujoco.mj_forward(self._env.model, self._env.data)
-        self._env._set_obj_xyz(self._env.obj_init_pos)
+        random_init = np.random.uniform([-0.05, -0.05, 0], [0.05, 0.05, 0.025])
+        self._env._set_obj_xyz(self._env.obj_init_pos + random_init)
 
     def handle_pull_init_pos(self):
         self._env.obj_init_pos = np.array([0.082783, 0.84197, 8.0383e-05])
@@ -454,7 +486,12 @@ class Metaworld(BaseEnv):
         self._env._set_hammer_xyz(self._env.hammer_init_pos)
 
     def bin_picking_init_pos(self):
-        pass
+        # self._env.model.material('obj_green').rgba = [1,1,0,1] 
+        mujoco.mj_forward(self._env.model, self._env.data)
+        self._env.obj_init_pos = np.array([  -0.075,     0.725,    0.03])
+        random_init = np.random.uniform([-0.005, -0.005, 0], [0.005, 0.005, 0.01])
+        self._env._set_obj_xyz(self._env.obj_init_pos + random_init)
+        
 
     def touching_object(self, object_geom_id):
         leftpad_geom_id = self._env.data.geom("leftpad_geom").id
@@ -490,19 +527,16 @@ class Metaworld(BaseEnv):
 
         return 0 < leftpad_object_contact_force or 0 < rightpad_object_contact_force
 
-
     #### ADDED FUNCTIONS ####
+    def set_target(self, target_pos): 
+        # set target in env (visualization purposes)
+        # self._env.target_pos = target_pos + np.array(self.object_start_pos)   
+        pass
     
-    # def get_object_pose(self):
-    #     self.ee_id = 3 if self.task == "reacher_hard" else NotImplementedError
-    #     obj_pos = self._env.physics.named.data.xpos[self.ee_id].copy()
-    #     return obj_pos
-    def set_target(self, target_pos):
-        if "bin-picking" in self.task:
-            self._env._set_obj_xyz(target_pos)
-            self._env.obj_init_pos = self._env._get_pos_objects()            
-        else:
-            raise NotImplementedError
+    def set_goal_state(self, target_pos):
+        pos = target_pos + self.object_start_pos
+        self._env._set_obj_xyz(pos)
+        self._env.obj_init_pos = self._env._get_pos_objects()            
            
     def get_rgb_with_target(self, target=None):
         # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
@@ -513,20 +547,26 @@ class Metaworld(BaseEnv):
   
     def set_goals_for_task(self):
         if self.task in ["bin-picking"]:
-            full_right = [[0,0,0], [0.24, 0, 0]]
-            full_left = [[3.14, 0, 0], [-0.24, 0, 0]]
-            full_down = [[-1.57, 0, 0], [0, 0.24, 0]]
-            full_up = [[1.57, 0, 0], [0, -0.24, 0]]
-            top_left_V = [[1.57, 2., 0], [-0.11, 0.07, 0]]
-            down_right_V = [[-1.57, 2., 0], [0.11, -0.07, 0]]
-            top_right_openV = [[0.5, 1, 0], [0.11, 0.18, 0]]
-            down_left_openV = [[-2.64, 1, 0], [-0.11, -0.18, 0]]
-            close_wrist_right = [[-0.75, 2.5, 0], [0.066, 0.036, 0]]
-            close_wrist_left = [[2.5, 2.5, 0], [-0.062, -0.043, 0]]
+            front_left = [[-0.21, 0, 0.03], [-0.21, 0, 0.03]]
+            back_left = [[-0.325, 0.25, 0.03], [-0.325, 0.25, 0.03]]
+            front_right = [[0.21, 0, 0.03], [0.21, 0, 0.03]]
+            back_right = [[0.325, 0.25, 0.03], [0.325, 0.25, 0.03]]
+            front_center = [[0, 0, 0.03], [0, 0, 0.03]]
+            in_blue_box = [[0.13, 0.22, 0.03], [0.13, 0.22, 0.03]]
         
-            self.goals = np.stack([full_right, full_left, full_down, full_up,
-                                   top_left_V, down_right_V, top_right_openV,
-                                   down_left_openV, close_wrist_right, close_wrist_left])
+            self.goals = np.stack([front_left, back_left, front_right, back_right, front_center, in_blue_box])  
+        
+        elif self.task in ["shelf-place"]:
+            front_left = [[-0.15, 0, 0.03], [-0.15, 0, 0.03]]
+            back_left = [[-0.3, 0.25, 0.03], [-0.3, 0.25, 0.03]]
+            front_right = [[0.15, 0, 0.03], [0.15, 0, 0.03]]
+            back_right = [[0.2, 0.25, 0.03], [0.2, 0.25, 0.03]]
+            front_center = [[0, 0, 0.03], [0, 0, 0.03]]
+            on_shelf = [[-0.1, 0.3, 0.275], [-0.1, 0.3, 0.275]]
+            
+            self.goals = np.stack([front_left, back_left, front_right, back_right, front_center, on_shelf])
+        else:
+            NotImplementedError
         
         return self.goals
     
@@ -535,4 +575,4 @@ class Metaworld(BaseEnv):
         return goals[np.random.randint(len(goals))]
     
     def render(self):
-        return cv2.resize(self._env.mujoco_renderer.render(render_mode="rgb_array", camera_name=self.camera)[::-1].copy(), self.size, interpolation=cv2.INTER_NEAREST).transpose(2, 0, 1)
+        return cv2.resize(self._env.mujoco_renderer.render(render_mode="rgb_array", camera_name=self.camera)[::-1].copy(), self.size, interpolation=cv2.INTER_NEAREST).transpose(2,0,1)
