@@ -99,7 +99,7 @@ class DreamerAgent(Module):
         metrics.update(mets)
         return state, outputs, metrics
 
-    def reward_fn(self, seq):
+    def task_reward_fn(self, seq):
         rw = self.wm.heads["reward"](seq["feat"]).mean
         met = {"task_rw_mean": rw.mean(), "task_rw_svd": rw.std()}
         return rw, met
@@ -111,7 +111,7 @@ class DreamerAgent(Module):
         met = {"task_rw_mean": - squared_distance.mean()}
         return - squared_distance.unsqueeze(-1).detach(), met # maximization of reward coincide with the minimization of the distance
 
-    def update(self, data, step):
+    def update(self, data, step, **kwargs):
         state, outputs, metrics = self.update_wm(data, step)
 
         start = outputs["post"]
@@ -120,9 +120,10 @@ class DreamerAgent(Module):
             return state, metrics
         start = {k: stop_gradient(v) for k, v in start.items()}
 
+        reward_fn = getattr(self, self.cfg.agent.reward_fn + "_reward_fn")
         metrics.update(
             self._task_behavior.update(
-                self.wm, start, data["is_terminal"], self.pos_reward_fn
+                self.wm, start, data["is_terminal"], reward_fn
             )
         )
         return state, metrics

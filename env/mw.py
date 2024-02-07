@@ -533,11 +533,6 @@ class Metaworld(BaseEnv):
         # self._env.target_pos = target_pos + np.array(self.object_start_pos)   
         pass
     
-    def set_goal_state(self, target_pos):
-        pos = target_pos + self.object_start_pos
-        self._env._set_obj_xyz(pos)
-        self._env.obj_init_pos = self._env._get_pos_objects()            
-           
     def get_rgb_with_target(self, target=None):
         # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
         return self.render()

@@ -19,7 +19,7 @@ Module = nn.Module
 
 
 class FocusAgent(Module):
-    def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
+    def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
         super().__init__()
         self.name = name
         self.cfg = cfg
@@ -29,7 +29,6 @@ class FocusAgent(Module):
         self.cfg.update(**agent_config)
         self.obs_space = obs_space
         self.act_spec = act_spec
-        self.is_finetune = is_finetune
         self.obj_instances = self.obs_space["objects_pos"].shape[0]
 
         self.init_exploration_area = self.cfg.env.init_exploration_area
@@ -112,7 +111,7 @@ class FocusAgent(Module):
 
         # policy selection based on exploration or finetune mode
         policy = (
-            self._task_behavior.actor if self.is_finetune else self._expl_behavior.actor
+            self._task_behavior.actor if eval_mode else self._expl_behavior.actor
         )
 
         if eval_mode:
@@ -132,14 +131,23 @@ class FocusAgent(Module):
         metrics.update(mets)
         return state, outputs, metrics
 
-    def update(self, data, step):
+    def update(self, data, step, which_policy='expl'):
+        if which_policy not in ['expl', 'task', 'both']:
+            raise ValueError(f"which_policy must be one of ['expl', 'task', 'both'], got {which_policy}")
+        
         state, outputs, metrics = self.update_wm(data, step)
 
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
         # update based on mode, save compute time
-        if self.is_finetune:
+        if which_policy == 'expl': 
+            metrics.update(
+                self._expl_behavior.update(
+                    self.wm, start, data["is_terminal"], self.expl_reward_fn
+                )
+            )
+        elif which_policy == 'task':
             metrics.update(
                 self._task_behavior.update(
                     self.wm, start, data["is_terminal"], self.pos_reward_fn

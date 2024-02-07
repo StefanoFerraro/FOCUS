@@ -8,7 +8,8 @@ import torch.distributions as D
 import torch.nn.functional as F
 
 from torch.profiler import profile, record_function, ProfilerActivity
-import time
+from collections import defaultdict 
+
 # We thank the authors of the repo: https://github.com/jsikyoon/dreamer-torch
 # For their open source re-implementation, which was used as a reference to develop our code faster
 
@@ -206,6 +207,7 @@ class EnsembleRSSM(Module):
         action_dim=None,
         embed_dim=1536,
         device="cuda",
+        full_posterior=True
     ):
         super().__init__()
         assert action_dim is not None
@@ -221,6 +223,8 @@ class EnsembleRSSM(Module):
         self._norm = norm
         self._std_act = std_act
         self._min_std = min_std
+        self._full_posterior = full_posterior
+        
         self._cell = GRUCell(
             self._hidden, self._deter, norm=True, device=self.device
         )
@@ -252,9 +256,10 @@ class EnsembleRSSM(Module):
             )
             self._obs_dist = nn.Linear(hidden, 2 * stoch)
 
-        self._obs_out = nn.Sequential(
-            nn.Linear(deter + embed_dim, hidden), NormLayer(norm, hidden)
-        )
+        if self._full_posterior:
+            self._obs_out = nn.Sequential(nn.Linear(deter + embed_dim, hidden), NormLayer(norm, hidden))
+        else:
+            self._obs_out = nn.Sequential(nn.Linear(embed_dim, hidden), NormLayer(norm, hidden))
 
     def initial(self, batch_size):
         if self._discrete:
@@ -286,15 +291,48 @@ class EnsembleRSSM(Module):
         swap = lambda x: x.permute([1, 0] + list(range(2, len(x.shape))))
         if state is None:
             state = self.initial(action.shape[0])
-        post, prior = static_scan(
-            lambda prev, inputs: self.obs_step(prev[0], *inputs),
-            (swap(action), swap(embed), swap(is_first)),
-            (state, state),
-        )
+
+        if self._full_posterior:
+            post, prior = static_scan(
+                lambda prev, inputs: self.obs_step(prev[0], *inputs),
+                (swap(action), swap(embed), swap(is_first)), (state, state))
+        else:
+            post = self.obs_posterior_all(swap(embed))
+            prior = self.obs_prior_all(state, swap(action), post['stoch'], swap(is_first))
+            post['deter'] = prior['deter']
+            
         post = {k: swap(v) for k, v in post.items()}
         prior = {k: swap(v) for k, v in prior.items()}
         return post, prior
+    
+    def obs_prior_all(self, init_state, actions, stochs, is_first, should_sample=True):
+        priors = defaultdict(list)
 
+        prev_state = init_state
+        for prev_action, post_stoch, this_is_first in zip(actions, stochs, is_first):
+            # Deal with firsts
+            prev_state = { k: torch.einsum('b,b...->b...', 1.0 - this_is_first.float(), x) for k, x in prev_state.items()}
+            prev_action = torch.einsum('b,b...->b...', 1.0 - this_is_first.float(), prev_action)
+            # 
+            prior = self.img_step(prev_state, prev_action, should_sample)
+            for k,v in prior.items():
+                priors[k].append(v)
+            prev_state = prior
+            prev_state['stoch'] = post_stoch
+        
+        for k in priors:
+            priors[k] = torch.stack(priors[k], dim=0)
+        return priors
+    
+    def obs_posterior_all(self, embed, should_sample=True):
+        x = self._obs_out(embed)
+        x = self._act(x)
+        stats = self._suff_stats_layer('_obs_dist', x)
+        dist = self.get_dist(stats)
+        stoch = dist.sample() if should_sample else None 
+        post = {'stoch': stoch, **stats}
+        return post
+    
     def imagine(self, action, state=None):
         swap = lambda x: x.permute([1, 0] + list(range(2, len(x.shape))))
         if state is None:
@@ -335,7 +373,10 @@ class EnsembleRSSM(Module):
         )
         #
         prior = self.img_step(prev_state, prev_action, should_sample)
-        x = torch.cat([prior["deter"], embed], -1)
+        if self._full_posterior:
+            x = torch.cat([prior['deter'], embed], -1)
+        else:
+            x = embed
         x = self._obs_out(x)
         x = self._act(x)
         stats = self._suff_stats_layer("_obs_dist", x)

@@ -78,8 +78,6 @@ class Plan2Explore(DreamerAgent):
             **self.cfg.agent.reward_norm, device=self.device
         )
 
-        self.is_finetune = kwargs["is_finetune"]
-
         self.to(self.cfg.device)
         self.requires_grad_(requires_grad=False)
 
@@ -103,7 +101,7 @@ class Plan2Explore(DreamerAgent):
         feat = self.wm.rssm.get_feat(latent)
 
         policy = (
-            self._task_behavior.actor if self.is_finetune else self._expl_behavior.actor
+            self._task_behavior.actor if eval_mode else self._expl_behavior.actor
         )
 
         if eval_mode:
@@ -147,7 +145,11 @@ class Plan2Explore(DreamerAgent):
 
         return rw_norm, mets
 
-    def update(self, data, step):
+    def update(self, data, step, which_policy='expl'):
+        
+        if which_policy not in ['expl', 'task', 'both']:
+            raise ValueError(f"which_policy must be one of ['expl', 'task', 'both'], got {which_policy}")
+        
         metrics = {}
         B, T, _ = data["action"].shape
         state, outputs, mets = self.wm.update(data, state=None)
@@ -155,10 +157,27 @@ class Plan2Explore(DreamerAgent):
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
 
-        if self.is_finetune:
+        
+        if which_policy=='task':
             metrics.update(
                 self._task_behavior.update(
                     self.wm, start, data["is_terminal"], self.reward_fn
+                )
+            )
+        elif which_policy=='expl':
+            T = T - 1
+            inp = stop_gradient(outputs["feat"][:, :-1]).reshape(B * T, -1)
+            action = data["action"][:, 1:].reshape(B * T, -1)
+            out = stop_gradient(outputs["embed"][:, 1:]).reshape(B * T, -1)
+            with common.RequiresGrad(self.disagreement):
+                with torch.cuda.amp.autocast(enabled=self._use_amp):
+                    metrics.update(self.update_disagreement(inp, action, out, step))
+            metrics.update(
+                self._expl_behavior.update(
+                    self.wm,
+                    start,
+                    data["is_terminal"],
+                    reward_fn=self.compute_intr_reward,
                 )
             )
         else:

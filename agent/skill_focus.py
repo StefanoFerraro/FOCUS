@@ -16,8 +16,8 @@ def stop_gradient(x):
 Module = nn.Module
 
 class SkillFocusAgent(FocusAgent):
-    def __init__(self, name, cfg, obs_space, act_spec, is_finetune, **kwargs):
-        super().__init__(name, cfg, obs_space, act_spec, is_finetune, **kwargs)
+    def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
+        super().__init__(name, cfg, obs_space, act_spec, **kwargs)
 
         self._mode = "train"
         
@@ -68,36 +68,48 @@ class SkillFocusAgent(FocusAgent):
             squared_distance = - (torch.einsum("ijl,ijl->ij", (self._target_skill.unsqueeze(0), post_obj_state)) / (torch.norm(post_obj_state, dim=-1) * torch.norm(self._target_skill, dim=-1) + 1e-12))
         return - squared_distance.unsqueeze(-1)
     
-    def update(self, data, step):
+    def update(self, data, step, which_policy='expl'):
+        
+        if which_policy not in ['expl', 'task', 'both']:
+            raise ValueError(f"which_policy must be one of ['expl', 'task', 'both'], got {which_policy}")
         
         state, outputs, metrics = self.update_wm(data, step)
 
-        start = outputs["post"]
-        start = {k: stop_gradient(v) for k, v in start.items()}
+        if step >= self.cfg.agent.start_agent_training_after:
+            if step == self.cfg.agent.start_agent_training_after:
+                print("STARTING AGENT TRAINING!")
+                
+            start = outputs["post"]
+            start = {k: stop_gradient(v) for k, v in start.items()}
 
-        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
-        self._skill_behavior.solved_meta['skill'] = self._target_skill
-        
-        # update based on mode, save compute time
-        # if self.is_finetune:
-        #     metrics.update(
-        #         self._task_behavior.update(
-        #             self.wm, start, data["is_terminal"], self.task_reward_fn
-        #         )
-        #     )
-        # else:
-        
-        # agent update based on the achievement on the given skill 
-        metrics.update(
-            self._skill_behavior.update(
-                self.wm, start, data["is_terminal"], getattr(self, f'{self._skill_strategy}_reward_fn')
-            )
-        )
-        metrics.update(
-                self._expl_behavior.update(
-                    self.wm, start, data["is_terminal"], self.expl_reward_fn
+            self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+            self._skill_behavior.solved_meta['skill'] = self._target_skill
+            
+            # agent update based on the achievement on the given skill 
+            if which_policy == 'expl':
+                metrics.update(
+                    self._expl_behavior.update(
+                        self.wm, start, data["is_terminal"], self.expl_reward_fn
+                    )
                 )
-            )
+            elif which_policy == 'task':
+                metrics.update(
+                    self._skill_behavior.update(
+                        self.wm, start, data["is_terminal"], getattr(self, f'{self._skill_strategy}_reward_fn')
+                    )
+                )
+            else:
+                metrics.update(
+                    self._skill_behavior.update(
+                        self.wm, start, data["is_terminal"], getattr(self, f'{self._skill_strategy}_reward_fn')
+                    )
+                )
+                metrics.update(
+                        self._expl_behavior.update(
+                            self.wm, start, data["is_terminal"], self.expl_reward_fn
+                        )
+                    )
+            
         return state, metrics
 
     def act(self, obs, meta, step, eval_mode, state):
@@ -119,19 +131,23 @@ class SkillFocusAgent(FocusAgent):
         )
         feat = self.wm.rssm.get_feat(latent)
 
-        if self.is_finetune:
+        if eval_mode:
             policy =  self._skill_behavior.actor
             skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
             inp = torch.cat([feat, skill], dim=-1)
         else:
-            if meta["use_skill_behaviour"]:
-                policy = self._skill_behavior.actor 
-                skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
-                inp = torch.cat([feat, skill], dim=-1)
-            else:
+            if self.cfg.agent.only_expl_during_training: # split to avoid errors down the line with meta["use_skill_behaviour"]
                 policy = self._expl_behavior.actor
                 inp = feat
-            
+            else:
+                if meta["use_skill_behaviour"]:
+                    policy = self._skill_behavior.actor 
+                    skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+                    inp = torch.cat([feat, skill], dim=-1)
+                else:
+                    policy = self._expl_behavior.actor
+                    inp = feat
+
         actor = policy(inp)
         if eval_mode:
             action = actor.mean

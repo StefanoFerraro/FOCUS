@@ -15,7 +15,6 @@ import numpy as np
 import torch
 import wandb
 from dm_env import specs
-import gym
 
 from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, DMC_TASKS_OBJ, PRIMAL_TASKS 
 from env.utils import obs_specs
@@ -26,8 +25,6 @@ from logger import Logger
 from dreamer_replay import ReplayBuffer, make_replay_loader
 
 # torch.backends.cudnn.benchmark = True
-
-from torch.profiler import profile, record_function, ProfilerActivity
 
 import warnings
 
@@ -51,7 +48,6 @@ def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
         cfg=cur_config,
         obs_space=obs_space,
         act_spec=action_spec,
-        is_finetune=cur_config.is_finetune,
     )
 
 
@@ -220,8 +216,8 @@ class Workspace:
     def replay_iter(self):
         if self._replay_iter is None:
             self._replay_iter = iter(self.replay_loader)
-        return self._replay_iter
-
+        return self._replay_iter        
+            
     def eval(self):
         if self.global_step == 0:
             return
@@ -232,8 +228,6 @@ class Workspace:
         step_to_success_list = []        
 
         # set to True to use task_behaviour, zero_shot performance
-        self.agent.is_finetune = True
-
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         meta = self.agent.init_meta()
         obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
@@ -318,9 +312,6 @@ class Workspace:
             step_to_success = self._horizon
             total_success += dreamer_obs["success"]
             obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
-
-        
-        self.agent.is_finetune = False if not self.cfg.is_finetune else True
           
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
             log("episode_reward", total_reward / episode)
@@ -344,7 +335,8 @@ class Workspace:
         video = np.uint8(video * 255)
         self.logger.log_video({'eval_video' : video }, self.global_frame)
 
-        # Eval episodes for testing the prior model (get fixed poses, decode the observation of the prior)
+        # Eval episodes for testing the prior
+        utils.TSNE_analysis(self)
          
           
     def train(self):
@@ -481,11 +473,6 @@ class Workspace:
                                 float(segmentation_obj_pixels / episode_step)  # episode average number of pixels for main object segmentation mask
                             )
                         
-                if self.cfg.agent.train_target_reach:
-                    self.expl_area_update(self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
-                    self.agent.update_target() # update target in the agent based on the new exploration area 
-                    self.train_env.set_target(self.agent.get_target()[0,0,0].detach().cpu().numpy().copy())  # visually set the target                  
-                
                 contact_count = 0
                 in_areas = np.array([0, 0, 0, 0, 0])
                 obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
@@ -496,11 +483,18 @@ class Workspace:
                 segmentation_obj_pixels = 0
                 
                 # save last model
-                if self.global_step % 50000 == 0:
+                if self.global_step % 5000 == 0:
                     self.save_last_model()
 
                 # reset env
                 dreamer_obs = self.reset(self.train_env)
+                
+                # set target position for rewarding
+                if self.cfg.agent.train_target_reach:
+                    self.expl_area_update(self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
+                    self.agent.update_target() # update target in the agent based on the new exploration area 
+                    self.train_env.set_target(self.agent.get_target()[0,0,0].detach().cpu().numpy().copy())  # visually set the target                  
+                
                 # adapt dreamer use case for single object
                 # if self.agent.name == "dreamer":
                 #     dreamer_obs["objects_pos"] = dreamer_obs["objects_pos"][0]
@@ -509,7 +503,6 @@ class Workspace:
                 meta = self.agent.init_meta()
                 data = dreamer_obs
                 
-                    
                 self.replay_storage.add(data, meta)
                 # try to save snapshot
                 if self.global_frame in self.cfg.snapshots:
@@ -549,7 +542,7 @@ class Workspace:
                 if self.replay_storage._total_steps > 0:
                     if should_train_step(self.global_step):
                         metrics = self.agent.update(
-                            next(self.replay_iter), self.global_step
+                            next(self.replay_iter), self.global_step, which_policy="both"
                         )[1]
                     if should_log_scalars(self.global_step):
                         self.logger.log_metrics(metrics, self.global_frame, ty="train")

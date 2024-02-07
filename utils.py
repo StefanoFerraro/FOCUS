@@ -12,6 +12,10 @@ from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+import cv2
+import scipy.ndimage
 
 class eval_mode:
     def __init__(self, *models):
@@ -345,3 +349,95 @@ class PBE(object):
         if apply_log:
             reward = torch.log(reward + 1.0)
         return reward
+
+
+def TSNE_analysis(self):
+    # plot tsne of latent space for a fix trajectory, to see how the latent space is evolving
+    feat = []
+    stoch_feat = []
+    deter_feat = []
+    obj_feat = []
+    rgb_video = []
+    video_length = 100
+    video = np.empty([1, video_length + 1 , 3, *self.cfg.env.renderer.size])
+    obs = self.eval_env.reset()
+    rescale = lambda x: scipy.ndimage.zoom(x, (4, 4, 1), order=0) 
+    rgb_video.append(rescale(obs["rgb"].transpose(1,2,0)))
+
+    meta = self.agent.init_meta()
+    step = 0
+    agent_state = None
+    eval_mode = True
+
+    # start-up agent with one env episode
+    with torch.no_grad():
+        while step < video_length:
+            # obs = torch.from_numpy(obs["rgb"].copy()).unsqueeze(0).float().to(agent.device)
+            tensor_obs = {
+                k: torch.as_tensor(np.copy(v), device=self.agent.device).unsqueeze(0)
+                for k, v in obs.items()
+            }
+
+            f = self.agent.wm.encoder(self.agent.wm.preprocess(tensor_obs))
+            feat.append(f.cpu().numpy()[0])
+            
+            action, agent_state = self.agent.act(
+                                    obs,
+                                    meta,
+                                    step,
+                                    eval_mode=eval_mode,
+                                    state=agent_state,
+                                )
+            
+            obs = self.eval_env.step(action)
+            rgb_video.append(rescale(obs["rgb"].transpose(1,2,0)))
+            
+            # agent_state = (agent_state[0], torch.tensor(pos))
+            # should update the agent state with the action that lead to the next state, otherwise, 
+            # rssm expects to have a continuity betweeen consenquent state|action pairs
+            
+            s_f = agent_state[0]["stoch"].flatten(-2).unsqueeze(0)
+            stoch_feat.append(s_f.cpu().numpy()[0])
+            
+            d_f = agent_state[0]["deter"].unsqueeze(0)
+            deter_feat.append(d_f.cpu().numpy()[0])
+            
+            if self.agent.name == "skill_focus":
+                o_f = self.agent.wm.heads["object_decoder"].object_latent_extractor(s_f)["post"]["mean"]
+                obj_feat.append(o_f.cpu().numpy()[0])
+            step += 1
+    
+    feat, stoch_feat, deter_feat = np.array(feat), np.array(stoch_feat)[:,0], np.array(deter_feat)[:,0]
+    feat_dict = {"enc_feat": feat, "stoch_feat":stoch_feat, "deter_feat":deter_feat,}
+    if self.agent.name == "skill_focus": 
+        obj_feat = np.array(obj_feat)[:,0,0]
+        feat_dict["obj_feat"] = obj_feat
+    TSNE_analysis = {}
+    
+    rgb_video = np.array(rgb_video)
+    
+    for k, f in feat_dict.items():
+        TSNE_analysis[k] = TSNE(n_components=2).fit_transform(f)
+
+    fig, axs = plt.subplots(1, len(TSNE_analysis), figsize=(3 * len(TSNE_analysis), 3)) #, subplot_kw=dict(projection='3d'))
+    for i, k in enumerate(TSNE_analysis.keys()):
+        axs[i].set_title(k)
+
+    color = np.linspace(0, 1, video_length)
+    for step, rgb in enumerate(rgb_video):
+        # concatenate rgb image with tsne plot of eqivalent step, color evolve over steps
+        for i, v in enumerate(TSNE_analysis.values()):
+            axs[i].scatter(v[:step,0], v[:step,1], c=color[:step])
+
+        fig.canvas.draw()
+        data = np.array(fig.canvas.buffer_rgba(), dtype=np.uint8)[:,:,:3] # keep only rgb channels
+        data = cv2.resize(data, dsize=(256 * len(TSNE_analysis), 256), interpolation=cv2.INTER_CUBIC) # resize to fit rgb image
+
+        if step==0:
+            video = np.expand_dims(np.hstack([rgb, data]), axis=0)    
+        else:
+            curr_frame = np.expand_dims(np.hstack([rgb, data]), axis=0)
+            video = np.concatenate([video, curr_frame], axis=0)    
+    
+    video = np.uint8(np.expand_dims(video.transpose(0,3,1,2), axis=0) * 255)
+    self.logger.log_video({'TSNE_video' : video }, self.global_frame) 

@@ -54,7 +54,8 @@ replay:
   minlen: 50
   maxlen: 50 
   prioritize_ends: False
-
+# dataset dir for offline training
+dataset_dir: /mnt/public/projects/mazpie/dataset_collection/pretrain/64088d629660ba59ba06beb5b702b6dd/code/buffer
 # log settings
 log_every_frames: 1000
 recon_every_frames: 25000 # edit for debug

@@ -170,7 +170,6 @@ class DMCSuiteWrapper():
         success = True if time_step.reward >= 1 else False
 
         proprio, rgb, seg = self._state_extraction(time_step)
-
         new_obj_pos = self.get_object_pose()
         
         true_pos_displacement = self.compute_displacements(new_obj_pos)
@@ -321,10 +320,3 @@ class DMCSuiteWrapper():
     def render(self):
         return self._env.physics.render(height=self.size[0], width=self.size[0], camera_id=0) #.transpose(2, 0, 1)
     
-    def set_goal_state(self, goal):
-        size = self._env.physics.get_state().shape[0] - np.array(goal).shape[0]
-        self._env.physics.set_state(np.concatenate((goal, np.zeros([size]))))
-        self._env.step(np.zeros_like(self.act_space["action"].sample()))
-        # self._env.physics.named.data.geom_xpos["target"] = self._env.physics.named.data.xpos[self.ee_id]
-        # self._env.physics.named.model.geom_pos["target"] = self._env.physics.named.data.xpos[self.ee_id]
-                

@@ -204,7 +204,7 @@ exp_configs = {
         "curriculum_learning": False, 
     },
     
-    "focus_skill_dmc_test_stoch_features_pretrain" : {
+    "focus_skill_dmc_test_no_deter_features_pretrain" : {
         "agent": ["skill_focus"],
         "env": "dmc",
         "task": ["reacher_hard"],
@@ -291,15 +291,71 @@ exp_configs = {
         "curriculum_learning": False,
     },
     
-    "dreamer_reacher_hard_only_pos_detached_pretrain" : {
+    "dreamer_reacher_only_test_states_pretrain" : {
         "agent": ["dreamer"],
-        "env": "dmc",
+        "env": ["dmc"],
         "task": ["reacher_hard"],
-        "seed": [1,2,3],
+        "seed": [1,2],
         "train_every_actions": [10],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "curriculum_learning": False,
+        "snapshots": [[10000, 25000, 50000, 100000, 150000, 200000, 500000, 1000000]],
+        "agent|reward_fn": ["task"], 
+        "dataset_dir": "/mnt/home/datasets/reacher_hard/plan2explore/2M"
     },  
+    
+    "skill_dreamer_reacher_test_1_pretrain" : {
+        "agent": ["skill_dreamer"],
+        "env": ["dmc"],
+        "task": ["reacher_hard"],
+        "seed": [1,2],
+        "train_every_actions": [10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "curriculum_learning": False,
+        "agent|start_agent_training_after": 2500,
+        "snapshots": [[10000, 25000, 50000, 100000, 150000, 200000, 500000, 1000000]],
+        "dataset_dir": "/mnt/home/datasets/reacher_hard/plan2explore/2M"
+    },  
+    
+    "dreamer_reacher_test_proof_pretrain" : {
+        "agent": ["dreamer"],
+        "env": ["rs"],
+        "task": ["CustomLift"],
+        "seed": [1,2],
+        "train_every_actions": [10],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "curriculum_learning": False,
+        "snapshots": [[10000, 25000, 50000, 100000, 150000, 200000, 500000, 1000000]],
+        "agent|reward_fn": ["task"] 
+    },  
+    
+    "dataset_collection_pretrain" : {
+        "agent": ["plan2explore"],
+        "env": ["rs"],
+        "task": ["CustomLift"],
+        "seed": 1,
+        "train_every_actions": 10,
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "num_train_frames": 2000010,  
+        "curriculum_learning": False, 
+        "eval_every_frames": 10000000,
+    },
+    
+    "offline_training_test_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": ["dmc"],
+        "task": ["reacher_hard"],
+        "seed": [1, 2],
+        "train_every_actions": 10,
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "num_train_frames": 100000,  
+        "curriculum_learning": False, 
+        "log_every_frames": 1000,
+        "recon_every_frames": 2500,
+        "eval_every_frames": 2500,
+        "agent|start_agent_training_after": 2500,
+        "dataset_dir": "/mnt/public/projects/mazpie/dataset_collection/pretrain/64088d629660ba59ba06beb5b702b6dd/code/buffer",  
+    },
 }
 
 EXP_GROUPS = { k : hu.cartesian_exp_group(v) for k,v in exp_configs.items()} 
