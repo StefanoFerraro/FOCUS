@@ -10,9 +10,39 @@ from dm_control.suite.wrappers import action_scale, pixels
 
 from env.wrappers import *
 
-
 env_classes = {"rs": PandaRoboSuite, "ms": PandaManiSkill, "mw": Metaworld}
 
+def make(
+    domain,
+    task,
+    action_repeat,
+    seed,
+    env_config=None,
+):
+    ''' General make function for environment initialization '''
+    
+    robot_envs = ["rs", "ms", "mw"]
+    assert domain in robot_envs or domain == "dmc"
+    
+    objs = globals()[domain.upper() + "_TASKS_OBJ"][task]
+    
+    if domain in robot_envs:
+        make_fn = _make
+    elif domain == "dmc":
+        make_fn = _make_dmc
+    else:
+        raise NotImplementedError
+        
+    env = make_fn(
+        domain,
+        task,
+        objs,
+        action_repeat,
+        seed,
+        env_config,
+    )
+    
+    return env
 
 def _make(
     env_type,
@@ -26,40 +56,22 @@ def _make(
 
     return env_class(env_config, task, objs, seed, action_repeat)
 
-
-def _make_jaco(
-    obs_type,
-    domain,
-    task,
-    frame_stack,
-    action_repeat,
-    seed,
-    img_size,
-):
-    env = cdmc.make_jaco(task, obs_type, seed, img_size)
-    env = ActionDTypeWrapper(env, np.float32)
-    env = ActionRepeatWrapper(env, action_repeat)
-    env = FlattenJacoObservationWrapper(env)
-    env._size = (img_size, img_size)
-    return env
-
-
 def _make_dmc(
-    obs_type,
     domain,
     task,
-    frame_stack,
     action_repeat,
     seed,
-    img_size,
-    horizon_steps = 250
+    env_config,
 ):
     visualize_reward = False
-    domain, task = task.split("_", 1)
+    subdomain, task = task.split("_", 1)
+    horizon_steps = env_config.horizon
+    img_size = env_config.renderer.size[0]
     
-    if (domain, task) in suite.ALL_TASKS:
+    # if task is not in the suite, use custom tasks
+    if (subdomain, task) in suite.ALL_TASKS:
         env = suite.load(
-            domain,
+            subdomain,
             task,
             task_kwargs=dict(random=seed, time_limit = horizon_steps * 0.02), # 0.02 is the timestep length
             environment_kwargs=dict(flat_observation=True),
@@ -67,74 +79,39 @@ def _make_dmc(
         )
     else:
         env = cdmc.make(
-            domain,
+            subdomain,
             task,
             task_kwargs=dict(random=seed),
             environment_kwargs=dict(flat_observation=True),
             visualize_reward=visualize_reward,
         )
+    
     env = ActionDTypeWrapper(env, np.float32)
     env = ActionRepeatWrapper(env, action_repeat)
-    if obs_type == "pixels":
-        # zoom in camera for quadruped
-        camera_id = dict(quadruped=2).get(domain, 0)
-        render_kwargs = dict(height=img_size, width=img_size, camera_id=camera_id)
-        env = pixels.Wrapper(env, pixels_only=False, render_kwargs=render_kwargs)
-        env._size = (img_size, img_size)
-        env._camera = camera_id
-    return env
+    # zoom in camera for quadruped
+    camera_id = dict(quadruped=2).get(subdomain, 0)
+    render_kwargs = dict(height=img_size, width=img_size, camera_id=camera_id)
+    env = pixels.Wrapper(env, pixels_only=False, render_kwargs=render_kwargs)
+    env._size = (img_size, img_size)
+    env._camera = camera_id
+    
+    target_name = globals()["DMC_TASKS_OBJ"][task]
+    env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
+    env = ExtendedTimeStepWrapper(env)
+    return DMCSuiteWrapper(env, task, env_config, target_name, seed)
 
-
-def make(
+def _make_jaco(
     domain,
     task,
-    obs_type,
     frame_stack,
     action_repeat,
     seed,
-    env_config=None,
+    img_size,
 ):
-    assert obs_type in ["states", "pixels"]
-    # domain = dict(cup="ball_in_cup", point="point_mass").get(domain, domain)
+    env = cdmc.make_jaco(task, "pixels", seed, img_size)
+    env = ActionDTypeWrapper(env, np.float32)
+    env = ActionRepeatWrapper(env, action_repeat)
+    env = FlattenJacoObservationWrapper(env)
+    env._size = (img_size, img_size)
+    return env
 
-    obj_envs = ["rs", "ms", "mw"]
-    objs = globals()[domain.upper() + "_TASKS_OBJ"][task]
-    if domain in obj_envs:
-        make_fn = _make
-        env_type = domain[:2]
-
-        env = make_fn(
-            env_type,
-            task,
-            objs,
-            action_repeat,
-            seed,
-            env_config,
-        )
-        return env
-
-    elif domain == "dmc":
-        make_fn = _make_dmc
-    
-        env = make_fn(
-            obs_type,
-            domain,
-            task,
-            frame_stack,
-            action_repeat,
-            seed,
-            64,
-            env_config.horizon
-        )
-
-        # if obs_type == "pixels":
-        #     env = FrameStackWrapper(env, frame_stack)
-        # else:
-        #     env = ObservationDTypeWrapper(env, np.float32)
-
-        target_name = globals()["DMC_TASKS_OBJ"][task]
-        env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
-        env = ExtendedTimeStepWrapper(env)
-        return DMCSuiteWrapper(env, task, env_config, target_name, seed)
-    else:
-        raise NotImplementedError

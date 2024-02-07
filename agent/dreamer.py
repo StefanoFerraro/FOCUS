@@ -10,9 +10,7 @@ import gym
 def stop_gradient(x):
     return x.detach()
 
-
 Module = nn.Module
-
 
 class DreamerAgent(Module):
     def __init__(self, name, cfg, obs_space, act_spec, **kwargs):

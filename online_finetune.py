@@ -19,7 +19,7 @@ import env
 from env.make import make
 import utils
 from logger import Logger
-from dreamer_replay import ReplayBuffer, make_replay_loader
+from replay_buffer import ReplayBuffer, make_replay_loader
 from hydra.utils import get_original_cwd, to_absolute_path
 
 torch.backends.cudnn.benchmark = True
@@ -521,7 +521,7 @@ class Workspace:
         self.wandb_run_id = wandb.run.id
 
 def toolkit_main(cfg, savedir, workdir):
-    from dreamer_finetune import Workspace as W
+    from online_finetune import Workspace as W
     root_dir = Path.cwd()
     cfg.use_tb = False
 
@@ -536,9 +536,9 @@ def toolkit_main(cfg, savedir, workdir):
         workspace.setup_wandb()
     workspace.train()
 
-@hydra.main(config_path="configs", config_name="dreamer_finetune")
+@hydra.main(config_path="configs", config_name="finetune")
 def main(cfg):
-    from dreamer_finetune import Workspace as W
+    from online_finetune import Workspace as W
     root_dir = Path.cwd()
 
     workspace = W(cfg)

@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 import cv2
 import scipy.ndimage
 
+import hydra 
+
 class eval_mode:
     def __init__(self, *models):
         self.models = models
@@ -350,6 +352,17 @@ class PBE(object):
             reward = torch.log(reward + 1.0)
         return reward
 
+def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
+    from copy import deepcopy
+
+    cur_config = deepcopy(cur_config)
+    del cur_config.agent
+    return hydra.utils.instantiate(
+        cfg,
+        cfg=cur_config,
+        obs_space=obs_space,
+        act_spec=action_spec,
+    )
 
 def TSNE_analysis(self):
     # plot tsne of latent space for a fix trajectory, to see how the latent space is evolving
@@ -441,3 +454,4 @@ def TSNE_analysis(self):
     
     video = np.uint8(np.expand_dims(video.transpose(0,3,1,2), axis=0) * 255)
     self.logger.log_video({'TSNE_video' : video }, self.global_frame) 
+    

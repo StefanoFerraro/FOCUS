@@ -2,14 +2,14 @@ import sys
 from haven import haven_wizard as hw
 import hydra
 import os
-from dreamer_finetune import toolkit_main
+from online_finetune import toolkit_main
 
 import argparse
 import exp_configs
 import job_configs
 from pathlib import Path
 
-@hydra.main(config_path='configs', config_name='dreamer_finetune')
+@hydra.main(config_path='configs', config_name='finetune')
 def get_config(cfg):
     global config
     config = cfg
@@ -21,7 +21,7 @@ def trainval(exp_dict, savedir, args):
     args: arguments passed through the command line
     """
     exp_dict = {k.replace('|', '.') : v for k,v in exp_dict.items() }
-    sys.argv=["dreamer_finetune.py"] + [ f"{k}={v}" for k,v in exp_dict.items()] 
+    sys.argv=["online_finetune.py"] + [ f"{k}={v}" for k,v in exp_dict.items()] 
     get_config()
     # original_cwd = hydra.utils.get_original_cwd()
     config.project_name = args.project_name

@@ -2,7 +2,7 @@ import sys
 from haven import haven_wizard as hw
 import hydra
 import os
-from offline_pretrain import toolkit_main
+from offline_train import toolkit_main
 
 import argparse
 import exp_configs
@@ -10,7 +10,7 @@ import job_configs
 from pathlib import Path
 from omegaconf import DictConfig, OmegaConf, open_dict
 
-@hydra.main(config_path='configs', config_name='dreamer_pretrain')
+@hydra.main(config_path='configs', config_name='train')
 def get_config(cfg):
     global config
     config = cfg
@@ -25,7 +25,7 @@ def trainval(exp_dict, savedir, args):
     wandb_dict = {k: v for k,v in exp_dict.items() if "|" in k}
     
     # unpack config elements to be checkable from wandb
-    sys.argv=["offline_pretrain.py"] + [ f"{k}={v}" for k,v in config_dict.items()] 
+    sys.argv=["offline_train.py"] + [ f"{k}={v}" for k,v in config_dict.items()] 
     get_config()
     
     wandb_conf = OmegaConf.create(wandb_dict)

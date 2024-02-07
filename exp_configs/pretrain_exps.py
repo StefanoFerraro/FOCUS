@@ -71,7 +71,7 @@ exp_configs = {
         "agent|world_model|object_extractor|mse_mode": True,
         "train_every_actions": [5, 10],
         "agent|world_model|object_extractor|act": ["ELU", "none"],
-        "target_modulator": [500000, 250000]
+        "env|target_modulator": [500000, 250000]
     },
     
     "focus_skill_dmc_NormalDist_objLatent_pretrain" : {
@@ -84,7 +84,7 @@ exp_configs = {
         "agent|world_model|object_extractor|mse_mode": False,
         "train_every_actions": [5, 10],
         "agent|world_model|object_extractor|act": ["ELU", "none"],
-        "target_modulator": [500000, 250000]
+        "env|target_modulator": [500000, 250000]
     },
     
     "focus_skill_dmc_MSE_train_steps_sweep_pretrain" : {
@@ -106,7 +106,7 @@ exp_configs = {
         "agent|world_model|objEnc_MSE_ratio": [0.975, 0.99],
         "agent|world_model|object_encoder|mse_mode": True,
         "agent|world_model|object_extractor|mse_mode": True,
-        "target_modulator": [100000, 250000, 500000]
+        "env|target_modulator": [100000, 250000, 500000]
     },
     
     "focus_mw_sparse_pretrain" : {
