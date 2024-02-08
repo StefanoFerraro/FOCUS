@@ -20,6 +20,7 @@ object_ids = {"reacher_hard": 3, "reacher_easy": 3, "manipulator_bring_ball": 10
 limits_exploration_area = {"reacher_hard": [[-0.24, 0.24], [-0.24, 0.24]],
                            "reacher_easy": [[-0.24, 0.24], [-0.24, 0.24]],
                            "manipulator_bring_ball": [[-0.5, 0.5], [0.01, 0.9]]}
+
 class DMCSuiteWrapper():
     def __init__(
         self,
@@ -39,7 +40,6 @@ class DMCSuiteWrapper():
         self.camera = env_config.renderer.camera
         self.controller = env_config.controller
         self.horizon = env_config.horizon
-        # self._env._env._step_limit = self.horizon
         self._seed = seed
         self.task = task
         

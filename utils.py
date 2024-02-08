@@ -487,3 +487,59 @@ class Profiler(DummyProfiler):
         self.profiler.step()
         if global_step == self.warmup + self.active_for:
             self.profiler.stop()
+            
+def object_metrics(in_areas, cumm_pos_disp, cumm_ang_disp, vert_pos_disp, episode_frame):
+    placement = {"left_placement": 0, "right_placement": 1, "close_placement": 2, "far_placement": 3, "up_placement": 4}
+    placement = {k:float(in_areas[v] / episode_frame) for k,v in placement.items()}
+    displacement = {"pos_displacement":cumm_pos_disp, "ang_displacement":cumm_ang_disp, "vertical_displacement": vert_pos_disp}
+    metrics = {}
+    metrics.update(placement)
+    metrics.update(displacement)
+    
+    return metrics
+        
+def move_to_target_metrics(obj_pos, target_pos):
+    metrics = {}
+    # exponential distance from the target at the end of episode
+    metrics["move_to_target_final"] = np.exp(- np.linalg.norm( obj_pos[-1] - target_pos) / np.linalg.norm(target_pos))
+    # exponential min distance to target during the entire episode
+    metrics["move_to_target_min"] = np.exp(- np.linalg.norm(obj_pos - target_pos, axis=-1) / np.linalg.norm(target_pos)).max()
+    # exponential max distance to target during the entire episode
+    metrics["move_to_target_max"] = np.exp(- np.linalg.norm(obj_pos - target_pos, axis=-1) / np.linalg.norm(target_pos)).min()
+    # exponential max distance to target during the entire episode
+    metrics["move_to_target_mean"] = np.exp(- np.linalg.norm(obj_pos - target_pos, axis=-1) / np.linalg.norm(target_pos)).mean()
+    # episode average number of pixels for main object segmentation mask
+    return metrics
+
+def log_metrics_dict(metrics, log_fn):
+    for k,v in metrics.items():
+        log_fn(k, v)
+        
+def init_metrics_counters(self):
+    self.contact_count = 0
+    self.metrics = None
+    self.in_areas = np.array([0, 0, 0, 0, 0])
+    self.obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
+    self.cumm_pos_displacement = 0
+    self.cumm_ang_displacement = 0
+    self.cumm_vertical_displacement = 0
+    self.segmentation_obj_pixels = 0
+    
+    self.episode_step = 0
+    self.step_to_success = self._horizon
+    self.episode_reward = 0
+    
+def update_metrics_counters(self, obs):
+    self.episode_reward += obs["reward"]
+    self.episode_step += 1
+    # Hacky way to say that step_to_success was set
+    if self.step_to_success == self._horizon and obs["success"]:
+        self.step_to_success = self.episode_step
+    self._global_step += 1
+    self.contact_count += obs["contact"]
+    self.in_areas += np.array(obs["in_areas"])
+    self.obj_pos = np.concatenate((self.obj_pos, [obs["objects_pos"][0]])) 
+    self.cumm_pos_displacement += obs["pos_displacement"]
+    self.cumm_ang_displacement += obs["ang_displacement"]
+    self.cumm_vertical_displacement += obs["vertical_displacement"]
+    self.segmentation_obj_pixels += np.sum(obs["segmentation"][0])
