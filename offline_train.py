@@ -75,7 +75,6 @@ class Workspace:
             train_obs_spec,
             self.eval_env.action_spec(),
             cfg,
-            cfg.agent,
         )
 
         # get meta specs

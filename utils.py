@@ -3,6 +3,7 @@ import random
 import re
 import time
 from functools import wraps
+from typing import Any
 
 import numpy as np
 import torch
@@ -352,14 +353,16 @@ class PBE(object):
             reward = torch.log(reward + 1.0)
         return reward
 
-def make_dreamer_agent(obs_space, action_spec, cur_config, cfg):
+def make_dreamer_agent(obs_space, action_spec, cfg):
     from copy import deepcopy
 
-    cur_config = deepcopy(cur_config)
-    del cur_config.agent
+    agent_cfg = cfg.agent
+    cfg = deepcopy(cfg)
+    
+    del cfg.agent
     return hydra.utils.instantiate(
-        cfg,
-        cfg=cur_config,
+        agent_cfg,
+        cfg=cfg,
         obs_space=obs_space,
         act_spec=action_spec,
     )
@@ -454,4 +457,33 @@ def TSNE_analysis(self):
     
     video = np.uint8(np.expand_dims(video.transpose(0,3,1,2), axis=0) * 255)
     self.logger.log_video({'TSNE_video' : video }, self.global_frame) 
+
+class DummyProfiler(object):
+    def __init__(self, **kwargs):
+        pass
     
+    def step(self, **kwargs):
+        pass
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        pass
+    
+class Profiler(DummyProfiler):
+    def __init__(self, warmup, active_for):
+        self.warmup = warmup
+        self.active_for = active_for
+        self.profiler = torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=1, warmup=self.warmup, active=self.active_for, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('/mnt/home/focus/log/skill_focus'),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True
+            )
+    
+    def step(self, global_step: int) -> Any:
+        self.profiler.step()
+        if global_step == self.warmup + self.active_for:
+            self.profiler.stop()

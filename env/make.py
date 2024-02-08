@@ -59,20 +59,21 @@ def _make(
 def _make_dmc(
     domain,
     task,
+    target,
     action_repeat,
     seed,
     env_config,
 ):
     visualize_reward = False
-    subdomain, task = task.split("_", 1)
+    subdomain, subtask = task.split("_", 1)
     horizon_steps = env_config.horizon
     img_size = env_config.renderer.size[0]
     
     # if task is not in the suite, use custom tasks
-    if (subdomain, task) in suite.ALL_TASKS:
+    if (subdomain, subtask) in suite.ALL_TASKS:
         env = suite.load(
             subdomain,
-            task,
+            subtask,
             task_kwargs=dict(random=seed, time_limit = horizon_steps * 0.02), # 0.02 is the timestep length
             environment_kwargs=dict(flat_observation=True),
             visualize_reward=visualize_reward,
@@ -80,7 +81,7 @@ def _make_dmc(
     else:
         env = cdmc.make(
             subdomain,
-            task,
+            subtask,
             task_kwargs=dict(random=seed),
             environment_kwargs=dict(flat_observation=True),
             visualize_reward=visualize_reward,
@@ -95,10 +96,9 @@ def _make_dmc(
     env._size = (img_size, img_size)
     env._camera = camera_id
     
-    target_name = globals()["DMC_TASKS_OBJ"][task]
     env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
     env = ExtendedTimeStepWrapper(env)
-    return DMCSuiteWrapper(env, task, env_config, target_name, seed)
+    return DMCSuiteWrapper(env, task, env_config, target, seed)
 
 def _make_jaco(
     domain,
