@@ -9,7 +9,7 @@ import robosuite.utils.camera_utils as CU
 from robosuite.utils.camera_utils import CameraMover as CM
 from env.wrappers import PandaGymWrapper
 
-import custom_robosuite_tasks
+import env.custom_robosuite_tasks
 
 # import pyquaternion as pq
 

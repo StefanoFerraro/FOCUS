@@ -4,7 +4,7 @@ from env.mw import Metaworld
 from env.dmc import DMCSuiteWrapper
 from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, DMC_TASKS_OBJ
 
-import custom_dmc_tasks as cdmc
+import env.custom_dmc_tasks as cdmc
 from dm_control import suite
 from dm_control.suite.wrappers import action_scale, pixels
 

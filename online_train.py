@@ -146,7 +146,7 @@ class Workspace:
             return
         
         # Initialization
-        step, episode = total_reward = total_success = 0
+        step = episode = total_reward = total_success = 0
         step_to_success = self._horizon
         step_to_success_list = []        
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)

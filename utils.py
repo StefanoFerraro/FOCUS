@@ -462,7 +462,7 @@ class DummyProfiler(object):
     def __init__(self, **kwargs):
         pass
     
-    def step(self, **kwargs):
+    def step(self, *args):
         pass
     
     def __enter__(self):

@@ -9,7 +9,7 @@ from gym import spaces
 import robosuite.utils.camera_utils as CU
 
 import mani_skill2.envs
-import custom_maniskill_tasks
+import env.custom_maniskill_tasks as custom_maniskill_tasks
 
 from mani_skill2.utils.wrappers.sb3 import ContinuousTaskWrapper
 from mani_skill2.utils.common import (

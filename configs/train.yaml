@@ -28,7 +28,7 @@ action_repeat: 2
 reward_free: true
 is_finetune: false
 precision: 16
-profile: true
+profile: false
 
 # model specs
 batch_size: 16
