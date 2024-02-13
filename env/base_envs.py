@@ -7,34 +7,16 @@ import robosuite.utils.camera_utils as CU
 from env.segmenter import Segmenter
 
 class BaseEnv:
-    def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
+    def __init__(self, env_config, task="", part=["part"], seed=None, action_repeat=1):
         # render parameters
         os.environ["MUJOCO_GL"] = "egl"
         # os.environ["DISPLAY"] = ":0"
-    
-class ObjectsEnv(BaseEnv):
-    def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
-
-        # object specs
-        self.cube_rgba = env_config.objects.rgba
-        self.cube_minsize = tuple([env_config.objects.minsize] * 3)  # cube
-        self.spawn_range = (
-            -env_config.objects.spawn_range,
-            env_config.objects.spawn_range,
-        )
-        self.object_name = env_config.objects.name
-        self.segmentation_instances = (
-            objs
-            if task not in ["PickSingleYCB", "CustomLiftYCB"]
-            else [self.object_name]
-        )
-        self.num_objects = len(objs)
-        self.target_obj = self.segmentation_instances[0]
-
-        self.include_background = True
-        self.segmentation_level = env_config.renderer.segmentation_level
-
+        
         # env params
+        self.include_background = True
+        self.num_objects = len(part)
+        self.segmentation_instances = part
+    
         self.size = tuple(env_config.renderer.size)
         self.seg_size = tuple(env_config.renderer.seg_size)
         self.reward_shaping = env_config.reward_shaping
@@ -42,10 +24,19 @@ class ObjectsEnv(BaseEnv):
         self.camera = env_config.renderer.camera
         self.controller = env_config.controller
         self.horizon = env_config.horizon
-        self._action_repeat = action_repeat
-        self._seed = seed
+        self.action_repeat = action_repeat
+        self.seed = seed
         self.task = task
-        self.gt_segmentation = env_config.renderer.gt_segmentation
+        
+        self.segmentation_level = env_config.renderer.segmentation_level
+        self.gt_segmentation = env_config.renderer.gt_segmentation   
+        self.seg_channels = (
+            len(self.segmentation_instances) + 1
+            if self.include_background
+            else len(self.segmentation_instances)
+        )
+        self.target_part = part
+        
         if not self.gt_segmentation:
             self.segmenter = Segmenter(
                 env_config,
@@ -53,7 +44,7 @@ class ObjectsEnv(BaseEnv):
                 img_size=self.seg_size,
                 device="cuda:0",
             )
-
+            
     def obs_specs(self):
         obs_keys = ["rgb", "depth", "proprio", "objects_pos", "segmentation"]
         obs_specs = []
@@ -69,29 +60,7 @@ class ObjectsEnv(BaseEnv):
                     )
                 )
         return obs_specs
-
-    @staticmethod
-    def image_segmentation(image, seg):
-        """
-        Segmentation of image based on segmentation mask, works both with rgb and depth images.
-        seg: (dim1, dim2, channels)
-        image: (dim1, dim2, 1/3)
-
-        Return:
-        seg_image: (dim1, dim2, 1/3, channels)
-        """
-
-        seg_chs, _, _ = seg.shape
-        image_chs, _, _ = image.shape
-
-        seg_mask = np.repeat(np.expand_dims(seg, axis=1), image_chs, 1)
-        seg_image = np.zeros((seg_chs, *image.shape), dtype=image.dtype)
-
-        for ch in range(seg_chs):
-            seg_image[ch] = image * seg_mask[ch]
-
-        return seg_image
-
+    
     @property
     def common_obs_space(self):
         spaces = {
@@ -119,6 +88,58 @@ class ObjectsEnv(BaseEnv):
             "success": gym.spaces.Box(0, 1, (), dtype=bool),
         }
         return spaces
+    
+    @staticmethod
+    def image_segmentation(image, seg):
+        """
+        Segmentation of image based on segmentation mask, works both with rgb and depth images.
+        seg: (dim1, dim2, channels)
+        image: (dim1, dim2, 1/3)
+
+        Return:
+        seg_image: (dim1, dim2, 1/3, channels)
+        """
+
+        seg_chs, _, _ = seg.shape
+        image_chs, _, _ = image.shape
+
+        seg_mask = np.repeat(np.expand_dims(seg, axis=1), image_chs, 1)
+        seg_image = np.zeros((seg_chs, *image.shape), dtype=image.dtype)
+
+        for ch in range(seg_chs):
+            seg_image[ch] = image * seg_mask[ch]
+
+        return seg_image
+    
+    def seg_background(self, seg, include_background=True):
+        if include_background:
+            background_mask = np.all(seg == 0, axis=0)
+            seg[-1][background_mask] = 1  # last layer is background layer
+        return seg
+    
+    
+class ObjectsEnv(BaseEnv):
+    def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
+        super().__init__(env_config, task, objs, seed, action_repeat)
+
+        # object specs
+        self.cube_rgba = env_config.objects.rgba
+        self.cube_minsize = tuple([env_config.objects.minsize] * 3)  # cube
+        self.spawn_range = (
+            -env_config.objects.spawn_range,
+            env_config.objects.spawn_range,
+        )
+        self.object_name = env_config.objects.name
+        self.segmentation_instances = (
+            objs
+            if task not in ["PickSingleYCB", "CustomLiftYCB"]
+            else [self.object_name]
+        )
+        self.last_estimated_obj_pos = [[0, 0, 0]] * len(
+            self.segmentation_instances)  # initialize to zero
+        self.objects_pixels = [0] * len(objs)
+        self.target_obj = self.segmentation_instances[0]
+        self.object_start_pos = env_config.object_start_pos 
 
     def pixel_to_world(self, seg, depth):
         depth = depth.transpose(1, 2, 0)

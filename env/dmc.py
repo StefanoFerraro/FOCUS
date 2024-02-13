@@ -20,9 +20,8 @@ import env.custom_dmc_tasks as cdmc
 os.environ["MUJOCO_GL"] = "egl"
 # os.environ["DISPLAY"] = ":0"
 
-
-object_ids = {"reacher_hard": 3, "reacher_easy": 3, "manipulator_bring_ball": 10}   
-object_bodyids = {"reacher_hard": 9, "reacher_easy": 9}   
+part_ids = {"reacher_hard": 3, "reacher_easy": 3, "manipulator_bring_ball": 10}   
+part_bodyids = {"reacher_hard": 9, "reacher_easy": 9}   
 
 limits_exploration_area = {"reacher_hard": [[-0.24, 0.24], [-0.24, 0.24]],
                            "reacher_easy": [[-0.24, 0.24], [-0.24, 0.24]],
@@ -33,39 +32,19 @@ class DMCSuite(BaseEnv):
         self,
         env_config,        
         task="recher_hard",
-        objs="hand",
+        part="hand",
         seed=0,
         action_repeat=1,
     ):
-        self.num_objects = len(objs)
-        self.include_background = True
-        self.size = tuple(env_config.renderer.size)
-        self.seg_size = tuple(env_config.renderer.seg_size)
-        self.reward_shaping = env_config.reward_shaping
-        self.task_reward = env_config.task_reward
-        self.camera = env_config.renderer.camera
-        self.controller = env_config.controller
-        self.horizon = env_config.horizon
-        self.seed = seed
-        self.action_repeat = action_repeat
-        self.task = task
         
-        self.segmentation_instances = objs
-        self.target_name = objs
-        self.gt_segmentation = env_config.renderer.gt_segmentation
-        if not self.gt_segmentation:
-            self.segmenter = Segmenter(
-                env_config,
-                self.task,
-                img_size=self.seg_size,
-                device="cuda:0",
-            )
+        super().__init__(env_config, task, part, seed, action_repeat)
+
         
-        if self.task not in object_ids.keys():
+        if self.task not in part_ids.keys():
             raise NotImplementedError
         else:
-            self.object_id = object_ids[self.task]   
-            self.object_bodyid = object_bodyids[self.task]
+            self.part_id = part_ids[self.task]   
+            self.part_bodyid = part_bodyids[self.task]
             
         self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
         
@@ -108,30 +87,20 @@ class DMCSuite(BaseEnv):
     
     @property
     def obs_space(self):
-        spaces = {
-            "rgb": gym.spaces.Box(0, 255, (3,) + self.size, dtype=np.uint8),
-            "objects_pos": gym.spaces.Box(
-                -2, 2, (len(self.segmentation_instances), 2), dtype=np.float32
-            ),
-            "segmentation": gym.spaces.Box(
-                0,
-                1,
-                (len(self.segmentation_instances) + self.include_background,)
-                + self.size,
-                dtype=np.uint8,
-            ),
-            "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
-            "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
-            "is_last": gym.spaces.Box(0, 1, (), dtype=bool),
-            "is_terminal": gym.spaces.Box(0, 1, (), dtype=bool),
-            "success": gym.spaces.Box(0, 1, (), dtype=bool),
-            "proprio": gym.spaces.Box(
+        spaces = self.common_obs_space
+        del spaces["depth"] # depth not given in dmc env
+        spaces.update(
+            {
+                "proprio": gym.spaces.Box(
                     -1,
                     1,
                     self._env.observation_spec()["observations"].shape,
                     dtype=np.float32,
                 ),
-        }
+                "objects_pos": gym.spaces.Box(-2, 2, (len(self.segmentation_instances), 2), dtype=np.float32
+            ),
+            }
+        )
         return spaces
 
     @property
@@ -145,78 +114,61 @@ class DMCSuite(BaseEnv):
         )
         return {"action": action}
 
-    def generate_segmentation(self, rgb, include_background=True):
-        
-        if self.gt_segmentation:
-            channels = (
-                len(self.segmentation_instances) + 1
-                if include_background
-                else len(self.segmentation_instances)
-            )
-            seg_resized = self._env.physics.render(height=self.size[0], width=self.size[0], camera_id=0, segmentation=True)
-            seg_resized = seg_resized[:,:,0]
-            
-            seg_map = np.zeros((channels, seg_resized.shape[0], seg_resized.shape[1]), dtype=np.uint8,)
-            
-            for i, _ in enumerate(self.segmentation_instances):
-                seg_map[i][seg_resized==self.object_bodyid] = 1
-        else:  
-            # hide target from the scene
-            # extension to multiple objects, better to handle it internally the fastSAM method to speed up performance, also need to have a double tracker
-            self._env.physics.named.model.geom_rgba[self.target_name, 3] = 0
-            high_res_rgb = self._env.physics.render(height=self.seg_size[0], width=self.seg_size[1], camera_id=0)
-            self._env.physics.named.model.geom_rgba[self.target_name, 3] = 1
-            seg = self.segmenter.generate(high_res_rgb, self.is_first)
-            seg_resized = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
-
-        return seg_resized
+    def action_spec(self):
+        return self._env.action_spec()
+    
+    def obs_specs(self):
+        return obs_specs(self.obs_space)    
+    
+    def get_object_pose(self):        
+        obj_pos = self._env.physics.named.data.xpos[self.part_id].copy()
+        obj_pos = obj_pos[:2] if "reacher" in self.task else np.array([obj_pos[0], obj_pos[2]])
+        # round to 3 decimals, idea to simplify the encoding of the position
+        obj_pos = np.around(obj_pos, decimals=3)
+        return obj_pos
     
     def _state_extraction(self, env_state):
         rgb = env_state.observation["pixels"].transpose(2, 0, 1)
         proprio = env_state.observation["observations"]
-        seg_resized = self.generate_segmentation(rgb, include_background=self.include_background)
+        seg = self.generate_segmentation()
         
-        return proprio, rgb, seg_resized
+        return proprio, rgb, seg
+    
+    def generate_segmentation(self):
+        
+        if self.gt_segmentation:
+            seg = self._env.physics.render(height=self.size[0], width=self.size[0], camera_id=0, segmentation=True)
+            seg = seg[:,:,0]
+        else:  
+            self._env.physics.named.model.geom_rgba[self.target_part, 3] = 0
+            high_res_rgb = self._env.physics.render(height=self.seg_size[0], width=self.seg_size[1], camera_id=0)
+            self._env.physics.named.model.geom_rgba[self.target_part, 3] = 1
+            seg = self.segmenter.generate(high_res_rgb, self.is_first)
+            seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
 
+        return seg
+    
+    def segmentation_channel_split(self, seg, include_background=False):
+        
+        seg_map = np.zeros((self.seg_channels, seg.shape[0], seg.shape[1]), dtype=np.uint8)
+
+        if self.gt_segmentation:
+            for i, _ in enumerate(self.segmentation_instances):
+                seg_map[i][seg == self.part_bodyid] = 1
+        else:
+            for i, _ in enumerate(self.segmentation_instances):
+                seg_map[i][seg == i + 1] = 1
+
+        seg_map = self.seg_background(seg_map, include_background)
+
+        return seg_map
+    
     def compute_displacements(self, true_objs_pos):
         true_pos_displacement = (
                 np.sqrt(np.sum(((true_objs_pos - self.obj_pos) ** 2)))
             )
 
         return true_pos_displacement
-
-    def segmentation_channel_split(self, seg, include_background=False):
-
-        channels = (
-            len(self.segmentation_instances) + 1
-            if include_background
-            else len(self.segmentation_instances)
-        )
-
-        seg_map = np.zeros(
-            (channels, seg.shape[0], seg.shape[1]),
-            dtype=np.uint8,
-        )
-
-        for i, _ in enumerate(self.segmentation_instances):
-            seg_map[i][seg == i + 1] = 1
-
-        if include_background:
-            background_mask = np.all(seg_map == 0, axis=0)
-            seg_map[-1][background_mask] = 1  # last layer is background layer
-
-        return seg_map
-
-    # def get_object_pose(self, seg):
-    #     centroid_obj = np.clip(np.mean(np.argwhere(seg), axis=0).astype(int), 0, self.size[1])
-    #     return centroid_obj
-    
-    def get_object_pose(self):        
-        obj_pos = self._env.physics.named.data.xpos[self.object_id].copy()
-        obj_pos = obj_pos[:2] if "reacher" in self.task else np.array([obj_pos[0], obj_pos[2]])
-        # round to 3 decimals, idea to simplify the encoding of the position
-        obj_pos = np.around(obj_pos, decimals=3)
-        return obj_pos
       
     def step(self, action):
         # assert np.isfinite(action['action']).all(), action['action']
@@ -306,20 +258,16 @@ class DMCSuite(BaseEnv):
             "discount": time_step.discount,
         }
         return obs
-
-    def action_spec(self):
-        return self._env.action_spec()
     
-    def obs_specs(self):
-        return obs_specs(self.obs_space)    
+    #### ADDED FUNCTIONS ####
     
     def set_target(self, target_pos):
         if "reacher" in self.task:
-            self._env.physics.named.data.geom_xpos[self.target_name] = [target_pos[0], target_pos[1], 0.01]
-            self._env.physics.named.model.geom_pos[self.target_name] = [target_pos[0], target_pos[1], 0.01]
+            self._env.physics.named.data.geom_xpos[self.target_part] = [target_pos[0], target_pos[1], 0.01]
+            self._env.physics.named.model.geom_pos[self.target_part] = [target_pos[0], target_pos[1], 0.01]
         elif "manipulator" in self.task:
-            self._env.physics.named.data.geom_xpos[self.target_name] = [target_pos[0], 0.0, target_pos[1]]
-            self._env.physics.named.model.geom_pos[self.target_name] = [target_pos[0], 0.0, target_pos[1]]
+            self._env.physics.named.data.geom_xpos[self.target_part] = [target_pos[0], 0.0, target_pos[1]]
+            self._env.physics.named.model.geom_pos[self.target_part] = [target_pos[0], 0.0, target_pos[1]]
         else:
             raise NotImplementedError
            
@@ -329,13 +277,6 @@ class DMCSuite(BaseEnv):
             self.set_target(target)
         target_rgb = self._env.physics.render(height=self.size[0], width=self.size[1], camera_id=0).transpose(2, 0, 1)
         return target_rgb
-    
-    #### ADDED FUNCTIONS ####
-    
-    # def get_object_pose(self):
-    #     self.ee_id = 3 if self.task == "reacher_hard" else NotImplementedError
-    #     obj_pos = self._env.physics.named.data.xpos[self.ee_id].copy()
-    #     return obj_pos
     
     def get_goals(self):
         return self.goals

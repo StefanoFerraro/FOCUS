@@ -360,7 +360,7 @@ exp_configs = {
     "dreamer_reacher_benchmark_debug_pretrain" : {
         "agent": ["dreamer"],
         "env": "dmc",
-        "task": ["reacher_hard", "reacher_easy"],
+        "task": ["reacher_easy"],
         "seed": [1,2,3],
         "agent|reward_norm|momentum": [0.95, 1],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",

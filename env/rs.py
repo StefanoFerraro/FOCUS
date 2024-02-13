@@ -57,8 +57,6 @@ class PandaRoboSuite(ObjectsEnv):
         self.target_z = env_config.goal.z
         self.point_goal = env_config.goal.point_goal
 
-        self.objects_pixels = [0] * len(objs)
-
         self._obs_keys = [
             self.camera + "_image",
             self.camera + "_depth",
@@ -68,22 +66,11 @@ class PandaRoboSuite(ObjectsEnv):
         self.height_target = 0.05
         self.area_threshold = 0.4
         self.height_offset = 0.8 + self.cube_minsize[2]  # table height + cube height
-        self.object_start_pos = env_config.object_start_pos 
         
         self.lift_norm = int(abs(1 / (self.area_threshold)) + 1)
         self.push_norm = int(abs(1 / (self.area_threshold - self.area_target)) + 1)
         
         self._make()
-
-    def get_object_pose(self):
-        obj_pos = {}
-        obj_ori = {}
-        for obj in self.segmentation_instances:
-            obj_id = getattr(self._env, obj + "_body_id")
-            obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy() - self.object_start_pos #remove fixed offset 
-            obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
-
-        return obj_pos.copy(), obj_ori.copy()
 
     def _make(self):
         self._env = PandaGymWrapper(
@@ -102,9 +89,7 @@ class PandaRoboSuite(ObjectsEnv):
             camera_width=self.size[1],
         )
         self.camera_to_world = np.linalg.inv(self.world_to_camera)
-        self.last_estimated_obj_pos = [[0, 0, 0]] * len(
-            self.segmentation_instances
-        )  # initialize to zero
+
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
         self.target_attr_name = self.target_obj
@@ -120,53 +105,6 @@ class PandaRoboSuite(ObjectsEnv):
         self.start_cam_pos += self.camera_posmove
 
         self.cam_mover.set_camera_pose(pos=self.start_cam_pos)
-
-    def segmentation_channel_split(self, seg, include_background=False):
-        instances_to_ids = self._env.model.instances_to_ids
-
-        channels = (
-            len(self.segmentation_instances) + 1
-            if include_background
-            else len(self.segmentation_instances)
-        )
-
-        if self.gt_segmentation:
-            seg_map = np.zeros(
-                (channels, seg.shape[1], seg.shape[2]),
-                dtype=np.uint8,
-            )
-
-            for i, instance in enumerate(self.segmentation_instances):
-                for id in instances_to_ids[instance]["geom"]:
-                    seg_map[i][seg[0] == id] = 1
-
-            if "Panda0" in self.segmentation_instances:
-                panda_idx = self.segmentation_instances.index("Panda0")
-                non_panda_idx = [
-                    x for x in range(len(self.segmentation_instances)) if x != panda_idx
-                ]
-                panda_median_layer = cv2.medianBlur(
-                    seg_map[panda_idx], 3
-                )  # median filtering for panda segmentation
-
-                # check that in panda layer there is no overlap with other encodings
-                panda_mask = np.all(seg_map[non_panda_idx] == 0, axis=0)
-                seg_map[panda_idx][panda_mask] = panda_median_layer[panda_mask]
-
-        else:
-            seg_map = np.zeros(
-                (channels, seg.shape[0], seg.shape[1]),
-                dtype=np.uint8,
-            )
-
-            for i, instance in enumerate(self.segmentation_instances):
-                seg_map[i][seg == i + 1] = 1
-    
-        if include_background:
-            background_mask = np.all(seg_map == 0, axis=0)
-            seg_map[-1][background_mask] = 1  # last layer is background layer
-
-        return seg_map
 
     @property
     def obs_space(self):
@@ -210,6 +148,17 @@ class PandaRoboSuite(ObjectsEnv):
             minimum=action_space.low,
             maximum=action_space.high,
         )
+        
+    
+    def get_object_pose(self):
+        obj_pos = {}
+        obj_ori = {}
+        for obj in self.segmentation_instances:
+            obj_id = getattr(self._env, obj + "_body_id")
+            obj_pos[obj] = self._env.sim.data.body_xpos[obj_id].copy() - self.object_start_pos #remove fixed offset 
+            obj_ori[obj] = self._env.sim.data.body_xquat[obj_id].copy()
+
+        return obj_pos.copy(), obj_ori.copy()
 
     def _proprio_obs(self, state):
         proprio = []
@@ -229,16 +178,7 @@ class PandaRoboSuite(ObjectsEnv):
         # obtain world coordinates from the segmentation mask
         depth_map = CU.get_real_depth_map(sim=self._env.sim, depth_map=depth)
 
-        if self.gt_segmentation:
-            seg = env_state[self.camera + "_segmentation_" + self.segmentation_level][
-                ::-1
-            ].transpose(2, 0, 1)
-        else:
-            high_res_rgb = self._env.sim.render(
-                camera_name=self.camera, height=self.seg_size[0], width=self.seg_size[1]
-            )[::-1]
-            seg = self.segmenter.generate(high_res_rgb, self.is_first)
-            seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
+        seg = self.generate_segmentation(env_state)
 
         state = {}
         for key in self._proprio_keys or self._obs_keys:
@@ -246,6 +186,52 @@ class PandaRoboSuite(ObjectsEnv):
 
         return proprio, rgb, depth_map, seg, state
 
+    def generate_segmentation(self, env_state):
+        if self.gt_segmentation:
+            seg = env_state[self.camera + "_segmentation_" + self.segmentation_level][
+                ::-1
+            ]
+            seg = seg[:,:,0]
+        else:
+            high_res_rgb = self._env.sim.render(
+                camera_name=self.camera, height=self.seg_size[0], width=self.seg_size[1]
+            )[::-1]
+            seg = self.segmenter.generate(high_res_rgb, self.is_first)
+            seg = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
+        
+        return seg
+        
+    def segmentation_channel_split(self, seg, include_background=False):
+        instances_to_ids = self._env.model.instances_to_ids
+        seg_map = np.zeros((self.seg_channels, seg.shape[0], seg.shape[1]), dtype=np.uint8)
+
+        if self.gt_segmentation:
+            for i, instance in enumerate(self.segmentation_instances):
+                for id in instances_to_ids[instance]["geom"]:
+                    seg_map[i][seg == id] = 1
+
+            if "Panda0" in self.segmentation_instances:
+                panda_idx = self.segmentation_instances.index("Panda0")
+                non_panda_idx = [
+                    x for x in range(len(self.segmentation_instances)) if x != panda_idx
+                ]
+                panda_median_layer = cv2.medianBlur(
+                    seg_map[panda_idx], 3
+                )  # median filtering for panda segmentation
+
+                # check that in panda layer there is no overlap with other encodings
+                panda_mask = np.all(seg_map[non_panda_idx] == 0, axis=0)
+                seg_map[panda_idx][panda_mask] = panda_median_layer[panda_mask]
+
+        else:
+
+            for i, instance in enumerate(self.segmentation_instances):
+                seg_map[i][seg == i + 1] = 1
+    
+        seg_map = self.seg_background(seg_map, include_background)
+
+        return seg_map
+    
     def check_contact(self):
         contact = 0
         for obj in self.segmentation_instances:
@@ -325,7 +311,7 @@ class PandaRoboSuite(ObjectsEnv):
 
         reward = 0.0
         success = 0.0
-        for _ in range(self._action_repeat):
+        for _ in range(self.action_repeat):
             env_state, rew, done, info = self._env.step(action)
             success = self._env.check_success()
             reward += float(rew)
@@ -428,6 +414,8 @@ class PandaRoboSuite(ObjectsEnv):
 
         return obs
 
+    #### ADDED FUNCTIONS ####
+
     def _target_hide(self):
         self._env.sim.model.geom("target_g0_vis").rgba[-1] = 0
         
@@ -444,8 +432,6 @@ class PandaRoboSuite(ObjectsEnv):
         self._target_hide()
         return target_rgb
     
-    #### ADDED FUNCTIONS ####
-
     def get_goals(self):
         return self.goals
   

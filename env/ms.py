@@ -369,7 +369,7 @@ class PandaManiSkill(ObjectsEnv):
         reward = 0.0
         success = 0.0
         self.is_first = False
-        for _ in range(self._action_repeat):
+        for _ in range(self.action_repeat):
             env_state, rew, done, info = self._env.step(action)
             reward += float(rew)
             success = float(info["success"])

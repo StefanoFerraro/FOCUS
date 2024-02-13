@@ -342,13 +342,16 @@ class Workspace:
                         if self.cfg.agent.name=="skill_focus":
                             # In this case we want to have the skill agent acting 50% of the time, and the rest made by an exploratory agent
                             meta = {"use_skill_behaviour": self.global_episode % 2}
-                        action, agent_state = self.agent.act(
-                            obs,
-                            meta,
-                            self.global_step,
-                            eval_mode=False,
-                            state=agent_state,
-                        )
+                        try: 
+                            action, agent_state = self.agent.act(
+                                obs,
+                                meta,
+                                self.global_step,
+                                eval_mode=False,
+                                state=agent_state,
+                            )
+                        except:
+                            print("agent_state: ", agent_state, type(agent_state))
                 
                 # try to update the agent
                 if not seed_until_step(self.global_step): # fill the replay buffer before training WM and agent
