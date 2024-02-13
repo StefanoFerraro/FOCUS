@@ -6,12 +6,14 @@ import os
 import robosuite.utils.camera_utils as CU
 from env.segmenter import Segmenter
 
-
 class BaseEnv:
     def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
         # render parameters
         os.environ["MUJOCO_GL"] = "egl"
         # os.environ["DISPLAY"] = ":0"
+    
+class ObjectsEnv(BaseEnv):
+    def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
 
         # object specs
         self.cube_rgba = env_config.objects.rgba

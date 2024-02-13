@@ -13,7 +13,7 @@ import env.custom_robosuite_tasks as custom_robosuite_tasks
 
 import pyquaternion as pq
 from .utils import *
-from .base_env import BaseEnv
+from .base_envs import ObjectsEnv
 import mujoco
 
 _LEFT = 0
@@ -23,7 +23,7 @@ _FAR = 3
 _UP = 4
 
 
-class PandaRoboSuite(BaseEnv):
+class PandaRoboSuite(ObjectsEnv):
     def __init__(
         self,
         env_config,
@@ -73,7 +73,7 @@ class PandaRoboSuite(BaseEnv):
         self.lift_norm = int(abs(1 / (self.area_threshold)) + 1)
         self.push_norm = int(abs(1 / (self.area_threshold - self.area_target)) + 1)
         
-        self.make()
+        self._make()
 
     def get_object_pose(self):
         obj_pos = {}
@@ -85,7 +85,7 @@ class PandaRoboSuite(BaseEnv):
 
         return obj_pos.copy(), obj_ori.copy()
 
-    def make(self):
+    def _make(self):
         self._env = PandaGymWrapper(
             custom_robosuite_tasks.make(self.task, self),
             keys=self._proprio_keys + self._obs_keys,

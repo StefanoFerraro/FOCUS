@@ -1,6 +1,5 @@
 from dm_env import specs
 import numpy as np
-import gym
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -9,9 +8,7 @@ import torch
 import os
 import requests
 import gdown
-# import clip
 import wget
-
 
 def segment_image(image, bbox):
     image_array = np.array(image)
@@ -210,28 +207,7 @@ def fast_show_mask_gpu(
         )
     ax.imshow(show_cpu)
 
-
-# clip
-# @torch.no_grad()
-# def retriev(
-#     model, preprocess, elements: [Image.Image], search_text: str, device
-# ) -> int:
-#     preprocessed_images = [preprocess(image).to(device) for image in elements]
-#     tokenized_text = clip.tokenize([search_text]).to(device)
-#     stacked_images = torch.stack(preprocessed_images)
-#     image_features = model.encode_image(stacked_images)
-#     text_features = model.encode_text(tokenized_text)
-#     image_features /= image_features.norm(dim=-1, keepdim=True)
-#     text_features /= text_features.norm(dim=-1, keepdim=True)
-#     probs = 100.0 * image_features @ text_features.T
-#     return probs[:, 0].softmax(dim=0)
-
-
 def crop_image(annotations, image):
-    # ori_w, ori_h, _ = image.shape
-    # mask_h, mask_w = annotations[0]["segmentation"].shape
-    # if ori_w != mask_w or ori_h != mask_h:
-    #     image = image.resize((mask_w, mask_h))
     cropped_boxes = []
     cropped_images = []
     not_crop = []
@@ -330,30 +306,3 @@ def image_segmentation(image, seg):
         seg_image[ch] = image * seg_mask[ch]
 
     return seg_image
-
-
-# def common_obs_space(size, segmentation_instances, include_background=True):
-#     spaces = {
-#         "rgb": gym.spaces.Box(0, 255, (3,) + size, dtype=np.uint8),
-#         "depth": gym.spaces.Box(
-#             -np.inf,
-#             np.inf,
-#             (1,) + size,
-#             dtype=np.float32,
-#         ),
-#         "objects_pos": gym.spaces.Box(
-#             -2, 2, (len(segmentation_instances), 3), dtype=np.float32
-#         ),
-#         "segmentation": gym.spaces.Box(
-#             0,
-#             1,
-#             (len(segmentation_instances) + include_background,) + size,
-#             dtype=np.uint8,
-#         ),
-#         "reward": gym.spaces.Box(-np.inf, np.inf, (), dtype=np.float32),
-#         "is_first": gym.spaces.Box(0, 1, (), dtype=bool),
-#         "is_last": gym.spaces.Box(0, 1, (), dtype=bool),
-#         "is_terminal": gym.spaces.Box(0, 1, (), dtype=bool),
-#         "success": gym.spaces.Box(0, 1, (), dtype=bool),
-#     }
-#     return spaces

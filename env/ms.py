@@ -25,7 +25,7 @@ from sapien.core import Pose
 import pyquaternion as pq
 from mani_skill2.utils.wrappers import RecordEpisode
 from env.utils import *
-from env.base_env import BaseEnv
+from env.base_envs import ObjectsEnv
 
 _LEFT = 0
 _RIGHT = 1
@@ -34,7 +34,7 @@ _FAR = 3
 _UP = 4
 
 
-class PandaManiSkill(BaseEnv):
+class PandaManiSkill(ObjectsEnv):
     def __init__(
         self,
         env_config,

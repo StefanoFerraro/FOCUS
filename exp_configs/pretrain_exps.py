@@ -356,6 +356,17 @@ exp_configs = {
         "agent|start_agent_training_after": 2500,
         "dataset_dir": "/mnt/public/projects/mazpie/dataset_collection/pretrain/64088d629660ba59ba06beb5b702b6dd/code/buffer",  
     },
+
+    "dreamer_reacher_benchmark_debug_pretrain" : {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_hard", "reacher_easy"],
+        "seed": [1,2,3],
+        "agent|reward_norm|momentum": [0.95, 1],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "curriculum_learning": False,
+        "agent|train_target_reach": False,
+    },  
 }
 
 EXP_GROUPS = { k : hu.cartesian_exp_group(v) for k,v in exp_configs.items()} 

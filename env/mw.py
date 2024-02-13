@@ -1,5 +1,5 @@
 from .utils import *
-from env.base_env import BaseEnv
+from env.base_envs import ObjectsEnv
 import pickle
 import gym
 import pyquaternion as pq
@@ -9,7 +9,7 @@ import metaworld
 from copy import deepcopy
 from gymnasium.envs.mujoco.mujoco_rendering import OffScreenViewer
 
-class Metaworld(BaseEnv):
+class Metaworld(ObjectsEnv):
     def __init__(
         self,
         env_config,

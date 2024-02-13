@@ -191,6 +191,8 @@ class Workspace:
                 # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
                 if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:
                     obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target)
+                else:
+                    obs["eval_rgb"] = obs["rgb"]
 
                 episode_data.append(obs)
                 total_reward += obs["reward"]
@@ -253,11 +255,12 @@ class Workspace:
 
         utils.init_metrics_counters(self)
         
+        meta = self.agent.init_meta()
         obs = self.reset(self.train_env)            
         data = obs
         self.replay_storage.add(data, meta)
         
-        warmnup_profiler = 490
+        warmnup_profiler = 2490
         profiler_active_for = 10
         
         # clean approch for having the posibility to choose if profiling or not the algorithm
@@ -284,16 +287,16 @@ class Workspace:
                             log("step", self.global_step)
                             log("success", obs["success"])
                             log("step_to_success", self.step_to_success)
-                            log("contact", float(self.contact_count / self.episode_frame))
+                            log("contact", float(self.contact_count / episode_frame))
                             # sanity check that segmentation mask is consistent
                             log("segmentation_obj_pixels", float(self.segmentation_obj_pixels / self.episode_step))  
                             
-                            obj_metrics = utils.logging_object_metrics(log, self.in_areas, self.cumm_pos_displacement, self.cumm_ang_displacement, self.cumm_vertical_displacement, self.episode_frame)
+                            obj_metrics = utils.object_metrics(self.in_areas, self.cumm_pos_displacement, self.cumm_ang_displacement, self.cumm_vertical_displacement, episode_frame)
                             utils.log_metrics_dict(obj_metrics, log)
                         
                             if self.cfg.agent.train_target_reach:
                                 target_pos = self.agent._target_pos.cpu().numpy()
-                                move_to_target_metrics = utils.loggin_move_to_target_metrics(log, self.obj_pos, target_pos)
+                                move_to_target_metrics = utils.move_to_target_metrics(self.obj_pos, target_pos)
                                 utils.log_metrics_dict(move_to_target_metrics, log)
                                 
                     utils.init_metrics_counters(self)
@@ -351,11 +354,11 @@ class Workspace:
                 if not seed_until_step(self.global_step): # fill the replay buffer before training WM and agent
                     if self.replay_storage._total_steps > 0:
                         if should_train_step(self.global_step):
-                            metrics = self.agent.update(
+                            self.metrics = self.agent.update(
                                 next(self.replay_iter), self.global_step, which_policy="both"
                             )[1]
                         if should_log_scalars(self.global_step):
-                            self.logger.log_metrics(metrics, self.global_frame, ty="train")
+                            self.logger.log_metrics(self.metrics, self.global_frame, ty="train")
                         if self.global_step > 0 and should_log_recon(self.global_step):
                             videos, text = self.agent.report(next(self.replay_iter))
 

@@ -61,6 +61,7 @@ MW_TASKS_OBJ = {
 DMC_TASKS_OBJ = {
     "walker_run": ["leg"],
     "reacher_hard": ["target"],   
+    "reacher_easy": ["target"],   
     "manipulator_bring_ball": ["target_ball"], 
     "manipulator_bring_peg": [["target_blade", "target_guard", "target_pommel"]] 
 }
@@ -68,6 +69,7 @@ DMC_TASKS_OBJ = {
 DMC_TASKS_PROMPT = {
     "walker_run": ["text", "leg"],
     "reacher_hard": ["text", "small orange ball"],
+    "reacher_easy": ["text", "small orange ball"],
     "manipulator_bring_ball": ["text", "small orange ball"],
     "manipulator_bring_peg": ["text", "orange sword"] 
 }

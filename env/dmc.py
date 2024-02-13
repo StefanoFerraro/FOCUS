@@ -9,28 +9,34 @@ from robosuite.utils.camera_utils import CameraMover as CM
 
 import pyquaternion as pq
 from .utils import *
-from .base_env import BaseEnv
+from .base_envs import BaseEnv
 from env.segmenter import Segmenter
+
+from env.wrappers import *
+from dm_control import suite
+from dm_control.suite.wrappers import action_scale, pixels
+import env.custom_dmc_tasks as cdmc
 
 os.environ["MUJOCO_GL"] = "egl"
 # os.environ["DISPLAY"] = ":0"
 
 
 object_ids = {"reacher_hard": 3, "reacher_easy": 3, "manipulator_bring_ball": 10}   
+object_bodyids = {"reacher_hard": 9, "reacher_easy": 9}   
+
 limits_exploration_area = {"reacher_hard": [[-0.24, 0.24], [-0.24, 0.24]],
                            "reacher_easy": [[-0.24, 0.24], [-0.24, 0.24]],
                            "manipulator_bring_ball": [[-0.5, 0.5], [0.01, 0.9]]}
 
-class DMCSuiteWrapper():
+class DMCSuite(BaseEnv):
     def __init__(
         self,
-        env,
-        task,
-        env_config,
-        objs=["cube"],
-        seed=None,
+        env_config,        
+        task="recher_hard",
+        objs="hand",
+        seed=0,
+        action_repeat=1,
     ):
-        self._env = env
         self.num_objects = len(objs)
         self.include_background = True
         self.size = tuple(env_config.renderer.size)
@@ -40,7 +46,8 @@ class DMCSuiteWrapper():
         self.camera = env_config.renderer.camera
         self.controller = env_config.controller
         self.horizon = env_config.horizon
-        self._seed = seed
+        self.seed = seed
+        self.action_repeat = action_repeat
         self.task = task
         
         self.segmentation_instances = objs
@@ -58,10 +65,47 @@ class DMCSuiteWrapper():
             raise NotImplementedError
         else:
             self.object_id = object_ids[self.task]   
+            self.object_bodyid = object_bodyids[self.task]
             
         self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
+        
+        self._make()
                 
-
+    def _make(self, ):
+        visualize_reward = False
+        subdomain, subtask = self.task.split("_", 1)
+        
+        # if task is not in the suite, use custom tasks
+        if (subdomain, subtask) in suite.ALL_TASKS:
+            self._env = suite.load(
+                subdomain,
+                subtask,
+                task_kwargs=dict(random=self.seed, time_limit = self.horizon * 0.02), # 0.02 is the timestep length
+                environment_kwargs=dict(flat_observation=True),
+                visualize_reward=visualize_reward,
+            )
+        else:
+            self._env = cdmc.make(
+                subdomain,
+                subtask,
+                task_kwargs=dict(random=self.seed),
+                environment_kwargs=dict(flat_observation=True),
+                visualize_reward=visualize_reward,
+            )
+        
+        self._env = ActionDTypeWrapper(self._env, np.float32)
+        self._env = ActionRepeatWrapper(self._env, self.action_repeat)
+        
+        # zoom in camera for quadruped
+        camera_id = dict(quadruped=2).get(subdomain, 0)
+        
+        self._env._camera = camera_id
+        render_kwargs = dict(height=self.size[0], width=self.size[1], camera_id=camera_id)
+        self._env = pixels.Wrapper(self._env, pixels_only=False, render_kwargs=render_kwargs)
+        
+        self._env = action_scale.Wrapper(self._env, minimum=-1.0, maximum=+1.0)
+        self._env = ExtendedTimeStepWrapper(self._env)
+    
     @property
     def obs_space(self):
         spaces = {
@@ -101,15 +145,22 @@ class DMCSuiteWrapper():
         )
         return {"action": action}
 
-    def _state_extraction(self, env_state):
-        rgb = env_state.observation["pixels"].transpose(2, 0, 1)
-        proprio = env_state.observation["observations"]
-
-        # obtain world coordinates from the segmentation mask
-
+    def generate_segmentation(self, rgb, include_background=True):
+        
         if self.gt_segmentation:
-            raise NotImplementedError
-        else:
+            channels = (
+                len(self.segmentation_instances) + 1
+                if include_background
+                else len(self.segmentation_instances)
+            )
+            seg_resized = self._env.physics.render(height=self.size[0], width=self.size[0], camera_id=0, segmentation=True)
+            seg_resized = seg_resized[:,:,0]
+            
+            seg_map = np.zeros((channels, seg_resized.shape[0], seg_resized.shape[1]), dtype=np.uint8,)
+            
+            for i, _ in enumerate(self.segmentation_instances):
+                seg_map[i][seg_resized==self.object_bodyid] = 1
+        else:  
             # hide target from the scene
             # extension to multiple objects, better to handle it internally the fastSAM method to speed up performance, also need to have a double tracker
             self._env.physics.named.model.geom_rgba[self.target_name, 3] = 0
@@ -117,6 +168,14 @@ class DMCSuiteWrapper():
             self._env.physics.named.model.geom_rgba[self.target_name, 3] = 1
             seg = self.segmenter.generate(high_res_rgb, self.is_first)
             seg_resized = cv2.resize(seg, self.size, interpolation=cv2.INTER_NEAREST)
+
+        return seg_resized
+    
+    def _state_extraction(self, env_state):
+        rgb = env_state.observation["pixels"].transpose(2, 0, 1)
+        proprio = env_state.observation["observations"]
+        seg_resized = self.generate_segmentation(rgb, include_background=self.include_background)
+        
         return proprio, rgb, seg_resized
 
     def compute_displacements(self, true_objs_pos):
