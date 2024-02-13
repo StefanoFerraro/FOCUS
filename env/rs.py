@@ -436,7 +436,7 @@ class PandaRoboSuite(ObjectsEnv):
         return self.goals
   
     def set_goals_for_task(self):
-        if self.task in ["CustomLift"]: # TODO first dimension to define properly
+        if self.task in ["CustomLift", "Lift"]: # TODO first dimension to define properly
             full_right = [[0], [0.25, 0, 0]]
             full_left = [[0], [-0.25, 0, 0]]
             full_down = [[0], [0, 0.25, 0]]

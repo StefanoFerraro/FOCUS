@@ -58,6 +58,6 @@ def make(task, env_args):
             point_goal=env_args.point_goal,
         )
     elif task in REGISTERED_ENVS:
-        return suite.make(task, *kwargs)
+        return suite.make(task, **kwargs)
     else:
         raise f"{task} not found"
