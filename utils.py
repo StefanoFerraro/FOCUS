@@ -543,3 +543,27 @@ def update_metrics_counters(self, obs):
     self.cumm_ang_displacement += obs["ang_displacement"]
     self.cumm_vertical_displacement += obs["vertical_displacement"]
     self.segmentation_obj_pixels += np.sum(obs["segmentation"][0])
+    
+    
+def exp_func(agent, x, modulation_factor):
+    init_low_bea = agent.init_lower_bound_expl_area 
+    init_up_bea = agent.init_upper_bound_expl_area
+    min_ea = agent.min_exploration_area
+    max_ea = agent.max_exploration_area
+    # clipping of lower and maximum values
+    lower_expl_area = np.clip((np.exp(x / modulation_factor) * init_low_bea), min_ea, max_ea)
+    upper_expl_area = np.clip((np.exp(x / modulation_factor) * init_up_bea), min_ea, max_ea)
+    return [lower_expl_area, upper_expl_area]
+
+def expl_area_update(agent, global_step, modulation_factor=10e6, curriculum_learning=True):        
+    if curriculum_learning:
+        new_exploration_area = exp_func(global_step, modulation_factor)
+    else:
+        # sample from full exploration area
+        new_exploration_area = [agent.min_exploration_area, agent.max_exploration_area]
+    
+    agent.set_exploration_area(new_exploration_area)
+    return new_exploration_area
+
+def NMSE(input: np.array, pred: np.array):
+    return ((input - pred) ** 2).mean() / (input ** 2).mean()

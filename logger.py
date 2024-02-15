@@ -219,34 +219,6 @@ class Logger(object):
                     v = np.uint8(v * 255)
                 wandb.log({k: wandb.Video(v, fps=15, format="gif")})
 
-    def log_text(self, data, step):
-        # if self._sw is not None:
-        #     for k, v in data.items():
-        #         self._sw.add_text(k, v, global_step=step)
-        if self.use_wandb:
-            for k, v in data.items():
-                if k == "objects_pos":
-                    for obj, w in v.items():
-                        wandb.log(
-                            {
-                                str(obj): wandb.Table(
-                                    data=np.concatenate(list(w.values())).T,
-                                    columns=list(w.keys()),
-                                )
-                            }
-                        )
-
-                else:
-                    wandb.log(
-                        {
-                            str(k): wandb.Table(
-                                data=np.concatenate(list(v.values())).T,
-                                columns=list(v.keys()),
-                            )
-                        }
-                    )
-
-
 class LogAndDumpCtx:
     def __init__(self, logger, step, ty):
         self._logger = logger

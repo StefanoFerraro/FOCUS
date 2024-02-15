@@ -2,7 +2,7 @@ defaults:
   - segmenter
 
 name: dmc
-horizon: 250
+horizon: 1000
 controller: "OSC_POSE" 
 renderer:
   fps: 30
@@ -11,7 +11,7 @@ renderer:
   depths: True
   segmentation_level: "element" # None, class, instance or element 
   seg_size: [480, 480]
-  gt_segmentation: True
+  gt_segmentation: False
 reward_shaping: False
 task_reward: "lift"
 objects:

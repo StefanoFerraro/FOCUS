@@ -28,49 +28,41 @@ class Workspace:
         self.maindir = Path.cwd() if maindir is None else maindir
         self.workdir = Path.cwd() if workdir is None else workdir
         print(f"workspace: {self.workdir}")
-
+        
+        # setup and configaration adjustments 
         self.cfg = cfg
-        utils.set_seed_everywhere(cfg.seed)
+        domain = cfg.domain
+        task = (
+            cfg.task if cfg.task != "none" else PRIMAL_TASKS[domain]
+        )  # -> which is the URLB default
+        objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
+        if cfg.agent.world_model.name == "focus":
+            cfg.agent.world_model.objects = objets_list
         self.device = torch.device(cfg.device)
         cfg.agent.world_model.device = cfg.device
+        
+        # seed everything for reproducibility        
+        utils.set_seed_everywhere(cfg.seed)
 
-        # create logger
         self.logger = Logger(self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
-        # create envs
-        domain = cfg.domain
-        if cfg.agent.train_target_reach:
-            cfg.env.target_modulator = cfg.target_modulator
-        task = (
-            cfg.task if cfg.task != "none" else PRIMAL_TASKS[self.cfg.domain]
-        )  # -> which is the URLB default
-        frame_stack = 1
-
-        os.chdir(
-            self.maindir
-        )  # change to original working directory for loading URDF models
-
+        
+        # change to original working directory for loading URDF models
+        os.chdir(self.maindir)  
+        
         self.eval_env = make(
             domain,
             task,
-            cfg.obs_type,
-            frame_stack,
             cfg.action_repeat,
             cfg.seed,
             cfg.env,
         )
-
-        train_obs_spec = self.eval_env.obs_space
-
+        # after env creation, change back to main directory
         os.chdir(self.maindir)
 
-        objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
-
-        if cfg.agent.world_model.name == "focus":
-            cfg.agent.world_model.objects = objets_list
-
+        # reset to obtain observation specs
         self.eval_env.reset()
-        
         # create agent
+        train_obs_spec = self.eval_env.obs_space
         self.agent = utils.make_dreamer_agent(
             train_obs_spec,
             self.eval_env.action_spec(),
@@ -146,16 +138,14 @@ class Workspace:
         if self.global_step == 0:
             return
 
-        step, episode, total_reward, total_success = 0, 0, 0, 0
+        # Initialization
+        step = episode = total_reward = total_success = 0
         step_to_success = self._horizon
         step_to_success_list = []        
-
-        # set to True to use task_behaviour, zero_shot performance
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
         meta = self.agent.init_meta()
         obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
         video = np.empty([1, int(self._horizon/2) + 1 , 3, *self.cfg.env.renderer.size])
-        move_to_target_final, move_to_target_min, move_to_target_max, move_to_target_mean = [], [], [], []
         
         while eval_until_episode(episode):
             episode_data = []
@@ -169,6 +159,7 @@ class Workspace:
                     self.eval_env.set_target(target)                    
     
             obs = self.eval_env.reset()
+            
             # dmc envs adapt objects position after the res
             if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:   
                 self.eval_env.set_target(target)
@@ -177,6 +168,7 @@ class Workspace:
             
             episode_data.append(obs)
             agent_state = None
+            
             while not bool(obs["is_last"]):
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action, agent_state = self.agent.act(
@@ -189,40 +181,31 @@ class Workspace:
                 obs = self.eval_env.step(action)
                 
                 # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
-                
                 if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:
                     obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target)
+                else:
+                    obs["eval_rgb"] = obs["rgb"]
 
                 episode_data.append(obs)
                 total_reward += obs["reward"]
                 step += 1
+                
                 # Hacky way to say that step_to_success was set
                 if step_to_success == self._horizon and obs["success"]:
-                    step_to_success = (step * self.cfg.action_repeat) - (
-                        episode * self._horizon
-                    )
-                # if self.agent.name == "dreamer":
-                #     obj_pos = np.concatenate((obj_pos, [obs["objects_pos"]]))
-                # else:
+                    step_to_success = (step * self.cfg.action_repeat) - (episode * self._horizon)
+
                 obj_pos = np.concatenate((obj_pos, [obs["objects_pos"][0]]))
 
-            # log specs
+            # log moving average, move to target metrics
             if self.cfg.agent.train_target_reach:
                 target_pos = self.agent._target_pos.cpu().numpy()
-                move_to_target_final.append(np.exp(- np.linalg.norm(
-                        obj_pos[-1] - target_pos)
-                    / np.linalg.norm(target_pos))) # exponential distance from the target at the end of episode
-                move_to_target_min.append(np.exp(- np.linalg.norm(
-                        obj_pos - target_pos, axis=-1)
-                    / np.linalg.norm(target_pos)).max()) # exponential min distance to target during the entire episode
-                move_to_target_max.append(np.exp(- np.linalg.norm(
-                        obj_pos - target_pos, axis=-1)
-                    / np.linalg.norm(target_pos)).min()) # exponential max distance to target during the entire episode
-                move_to_target_mean.append(np.exp(- np.linalg.norm(
-                        obj_pos - target_pos, axis=-1)
-                    / np.linalg.norm(
-                        target_pos)).mean()) # exponential max distance to target during the entire episode
-                
+                if episode == 0:
+                    move_to_target_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
+                else:
+                    episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
+                    move_to_target_metrics = {k: v / self.cfg.num_eval_episodes + move_to_target_metrics[k] for k, v in episode_metrics.items()}
+
+            # video output for visualization                 
             if episode==0:
                 video = np.expand_dims(np.stack([obs['eval_rgb'] for obs in episode_data], axis=0), axis=0)    
             else:
@@ -234,6 +217,7 @@ class Workspace:
             total_success += obs["success"]
             obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
         
+        # logging 
         with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
             log("episode_reward", total_reward / episode)
             log("avg_success", total_success / episode)
@@ -242,80 +226,73 @@ class Workspace:
             log("episode", self.global_episode)
             log("step", self.global_step)
             if self.cfg.agent.train_target_reach:
-                log(
-                    "move_to_target_final", np.mean(move_to_target_final))
-                log(
-                    "move_to_target_min", np.mean(move_to_target_min))
-                log(
-                    "move_to_target_max", np.mean(move_to_target_max))
-                log(
-                    "move_to_target_mean", np.mean(move_to_target_mean))
+                utils.log_metrics_dict(move_to_target_metrics, log)
 
         # B, T, C, H, W = video.shape
-        # last_video = np.expand_dims(np.stack([obs['eval_rgb'] for obs in episode_data ], axis=0), axis=0)
         video = np.uint8(video * 255)
         self.logger.log_video({'eval_video' : video }, self.global_frame)
 
         # Eval episodes for testing the prior
-        utils.TSNE_analysis(self)
+        utils.TSNE_analysis(self)      
           
     def train(self):
-        # predicates
-        train_until_step = utils.Until(
-            self.cfg.num_train_frames, self.cfg.action_repeat
-        )
-        eval_every_step = utils.Every(
-            self.cfg.eval_every_frames, self.cfg.action_repeat
-        )
-
-        should_log_scalars = utils.Every(
-            self.cfg.log_every_frames, self.cfg.action_repeat
-        )
-        should_log_recon = utils.Every(
-            self.cfg.recon_every_frames, self.cfg.action_repeat
-        )
+        # Initialization
+        train_until_step = utils.Until(self.cfg.num_train_frames, self.cfg.action_repeat)
+        eval_every_step = utils.Every(self.cfg.eval_every_frames, self.cfg.action_repeat)
+        should_log_scalars = utils.Every(self.cfg.log_every_frames, self.cfg.action_repeat)
+        should_log_recon = utils.Every(self.cfg.recon_every_frames, self.cfg.action_repeat)
         
-        # Metrics init            
-        metrics = None
-        while train_until_step(self.global_step):
-            if metrics is None:
-                # log stats
-                elapsed_time, total_time = self.timer.reset()
+        utils.init_metrics_counters(self)
+        
+        
+        warmnup_profiler = 2990
+        profiler_active_for = 10
+        
+        # clean approch for having the posibility to choose if profiling or not the algorithm
+        with utils.Profiler(warmnup_profiler, profiler_active_for) if self.cfg.profile else utils.DummyProfiler() as prof:
+            while train_until_step(self.global_step):
+                prof.step(self.global_step)
 
+                # save last model
+                if self.global_step % 5000 == 0:
+                    self.save_last_model()
+                
+                # save snapshot
                 if self.global_frame in self.cfg.snapshots:
                     self.save_snapshot()
 
-            # try to evaluate
-            if eval_every_step(self.global_step):
-                self.logger.log(
-                    "eval_total_time",
-                    self.timer.total_time(),
-                    self.global_frame,
-                )
-                self.eval()
+                # try to evaluate
+                if eval_every_step(self.global_step):
+                    self.logger.log(
+                        "eval_total_time",
+                        self.timer.total_time(),
+                        self.global_frame,
+                    )
+                    self.eval()
 
-            if self.cfg.agent.train_target_reach:
-                self.expl_area_update(self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
-                self.agent.update_target() # update target in the agent based on the new exploration area 
+                # change target for training
+                if self.cfg.agent.train_target_reach:
+                    utils.expl_area_update(self.agent, self.global_step, self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
+                    self.agent.update_target() # update target in the agent based on the new exploration area 
+                    
+                self.metrics = self.agent.update(
+                    next(self.replay_iter), self.global_step, which_policy='task'
+                )[1]
                 
-            metrics = self.agent.update(
-                next(self.replay_iter), self.global_step, which_policy='task'
-            )[1]
-            
-            if should_log_scalars(self.global_step):
-                self.logger.log_metrics(metrics, self.global_frame, ty="train")
-                elapsed_time, total_time = self.timer.reset()
-                with self.logger.log_and_dump_ctx(self.global_step, ty='train') as log:
-                    log('fps', self.cfg.log_every_frames / elapsed_time)
-                    log('step', self.global_step)
-                    log('episode_reward', 0.)
-            
-            if self.global_step > 0 and should_log_recon(self.global_step):
-                videos, text = self.agent.report(next(self.replay_iter))
-                self.logger.log_video(videos, self.global_frame)
-                self.logger.log_text(text, self.global_frame)
+                if should_log_scalars(self.global_step):
+                    self.logger.log_metrics(self.metrics, self.global_frame, ty="train")
+                    elapsed_time, _ = self.timer.reset()
+                    with self.logger.log_and_dump_ctx(self.global_step, ty='train') as log:
+                        log('fps', self.cfg.log_every_frames / elapsed_time)
+                        log('step', self.global_step)
+                        log('episode_reward', 0.)
+                
+                if self.global_step > 0 and should_log_recon(self.global_step):
+                    videos, text = self.agent.report(next(self.replay_iter))
+                    self.logger.log_video(videos, self.global_frame)
+                    self.logger.log_text(text, self.global_frame)
 
-            self._global_step += 1
+                self._global_step += 1
 
     @utils.retry
     def save_snapshot(self):
@@ -356,23 +333,6 @@ class Workspace:
         payload = {k: self.__dict__[k] for k in keys_to_save}
         with snapshot.open("wb") as f:
             torch.save(payload, f)
-
-    def exp_func(self, x, modulation_factor):
-        init_low_bea, init_up_bea, min_ea, max_ea = self.agent.init_lower_bound_expl_area, self.agent.init_upper_bound_expl_area, self.agent.min_exploration_area, self.agent.max_exploration_area
-        # clipping of lower and maximum values
-        lower_expl_area = np.clip((np.exp(x / modulation_factor) * init_low_bea), min_ea, max_ea)
-        upper_expl_area = np.clip((np.exp(x / modulation_factor) * init_up_bea), min_ea, max_ea)
-        return [lower_expl_area, upper_expl_area]
-
-    def expl_area_update(self, modulation_factor=10e6, curriculum_learning=True):        
-        if curriculum_learning:
-            new_exploration_area = self.exp_func(self.global_step, modulation_factor)
-        else:
-            # sample from full exploration area
-            new_exploration_area = [self.agent.min_exploration_area, self.agent.max_exploration_area]
-        
-        self.agent.set_exploration_area(new_exploration_area)
-        return new_exploration_area
             
     def load_snapshot(self):
         try:
@@ -421,11 +381,12 @@ def toolkit_main(cfg, maindir, workdir):
     root_dir = Path.cwd()
     cfg.use_tb = False
     maindir="/mnt/home/focus" # get_original_cwd() does not work in this contenxt 
-
     workspace = W(cfg, maindir, workdir)
+    
     workspace.root_dir = root_dir
+    print("ROOT DIR: ", root_dir)
     snapshot = workspace.root_dir / 'last_snapshot.pt'
-    cfg.project_name = "_".join([cfg.agent.name, cfg.domain])
+    cfg.project_name = "_".join(["offline", cfg.agent.name, cfg.domain])
     
     if snapshot.exists():
         print(f'resuming: {snapshot}')
@@ -433,18 +394,20 @@ def toolkit_main(cfg, maindir, workdir):
     if cfg.use_wandb and wandb.run is None:
         # otherwise it was resumed
         workspace.setup_wandb()
+        
+    print("STARTING TRAINING!")
     workspace.train()
 
 @hydra.main(config_path="configs", config_name="train")
 def main(cfg):
     from offline_train import Workspace as W
     root_dir = Path.cwd()
-
     workspace = W(cfg, maindir=get_original_cwd())
+
     workspace.root_dir = root_dir
     print("ROOT DIR: ", root_dir)
     snapshot = workspace.root_dir / "last_snapshot.pt"
-    cfg.project_name = "_".join([cfg.project_name, cfg.domain])
+    cfg.project_name = "_".join(["offline", cfg.project_name, cfg.domain])
     
     if snapshot.exists():
         print(f"resuming: {snapshot}")
@@ -452,8 +415,9 @@ def main(cfg):
     if cfg.use_wandb and wandb.run is None:
         # otherwise it was resumed
         workspace.setup_wandb()
-        print("STARTING TRAINING!")
-        workspace.train()
+    
+    print("STARTING TRAINING!")
+    workspace.train()
 
 if __name__ == "__main__":
     main()

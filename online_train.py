@@ -261,7 +261,7 @@ class Workspace:
         data = obs
         self.replay_storage.add(data, meta)
         
-        warmnup_profiler = 2490
+        warmnup_profiler = 2990
         profiler_active_for = 10
         
         # clean approch for having the posibility to choose if profiling or not the algorithm
@@ -321,7 +321,7 @@ class Workspace:
                     
                     # set target position for rewarding
                     if self.cfg.agent.train_target_reach:
-                        self.expl_area_update(self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
+                        utils.expl_area_update(self.agent, self.global_step, self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
                         self.agent.update_target() # update target in the agent based on the new exploration area 
                         self.train_env.set_target(self.agent.get_target()[0,0,0].detach().cpu().numpy().copy())  # visually set the target                  
                     
@@ -361,10 +361,10 @@ class Workspace:
                         if should_log_scalars(self.global_step):
                             self.logger.log_metrics(self.metrics, self.global_frame, ty="train")
                         if self.global_step > 0 and should_log_recon(self.global_step):
-                            videos, text = self.agent.report(next(self.replay_iter))
+                            videos, report_metrics = self.agent.report(next(self.replay_iter))
 
                             self.logger.log_video(videos, self.global_frame)
-                            self.logger.log_text(text, self.global_frame)
+                            self.logger.log_metrics(report_metrics, self.global_frame, ty="train")
 
                 # take env step
                 obs = self.train_env.step(action)
@@ -414,26 +414,6 @@ class Workspace:
         with snapshot.open("wb") as f:
             torch.save(payload, f)
 
-    def exp_func(self, x, modulation_factor):
-        init_low_bea = self.agent.init_lower_bound_expl_area 
-        init_up_bea = self.agent.init_upper_bound_expl_area
-        min_ea = self.agent.min_exploration_area
-        max_ea = self.agent.max_exploration_area
-        # clipping of lower and maximum values
-        lower_expl_area = np.clip((np.exp(x / modulation_factor) * init_low_bea), min_ea, max_ea)
-        upper_expl_area = np.clip((np.exp(x / modulation_factor) * init_up_bea), min_ea, max_ea)
-        return [lower_expl_area, upper_expl_area]
-
-    def expl_area_update(self, modulation_factor=10e6, curriculum_learning=True):        
-        if curriculum_learning:
-            new_exploration_area = self.exp_func(self.global_step, modulation_factor)
-        else:
-            # sample from full exploration area
-            new_exploration_area = [self.agent.min_exploration_area, self.agent.max_exploration_area]
-        
-        self.agent.set_exploration_area(new_exploration_area)
-        return new_exploration_area
-            
     def load_snapshot(self):
         try:
             snapshot = self.root_dir / "last_snapshot.pt"
@@ -476,36 +456,17 @@ class Workspace:
         snapshot = snapshot_dir
         return snapshot_dir
     
-    
 def toolkit_main(cfg, maindir, workdir):
     from online_train import Workspace as W
     root_dir = Path.cwd()
     cfg.use_tb = False
     maindir="/mnt/home/focus" # get_original_cwd() does not work in this contenxt 
-
     workspace = W(cfg, maindir, workdir)
-    workspace.root_dir = root_dir
-    snapshot = workspace.root_dir / 'last_snapshot.pt'
-    cfg.project_name = "_".join([cfg.agent.name, cfg.domain])
     
-    if snapshot.exists():
-        print(f'resuming: {snapshot}')
-        workspace.load_snapshot()
-    if cfg.use_wandb and wandb.run is None:
-        # otherwise it was resumed
-        workspace.setup_wandb()
-    workspace.train()
-
-@hydra.main(config_path="configs", config_name="train")
-def main(cfg):
-    from online_train import Workspace as W
-    root_dir = Path.cwd()
-
-    workspace = W(cfg, maindir=get_original_cwd())
     workspace.root_dir = root_dir
     print("ROOT DIR: ", root_dir)
     snapshot = workspace.root_dir / "last_snapshot.pt"
-    cfg.project_name = "_".join([cfg.project_name, cfg.domain])
+    cfg.project_name = "_".join(["online", cfg.agent.name, cfg.domain])
     
     if snapshot.exists():
         print(f"resuming: {snapshot}")
@@ -513,8 +474,30 @@ def main(cfg):
     if cfg.use_wandb and wandb.run is None:
         # otherwise it was resumed
         workspace.setup_wandb()
-        print("STARTING TRAINING!")
-        workspace.train()
+    
+    print("STARTING TRAINING!")
+    workspace.train()
+
+@hydra.main(config_path="configs", config_name="train")
+def main(cfg):
+    from online_train import Workspace as W
+    root_dir = Path.cwd()
+    workspace = W(cfg, maindir=get_original_cwd())
+    
+    workspace.root_dir = root_dir
+    print("ROOT DIR: ", root_dir)
+    snapshot = workspace.root_dir / "last_snapshot.pt"
+    cfg.project_name = "_".join(["online", cfg.project_name, cfg.domain])
+    
+    if snapshot.exists():
+        print(f"resuming: {snapshot}")
+        workspace.load_snapshot()
+    if cfg.use_wandb and wandb.run is None:
+        # otherwise it was resumed
+        workspace.setup_wandb()
+        
+    print("STARTING TRAINING!")
+    workspace.train()
 
 if __name__ == "__main__":
     main()

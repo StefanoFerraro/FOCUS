@@ -513,7 +513,7 @@ class Encoder(Module):
                 self._conv_model.append(
                     Conv(prev_depth, depth, kernel, stride=2)
                 )
-                self._conv_model.append(NormLayer(norm, depth))
+                self._conv_model.append(NormLayer("none", depth))
                 self._conv_model.append(self._act)
             self._conv_model = nn.Sequential(*self._conv_model)
 
@@ -630,20 +630,11 @@ class Decoder(Module):
                         "none",
                     )
 
-                # Code snippet for bilinear interpolation, removes checkboard artifacts, need better parametrization
-                # self.layer_size = (self.layer_size - 1) * 2 + (kernel - 1) + 1
-                # self._conv_model.append(
-                #     Interpolate((self.layer_size, self.layer_size), "bilinear")
-                # )
-                # self._conv_model.append(
-                #     nn.Conv2d(prev_depth, depth, kernel_size=5, padding=2)
-                # )
-
                 self._conv_model.append(
                     nn.ConvTranspose2d(prev_depth, depth, kernel, stride=2)
                 )
 
-                self._conv_model.append(NormLayer(norm, depth))
+                self._conv_model.append(NormLayer("none", depth))
                 self._conv_model.append(act)
 
             self._conv_model = nn.Sequential(*self._conv_model)
@@ -1255,6 +1246,7 @@ class DistLayer(Module):
         self._min_std = min_std
         self._init_std = init_std
         self._out = nn.Linear(in_dim, int(np.prod(shape)), bias=bias)
+        
         if dist in ("normal", "tanh_normal", "trunc_normal", "multivariat_normal"):
             self._std = nn.Sequential(
                 nn.Linear(in_dim, int(np.prod(shape))), nn.Softplus()

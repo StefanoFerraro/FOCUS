@@ -99,14 +99,14 @@ class DreamerAgent(Module):
 
     def task_reward_fn(self, seq):
         rw = self.wm.heads["reward"](seq["feat"]).mean
-        met = {"task_rw_mean": rw.mean(), "task_rw_svd": rw.std()}
+        met = {"task_rw_mean": rw.mean(), "task_rw_std": rw.std()}
         return rw, met
     
     def pos_reward_fn(self, seq):
         pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean
         # distance from current predicted position to the target
         squared_distance = torch.sum(((pos_pred - self._target_pos[0]) ** 2), dim=2)
-        met = {"task_rw_mean": - squared_distance.mean()}
+        met = {"task_rw_mean": - squared_distance.mean(), "task_rw_svd": squared_distance.std()}
         return - squared_distance.unsqueeze(-1).detach(), met # maximization of reward coincide with the minimization of the distance
 
     def update(self, data, step, **kwargs):
@@ -128,13 +128,18 @@ class DreamerAgent(Module):
 
     def report(self, data):
         report = {}
-        text = {}
+        metrics = {}
 
         data = self.wm.preprocess(data)
         for key in self.wm.heads["decoder"].cnn_keys:
             name = key.replace("/", "_")
             report[f"{name}"] = self.wm.video_pred(data, key, nvid=4)
-        return report, text
+        
+        if "objects_pos" in self.wm.heads["decoder"].mlp_keys:
+            metrics["NMAE_object_pos"] = self.wm.prediction_NMAE(data, "objects_pos", batch_size=10, head_key="decoder")
+        metrics["NMAE_reward"] = self.wm.prediction_NMAE(data, "reward", batch_size=10, head_key="reward")
+        
+        return report, metrics
 
     def get_meta_specs(self):
         return tuple()
@@ -570,6 +575,27 @@ class WorldModel(Module):
         video = torch.cat([truth, model, error], 3)
         B, T, C, H, W = video.shape
         return video
+    
+    def prediction_NMAE(self, data, key, batch_size=10, head_key="decoder"):
+        decoder = self.heads[head_key]  # B, T, C, H, W
+        truth = data[key][:batch_size]
+        embed = self.encoder(data)
+        states, _ = self.rssm.observe(
+            embed[:batch_size],
+            data["action"][:batch_size],
+            data["is_first"][:batch_size],
+        )
+        
+        feat = self.rssm.get_feat(states)
+        if head_key == "decoder":
+            pred = decoder(feat[:batch_size], only_mlp=True)["objects_pos"].mean
+            truth = truth.squeeze(-2)
+        else:
+            pred = decoder(feat[:batch_size]).mean            
+        
+        NMAE = torch.mean(torch.abs(pred - truth) / (torch.mean(torch.abs(truth)) + 1e-12))
+        return NMAE
+        
 
 class ActorCritic(Module):
     def __init__(self, config, act_spec, tfstep, name="default"):
