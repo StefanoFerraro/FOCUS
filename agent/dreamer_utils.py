@@ -191,7 +191,6 @@ def static_scan(fn, inputs, start, reverse=False, unpack=False):
         outputs = [outputs]
     return outputs
 
-
 class EnsembleRSSM(Module):
     def __init__(
         self,

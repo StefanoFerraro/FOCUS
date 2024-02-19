@@ -136,8 +136,8 @@ class DreamerAgent(Module):
             report[f"{name}"] = self.wm.video_pred(data, key, nvid=4)
         
         if "objects_pos" in self.wm.heads["decoder"].mlp_keys:
-            metrics["NMAE_object_pos"] = self.wm.prediction_NMAE(data, "objects_pos", batch_size=10, head_key="decoder")
-        metrics["NMAE_reward"] = self.wm.prediction_NMAE(data, "reward", batch_size=10, head_key="reward")
+            metrics.update(self.wm.prediction_errors(data, "objects_pos", batch_size=10, head_key="decoder"))
+        metrics.update(self.wm.prediction_errors(data, "reward", batch_size=10, head_key="reward"))
         
         return report, metrics
 
@@ -576,7 +576,7 @@ class WorldModel(Module):
         B, T, C, H, W = video.shape
         return video
     
-    def prediction_NMAE(self, data, key, batch_size=10, head_key="decoder"):
+    def prediction_errors(self, data, key, batch_size=10, head_key="decoder"):
         decoder = self.heads[head_key]  # B, T, C, H, W
         truth = data[key][:batch_size]
         embed = self.encoder(data)
@@ -593,8 +593,15 @@ class WorldModel(Module):
         else:
             pred = decoder(feat[:batch_size]).mean            
         
+        MSE = torch.mean((pred - truth) ** 2)
+        MAE = torch.mean(torch.abs(pred - truth))
         NMAE = torch.mean(torch.abs(pred - truth) / (torch.mean(torch.abs(truth)) + 1e-12))
-        return NMAE
+        exp_dist = torch.exp(-torch.linalg.norm(pred - truth))
+        exp_dist_norm = torch.exp(-torch.linalg.norm(pred - truth) / torch.linalg.norm(truth))
+        
+        output = {"MSE": MSE, "MAE": MAE, "NMAE": NMAE, "exp_dist": exp_dist, "exp_dist_norm": exp_dist_norm}
+        
+        return {f"{key}_{k}_error": v for k, v in output.items()}
         
 
 class ActorCritic(Module):

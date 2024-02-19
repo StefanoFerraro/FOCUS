@@ -363,6 +363,8 @@ exp_configs = {
         "task": ["reacher_hard", "reacher_easy"],
         "seed": [1,2,3],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|cnn_keys": "rgb",
+        "agent|world_model|decoder|cnn_keys": "rgb",
         "agent|reward_fn": ["task"],
     },  
     
@@ -400,6 +402,8 @@ exp_configs = {
         "agent|reward_fn": ["pos"],
         "agent|world_model|encoder|mlp_keys": "objects_pos",
         "agent|world_model|decoder|mlp_keys": "objects_pos",
+        "agent|world_model|encoder|cnn_keys": "rgb",
+        "agent|world_model|decoder|cnn_keys": "rgb",
     },  
     
     "online_reacher_online_benchmark_3_state_pretrain": {
