@@ -564,6 +564,3 @@ def expl_area_update(agent, global_step, modulation_factor=10e6, curriculum_lear
     
     agent.set_exploration_area(new_exploration_area)
     return new_exploration_area
-
-def NMSE(input: np.array, pred: np.array):
-    return ((input - pred) ** 2).mean() / (input ** 2).mean()

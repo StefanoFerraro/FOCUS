@@ -2,10 +2,10 @@ import torch.nn as nn
 import torch
 
 import utils
+from agent.utils import * 
 import agent.dreamer_utils as common
 from collections import OrderedDict
 import numpy as np
-import gym 
 
 def stop_gradient(x):
     return x.detach()
@@ -367,9 +367,9 @@ class WorldModel(Module):
         self.heads["decoder"] = common.Decoder(
             self.shapes, **self.cfg.decoder, embed_dim=self.inp_size
         )
-        self.heads["reward"] = common.MLP(self.inp_size, (1,), **self.cfg.reward_head)
+        self.heads["reward"] = MLP(self.inp_size, (1,), **self.cfg.reward_head)
         if self.cfg.pred_discount:
-            self.heads["discount"] = common.MLP(
+            self.heads["discount"] = MLP(
                 self.inp_size, (1,), **self.cfg.discount_head
             )
 
@@ -378,7 +378,7 @@ class WorldModel(Module):
             assert name in self.heads, name
         self.grad_heads = self.cfg.grad_heads
         self.heads = nn.ModuleDict(self.heads)
-        self.model_opt = common.Optimizer(
+        self.model_opt = Optimizer(
             "model",
             self.parameters(),
             **self.cfg.model_opt,
@@ -388,7 +388,7 @@ class WorldModel(Module):
             p.data.fill_(0.0)
 
     def update(self, data, state=None):
-        with common.RequiresGrad(self):
+        with RequiresGrad(self):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 model_loss, state, outputs, metrics = self.loss(data, state)
             metrics.update(self.model_opt(model_loss, self.parameters()))
@@ -603,7 +603,6 @@ class WorldModel(Module):
         
         return {f"{key}_{k}_error": v for k, v in output.items()}
         
-
 class ActorCritic(Module):
     def __init__(self, config, act_spec, tfstep, name="default"):
         super().__init__()
@@ -619,26 +618,26 @@ class ActorCritic(Module):
             inp_size += self.cfg.world_model.rssm.stoch * self.cfg.world_model.rssm.discrete
         else:
             inp_size += self.cfg.world_model.rssm.stoch
-        self.actor = common.MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
-        self.critic = common.MLP(inp_size, (1,), **self.cfg.critic)
+        self.actor = MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
+        self.critic = MLP(inp_size, (1,), **self.cfg.critic)
         if self.cfg.slow_target:
-            self._target_critic = common.MLP(inp_size, (1,), **self.cfg.critic)
+            self._target_critic = MLP(inp_size, (1,), **self.cfg.critic)
             self._updates = 0
         else:
             self._target_critic = self.critic
-        self.actor_opt = common.Optimizer(
+        self.actor_opt = Optimizer(
             f"{name}_actor",
             self.actor.parameters(),
             **self.cfg.actor_opt,
             use_amp=self._use_amp,
         )
-        self.critic_opt = common.Optimizer(
+        self.critic_opt = Optimizer(
             f"{name}_critic",
             self.critic.parameters(),
             **self.cfg.critic_opt,
             use_amp=self._use_amp,
         )
-        self.rewnorm = common.StreamNorm(**self.cfg.reward_norm, device=self.device)
+        self.rewnorm = StreamNorm(**self.cfg.reward_norm, device=self.device)
         for p in self.critic._out.parameters():
             p.data.fill_(0.0)
         for p in self._target_critic._out.parameters():
@@ -652,14 +651,14 @@ class ActorCritic(Module):
         # step onwards, which is the first imagined step. However, we are not
         # training the action that led into the first step anyway, so we can use
         # them to scale the whole sequence.
-        with common.RequiresGrad(self.actor):
+        with RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = world_model.imagine(self.actor, start, is_terminal, self.hor)
                 seq["reward"], mets1 = reward_fn(seq)
                 target, mets2 = self.target(seq)
                 actor_loss, mets3 = self.actor_loss(seq, target)
             metrics.update(self.actor_opt(actor_loss, self.actor.parameters()))
-        with common.RequiresGrad(self.critic):
+        with RequiresGrad(self.critic):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = {k: stop_gradient(v) for k, v in seq.items()}
                 critic_loss, mets4 = self.critic_loss(seq, target)

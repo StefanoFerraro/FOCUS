@@ -1,97 +1,18 @@
 import re
 import numpy as np
 
-import utils
 import torch.nn as nn
 import torch
 import torch.distributions as D
 import torch.nn.functional as F
+from agent.utils import *
 
-from torch.profiler import profile, record_function, ProfilerActivity
 from collections import defaultdict 
 
 # We thank the authors of the repo: https://github.com/jsikyoon/dreamer-torch
 # For their open source re-implementation, which was used as a reference to develop our code faster
 
 Module = nn.Module
-
-
-class SampleDist:
-    def __init__(self, dist: D.Distribution, samples=100):
-        self._dist = dist
-        self._samples = samples
-
-    @property
-    def name(self):
-        return "SampleDist"
-
-    def __getattr__(self, name):
-        return getattr(self._dist, name)
-
-    @property
-    def mean(self):
-        dist = self._dist.expand((self._samples, *self._dist.batch_shape))
-        sample = dist.rsample()
-        return torch.mean(sample, 0)
-
-    def mode(self):
-        dist = self._dist.expand((self._samples, *self._dist.batch_shape))
-        sample = dist.rsample()
-        logprob = dist.log_prob(sample)
-        batch_size = sample.size(1)
-        feature_size = sample.size(2)
-        indices = (
-            torch.argmax(logprob, dim=0)
-            .reshape(1, batch_size, 1)
-            .expand(1, batch_size, feature_size)
-        )
-        return torch.gather(sample, 0, indices).squeeze(0)
-
-    def entropy(self):
-        dist = self._dist.expand((self._samples, *self._dist.batch_shape))
-        sample = dist.rsample()
-        logprob = dist.log_prob(sample)
-        return -torch.mean(logprob, 0)
-
-    def sample(self):
-        return self._dist.rsample()
-
-
-class OneHotDist(D.OneHotCategorical):
-    def __init__(self, logits=None, probs=None):
-        super().__init__(logits=logits, probs=probs)
-
-    def mode(self):
-        _mode = F.one_hot(
-            torch.argmax(super().logits, axis=-1), super().logits.shape[-1]
-        )
-        return _mode.detach() + super().logits - super().logits.detach()
-
-    def sample(self, sample_shape=(), seed=None):
-        if seed is not None:
-            raise ValueError("need to check")
-        sample = super().sample(sample_shape)
-        probs = super().probs
-        while len(probs.shape) < len(sample.shape):
-            probs = probs[None]
-        sample += probs - probs.detach()  # ST-gradients
-        return sample
-
-
-class BernoulliDist(D.Bernoulli):
-    def __init__(self, logits=None, probs=None):
-        super().__init__(logits=logits, probs=probs)
-
-    def sample(self, sample_shape=(), seed=None):
-        if seed is not None:
-            raise ValueError("need to check")
-        sample = super().sample(sample_shape)
-        probs = super().probs
-        while len(probs.shape) < len(sample.shape):
-            probs = probs[None]
-        sample += probs - probs.detach()  # ST-gradients
-        return sample
-
 
 def static_scan_for_lambda_return(fn, inputs, start):
     last = start
@@ -107,7 +28,6 @@ def static_scan_for_lambda_return(fn, inputs, start):
         else:
             outputs = torch.cat([last, outputs], dim=0)
     return outputs
-
 
 def lambda_return(reward, value, pcont, bootstrap, lambda_, axis):
     # Setting lambda=1 gives a discounted Monte Carlo return.
@@ -136,7 +56,6 @@ def lambda_return(reward, value, pcont, bootstrap, lambda_, axis):
     if axis != 0:
         returns = returns.permute(dims)
     return returns
-
 
 def static_scan(fn, inputs, start, reverse=False, unpack=False):
     last = start
@@ -476,31 +395,28 @@ class Encoder(Module):
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
-        mlp_layers=[400, 400, 400, 400],
-        coordConv=False
+        mlp_layers=4,
+        mlp_units=400, 
+        coordConv=False,
+        symlog_inputs=False,
+        output_dist=False,
     ):
         super().__init__()
         self.shapes = shapes
-        self.cnn_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(cnn_keys, k)
-        ]
-        self.mlp_keys = [
-            k
-            for k, v in shapes.items()
-            if re.match(mlp_keys, k)
-        ]
+        self.cnn_keys = [k for k, v in shapes.items() if re.match(cnn_keys, k)]
+        self.mlp_keys = [k for k, v in shapes.items() if re.match(mlp_keys, k)]
 
         print("Encoder CNN inputs:", list(self.cnn_keys))
         print("Encoder MLP inputs:", list(self.mlp_keys))
-        self._act = getattr(nn, act)()
+        self._act = getattr(nn, act)
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
+        self._mlp_units = mlp_units
         Conv = CoordConv2d if coordConv else nn.Conv2d
-
+        
+        # CNN layers
         if len(self.cnn_keys) > 0:
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
@@ -513,20 +429,13 @@ class Encoder(Module):
                     Conv(prev_depth, depth, kernel, stride=2)
                 )
                 self._conv_model.append(NormLayer("none", depth))
-                self._conv_model.append(self._act)
+                self._conv_model.append(self._act())
             self._conv_model = nn.Sequential(*self._conv_model)
-
+       
+        # MLP layers
         if len(self.mlp_keys) > 0:
-            self._mlp_model = []
-            for i, width in enumerate(self._mlp_layers):
-                if i == 0:
-                    prev_width = np.sum([np.prod(shapes[k]) for k in self.mlp_keys])
-                else:
-                    prev_width = self._mlp_layers[i - 1]
-                self._mlp_model.append(nn.Linear(prev_width, width))
-                self._mlp_model.append(NormLayer(norm, width))
-                self._mlp_model.append(self._act)
-            self._mlp_model = nn.Sequential(*self._mlp_model)
+            self._mlp_in_shape = np.sum([np.prod(shapes[k]) for k in self.mlp_keys])
+            self._mlp_model = MLP(self._mlp_in_shape, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, output_dist=output_dist)
 
     def forward(self, data):
         key, shape = list(self.shapes.items())[0]
@@ -540,6 +449,7 @@ class Encoder(Module):
         if self.cnn_keys:
             outputs.append(self._cnn({k: data[k] for k in self.cnn_keys}))
         if self.mlp_keys:
+            # flattening of objects pos into a one dimensional tensor
             if "objects_pos" in self.mlp_keys: 
                 data["objects_pos"] = torch.flatten(data["objects_pos"], start_dim=1)
             outputs.append(self._mlp({k: data[k] for k in self.mlp_keys}))
@@ -552,22 +462,9 @@ class Encoder(Module):
         return x.reshape(tuple(x.shape[:-3]) + (-1,))
 
     def _mlp(self, data):
-        # if "objects_pos" in data.keys() and len(data["objects_pos"].shape) > 2:
-        #     data["objects_pos"] = data["objects_pos"][..., 0, :]
         x = torch.cat(list(data.values()), -1)
         x = self._mlp_model(x)
         return x
-
-
-class Interpolate(nn.Module):
-    def __init__(self, size, mode):
-        nn.Module.__init__(self)
-        self.size = size
-        self.mode = mode
-
-    def forward(self, x):
-        return F.interpolate(x, size=self.size, mode=self.mode)
-
 
 class Decoder(Module):
     def __init__(
@@ -579,8 +476,11 @@ class Decoder(Module):
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
-        mlp_layers=[400, 400, 400, 400],
+        mlp_layers=4,
+        mlp_units=400,
         embed_dim=1024,
+        symlog_inputs=False,
+        output_dist=False,
     ):
         super().__init__()
         self._embed_dim = embed_dim
@@ -598,11 +498,12 @@ class Decoder(Module):
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
 
-        self._act = getattr(nn, act)()
+        self._act = getattr(nn, act)
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
+        self._mlp_units = mlp_units
         self.channels = {k: self._shapes[k][0] for k in self.cnn_keys}
 
         if len(self.cnn_keys) > 0:
@@ -625,7 +526,7 @@ class Decoder(Module):
                 if i == len(self._cnn_kernels) - 1:
                     depth, act, norm = (
                         sum(self.channels.values()),
-                        nn.Identity(),
+                        nn.Identity,
                         "none",
                     )
 
@@ -634,23 +535,17 @@ class Decoder(Module):
                 )
 
                 self._conv_model.append(NormLayer("none", depth))
-                self._conv_model.append(act)
+                self._conv_model.append(act())
 
             self._conv_model = nn.Sequential(*self._conv_model)
 
+        # MLP layers
         if len(self.mlp_keys) > 0:
-            self._mlp_model = []
-            for i, width in enumerate(self._mlp_layers):
-                if i == 0:
-                    prev_width = embed_dim
-                else:
-                    prev_width = self._mlp_layers[i - 1]
-                self._mlp_model.append(nn.Linear(prev_width, width))
-                self._mlp_model.append(NormLayer(self._norm, width))
-                self._mlp_model.append(self._act)
-            self._mlp_model = nn.Sequential(*self._mlp_model)
+            self._mlp_model = MLP(embed_dim, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, output_dist=False)
+            
+            # ground 
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                self.add_module(f"dense_{key}", DistLayer(width, shape))
+                self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape))
 
     def forward(self, features, only_mlp=False):
         outputs = {}
@@ -692,10 +587,8 @@ class Decoder(Module):
         dists = {}
         for key, shape in shapes.items():
             lin = getattr(self, f"dense_{key}")
-            means = lin._out(x)
-
-            dists[key] = D.Normal(means, 1.0)
-            # dists[key] = getattr(self, f"dense_{key}")(x) # removed for debugging reasons
+            dists[key] = lin(x)
+            #TODO test out code that distributions are working as expected
         return dists
 
 class ObjEncoder(Module):
@@ -708,7 +601,8 @@ class ObjEncoder(Module):
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
-        mlp_layers=[400, 400, 400, 400],
+        mlp_layers=4,
+        mlp_units=400,
         distance_mode="mse",
     ):
         super().__init__()
@@ -727,7 +621,7 @@ class ObjEncoder(Module):
         print("Object Encoder CNN inputs:", list(self.cnn_keys))
         print("Object Encoder MLP inputs:", list(self.mlp_keys))
 
-        self._act = getattr(nn, act)()
+        self._act = getattr(nn, act)
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -755,7 +649,7 @@ class ObjEncoder(Module):
                     nn.Conv2d(prev_depth, depth, kernel, stride=2)
                 )
                 self._conv_model.append(NormLayer(norm, depth))
-                self._conv_model.append(self._act)
+                self._conv_model.append(self._act())
             self._conv_model = nn.Sequential(*self._conv_model)
             
         if len(self.mlp_keys) > 0:
@@ -776,7 +670,7 @@ class ObjEncoder(Module):
                 self._mlp_model.append(self._act)
             self._mlp_model.append(MultivariateNormal(width, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist))
             self._mlp_model = nn.Sequential(*self._mlp_model)
-            
+             
     def forward(self, poses):
         outputs = {}        
         obj_onehot = torch.eye(
@@ -790,19 +684,6 @@ class ObjEncoder(Module):
         if self.mlp_keys and poses != None:
             outputs["prior"] = self._mlp(poses, obj_onehot) 
         return outputs
-    
-    # @staticmethod
-    # def tile(a, dim, n_tile):
-    #     init_dim = a.size(dim)
-    #     repeat_idx = [1] * a.dim()
-    #     repeat_idx[dim] = n_tile
-    #     a = a.repeat(*(repeat_idx))
-    #     order_index = torch.tensor(
-    #         np.concatenate(
-    #             [init_dim * np.arange(n_tile) + i for i in range(init_dim)]
-    #         ), device=a.device
-    #     )
-    #     return torch.index_select(a, dim, order_index)
 
     def _cnn(self, features, obj_onehot, masks):
         raise NotImplementedError
@@ -827,8 +708,11 @@ class ObjDecoder(Module):
         norm="none",
         cnn_depth=48,
         cnn_kernels=(4, 4, 4, 4),
-        mlp_layers=[400, 400, 400, 400],
+        mlp_layers=4,
+        mlp_units=400,
         embed_dim=1024,
+        symlog_inputs=False,
+        output_dist=False,
         obj_extractor_cfg=None
     ):
         super().__init__()
@@ -848,7 +732,7 @@ class ObjDecoder(Module):
         print("Decoder CNN outputs:", list(self.cnn_keys))
         print("Decoder MLP outputs:", list(self.mlp_keys))
 
-        self._act = getattr(nn, act)()
+        self._act = getattr(nn, act)
         self._norm = norm
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
@@ -902,7 +786,7 @@ class ObjDecoder(Module):
                 if i == len(self._cnn_kernels) - 1:
                     depth, act, norm = (
                         sum(self.channels.values()),
-                        nn.Identity(),
+                        nn.Identity,
                         "none",
                     )
 
@@ -911,7 +795,7 @@ class ObjDecoder(Module):
                 )
 
                 self._conv_model.append(NormLayer(norm, depth))
-                self._conv_model.append(act)
+                self._conv_model.append(act())
 
             self._conv_model = nn.Sequential(*self._conv_model)
 
@@ -1057,520 +941,3 @@ class ObjDecoder(Module):
 
         return dists
     
-class MLP(Module):
-    def __init__(
-        self, in_shape, shape, layers, units, act=nn.ELU, norm="none", **out
-    ):
-        super().__init__()
-        self._in_shape = in_shape
-        self._shape = (shape,) if isinstance(shape, int) else shape
-        self._layers = layers
-        self._units = units
-        self._norm = norm
-        self._act = act()
-        self._out = out
-
-        last_units = in_shape
-        for index in range(self._layers):
-            self.add_module(f"dense{index}", nn.Linear(last_units, units))
-            self.add_module(f"norm{index}", NormLayer(norm, units))
-            last_units = units
-        self._out = DistLayer(units, shape, **out)
-
-    def forward(self, features):
-        x = features
-        x = x.reshape([-1, x.shape[-1]])
-        for index in range(self._layers):
-            x = getattr(self, f"dense{index}")(x)
-            x = getattr(self, f"norm{index}")(x)
-            x = self._act(x)
-        x = x.reshape(list(features.shape[:-1]) + [x.shape[-1]])
-        return self._out(x)
-
-class GRUCell(Module):
-    def __init__(
-        self,
-        inp_size,
-        size,
-        norm=False,
-        act=nn.Tanh,
-        update_bias=-1,
-        device="cuda",
-        **kwargs,
-    ):
-        super().__init__()
-        self._inp_size = inp_size
-        self._size = size
-        self._act = act()
-        self._norm = norm
-        self._update_bias = update_bias
-        self.device = device
-        self._layer = nn.Linear(
-            inp_size + size, 3 * size, bias=norm is not None, **kwargs
-        )
-        if norm:
-            self._norm = nn.LayerNorm(3 * size)
-
-    def get_initial_state(self, inputs=None, batch_size=None, dtype=None):
-        return torch.zeros((batch_size), self._size, device=self.device)
-
-    @property
-    def state_size(self):
-        return self._size
-
-    def forward(self, inputs, state):
-        state = state[0]  # State is wrapped in a list.
-        parts = self._layer(torch.cat([inputs, state], -1))
-        if self._norm:
-            parts = self._norm(parts)
-        reset, cand, update = torch.chunk(parts, 3, -1)
-        reset = torch.sigmoid(reset)
-        cand = self._act(reset * cand)
-        update = torch.sigmoid(update + self._update_bias)
-        output = update * cand + (1 - update) * state
-        return output, [output]
-
-class MultivariateNormal(Module):
-    def __init__(self, in_dim, out_dim, min_std=0.1, dist_mode=False):
-        super().__init__()
-        self._in_dim = in_dim
-        self._min_std = min_std
-        self._dist_mode = dist_mode
-        self._mean = nn.Linear(in_dim, out_dim, bias=True)
-        if dist_mode:
-            self._std = nn.Sequential(nn.Linear(in_dim, out_dim, bias=True), nn.Softplus())     
-
-    def forward(self, input):
-        state = {}
-        state["mean"] = self._mean(input)
-        dist = None
-        if self._dist_mode: 
-            state["std"] = self._std(input)
-            dist = self._get_dist(state)
-            state["sample"] = self.sample(dist)
-        else:
-            state["sample"] = state["mean"]
-        return state
-    
-    @staticmethod
-    def sample(dist, num_samples=1):
-        if num_samples==1:
-            return dist.rsample()
-        dist = dist.expand((num_samples, *dist.batch_shape))
-        sample = torch.mean(dist.rsample())
-        return sample 
-    
-    def _get_dist(self, state):
-        dist = D.Normal(state["mean"], state["std"])
-        dist =  D.Independent(dist, 1)
-        return dist     
-    
-    @staticmethod
-    def kl_loss(post, prior, balance):
-        def _get_dist(state):
-            dist = D.Normal(state["mean"], state["std"])
-            dist =  D.Independent(dist, 1)
-            return dist 
-
-        if 'std' not in post.keys() and 'std' not in prior.keys():
-            raise ValueError("Distance mode kl is available with distribution mode") 
-        kld = D.kl_divergence
-        sg = lambda x: {k: v.detach() for k, v in x.items()}
-        lhs, rhs = post, prior
-        dtype = post["mean"].dtype
-        device = post["mean"].device
-        free_tensor = torch.tensor([1], dtype=dtype, device=device)
-
-        value_lhs = kld(_get_dist(lhs), _get_dist(sg(rhs)))
-        value_rhs = kld(_get_dist(sg(lhs)), _get_dist(rhs))
-        loss_lhs = torch.maximum(value_lhs.mean(), free_tensor)
-        loss_rhs = torch.maximum(value_rhs.mean(), free_tensor)
-        loss = balance * loss_rhs + (1 - balance) * loss_lhs
-        return loss
-    
-    @staticmethod 
-    def mse_loss(post, prior, balance):
-        if 'std' in post.keys() and 'std' in prior.keys():
-            raise ValueError("Distance mode mse is not available with distribution mode") 
-
-        post = post["mean"]
-        prior = prior["mean"]
-        
-        prior_loss = torch.sum(
-            ((prior - post.detach()) ** 2), dim=-1
-        ).mean()
-        post_loss = torch.sum(((prior.detach() - post) ** 2), dim=-1
-        ).mean()
-        
-        loss = balance * prior_loss + (1 - balance) * post_loss
-        return loss
-    
-    @staticmethod 
-    def cosine_loss(post, prior, balance):
-        if 'std' in post.keys() and 'std' in prior.keys():
-            raise ValueError("Distance mode max_cosine is not available with distribution mode")         
-        post = post["mean"]
-        prior = prior["mean"]
-        
-        # cosine similarity dot(post, prior)/(norm(post)*norm(prior))
-        prior_loss = torch.einsum("ijkl,ijkl->ijk", (post.detach(), prior)) / (torch.norm(post.detach(), dim=-1) * torch.norm(prior, dim=-1) + 1e-8) # be sure that we are never dividing by 0
-        post_loss = torch.einsum("ijkl,ijkl->ijk", (post, prior.detach())) / (torch.norm(post, dim=-1) * torch.norm(prior.detach(), dim=-1) + 1e-8 )# be sure that we are never dividing by 0
-        
-        loss = balance * prior_loss.mean() + (1 - balance) * post_loss.mean()
-        
-        return -loss # 1 = max similarity | -1 = max dissimilarity
-    
-    
-    @staticmethod 
-    def max_cosine_loss(post, prior, balance):
-        if 'std' in post.keys() and 'std' in prior.keys():
-            raise ValueError("Distance mode cosine is not available with distribution mode") 
-                
-        post = post["mean"].detach()
-        prior = prior["mean"]
-        
-        norm = torch.max(torch.norm(post, dim=-1, keepdim=True), torch.norm(prior, dim=-1, keepdim=True)) + 1e-12
-        loss = torch.einsum("ijkl,ijkl->ijk", post / norm, prior / norm) # be sure that we are never dividing by 0
-        
-        return -loss.mean() # 1 = max similarity | -1 = max dissimilarity
-    
-class DistLayer(Module):
-    def __init__(
-        self, in_dim, shape, dist="mse", min_std=0.1, init_std=0.0, bias=True
-    ):
-        super().__init__()
-        self._in_dim = in_dim
-        self._shape = shape if type(shape) in [list, tuple] else [shape]
-        self._dist = dist
-        self._min_std = min_std
-        self._init_std = init_std
-        self._out = nn.Linear(in_dim, int(np.prod(shape)), bias=bias)
-        
-        if dist in ("normal", "tanh_normal", "trunc_normal", "multivariat_normal"):
-            self._std = nn.Sequential(
-                nn.Linear(in_dim, int(np.prod(shape))), nn.Softplus()
-            )
-
-    def forward(self, inputs):
-        out = self._out(inputs)
-        out = out.reshape(list(inputs.shape[:-1]) + list(self._shape))
-        if self._dist in ("normal", "tanh_normal", "trunc_normal"):
-            std = self._std(inputs)
-            std = std.reshape(list(inputs.shape[:-1]) + list(self._shape))
-        if self._dist == "mse":
-            _ones = torch.ones_like(out, device=out.device)
-            dist = D.Normal(out, _ones)
-            return D.Independent(dist, len(self._shape))
-        if self._dist == "normal":
-            dist = D.Normal(out, std)
-            return D.Independent(dist, len(self._shape))
-        if self._dist == "binary":
-            out = torch.sigmoid(out)
-            dist = BernoulliDist(out)
-            return D.Independent(dist, len(self._shape))
-        if self._dist == "tanh_normal":
-            mean = 5 * torch.tanh(out / 5)
-            std = F.softplus(std + self._init_std) + self._min_std
-            dist = utils.SquashedNormal(mean, std)
-            dist = D.Independent(dist, len(self._shape))
-            return SampleDist(dist)
-        if self._dist == "trunc_normal":
-            mean = torch.tanh(out)
-            std = 2 * torch.sigmoid((std + self._init_std) / 2) + self._min_std
-            dist = utils.TruncatedNormal(mean, std)
-            return D.Independent(dist, 1)
-        if self._dist == "onehot":
-            return OneHotDist(out)
-
-            
-        raise NotImplementedError(self._dist)
-
-
-class NormLayer(Module):
-    def __init__(self, name, dim=None):
-        super().__init__()
-        if name == "none":
-            self._layer = None
-        elif name == "layer":
-            assert dim != None
-            self._layer = nn.LayerNorm(dim)
-        else:
-            raise NotImplementedError(name)
-
-    def forward(self, features):
-        if self._layer is None:
-            return features
-        return self._layer(features)
-
-class ActLayer(Module):
-    def __init__(self, name):
-        super().__init__()
-        if name == "none":
-            self._act = None
-        elif name != "none":
-            self._act = getattr(nn, name)()
-        else:
-            raise NotImplementedError(name)
-
-    def forward(self, features):
-        if self._act is None:
-            return features
-        return self._act(features)
-
-class Optimizer:
-    def __init__(
-        self,
-        name,
-        parameters,
-        lr,
-        eps=1e-4,
-        clip=None,
-        wd=None,
-        opt="adam",
-        wd_pattern=r".*",
-        use_amp=False,
-    ):
-        assert 0 <= wd < 1
-        assert not clip or 1 <= clip
-        self._name = name
-        self._clip = clip
-        self._wd = wd
-        self._wd_pattern = wd_pattern
-        self._opt = {
-            "adam": lambda: torch.optim.Adam(parameters, lr, eps=eps),
-            "nadam": lambda: torch.optim.Nadam(parameters, lr, eps=eps),
-            "adamax": lambda: torch.optim.Adamax(parameters, lr, eps=eps),
-            "sgd": lambda: torch.optim.SGD(parameters, lr),
-            "momentum": lambda: torch.optim.SGD(lr, momentum=0.9),
-        }[opt]()
-        self._scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
-        self._once = True
-
-    def __call__(self, loss, params):
-        params = list(params)
-        assert len(loss.shape) == 0 or (
-            len(loss.shape) == 1 and loss.shape[0] == 1
-        ), (self._name, loss.shape)
-        metrics = {}
-
-        # Count parameters.
-        if self._once:
-            count = sum(p.numel() for p in params if p.requires_grad)
-            print(f"Found {count} {self._name} parameters.")
-            self._once = False
-
-        # Check loss.
-        metrics[f"{self._name}_loss"] = loss.detach().cpu().numpy()
-
-        # Compute scaled gradient.
-        self._scaler.scale(loss).backward()
-        self._scaler.unscale_(self._opt)
-
-        # Gradient clipping.
-        if self._clip:
-            norm = torch.nn.utils.clip_grad_norm_(params, self._clip)
-            metrics[f"{self._name}_grad_norm"] = norm.item()
-
-        # Weight decay.
-        if self._wd:
-            self._apply_weight_decay(params)
-
-        # # Apply gradients.
-        self._scaler.step(self._opt)
-        self._scaler.update()
-
-        self._opt.zero_grad()
-        return metrics
-
-    def _apply_weight_decay(self, varibs):
-        nontrivial = self._wd_pattern != r".*"
-        if nontrivial:
-            raise NotImplementedError("Non trivial weight decay")
-        else:
-            for var in varibs:
-                var.data = (1 - self._wd) * var.data
-
-
-class StreamNorm:
-    def __init__(
-        self, shape=(), momentum=0.99, scale=1.0, eps=1e-8, device="cuda"
-    ):
-        # Momentum of 0 normalizes only based on the current batch.
-        # Momentum of 1 disables normalization.
-
-        self.device = device
-        self._shape = tuple(shape)
-        self._momentum = momentum
-        self._scale = scale
-        self._eps = eps
-        self.mag = torch.ones(shape, device=self.device)
-
-    def __call__(self, inputs):
-        metrics = {}
-        self.update(inputs)
-        metrics["mean"] = inputs.mean()
-        metrics["std"] = inputs.std()
-        outputs = self.transform(inputs)
-        metrics["normed_mean"] = outputs.mean()
-        metrics["normed_std"] = outputs.std()
-        return outputs, metrics
-
-    def reset(self):
-        self.mag = torch.ones_like(self.mag, device=self.device)
-
-    def update(self, inputs):
-        batch = inputs.reshape((-1,) + self._shape)
-        mag = torch.abs(batch).mean(0)
-        self.mag.data = (
-            self._momentum * self.mag.data + (1 - self._momentum) * mag
-        )
-
-    def transform(self, inputs):
-        values = inputs.reshape((-1,) + self._shape)
-        values /= self.mag[None] + self._eps
-        values *= self._scale
-        return values.reshape(inputs.shape)
-
-
-class RequiresGrad:
-    def __init__(self, model):
-        self._model = model
-
-    def __enter__(self):
-        self._model.requires_grad_(requires_grad=True)
-
-    def __exit__(self, *args):
-        self._model.requires_grad_(requires_grad=False)
-
-class AddCoords(nn.Module):
-    def __init__(self, rank, with_r=False, use_cuda=True):
-        super(AddCoords, self).__init__()
-        self.rank = rank
-        self.with_r = with_r
-        self.use_cuda = use_cuda
-
-    def forward(self, input_tensor):
-        """
-        :param input_tensor: shape (N, C_in, H, W)
-        :return:
-        """
-        if self.rank == 1:
-            batch_size_shape, channel_in_shape, dim_x = input_tensor.shape
-            xx_range = torch.arange(dim_x, dtype=torch.int32)
-            xx_channel = xx_range[None, None, :]
-
-            xx_channel = xx_channel.float() / (dim_x - 1)
-            xx_channel = xx_channel * 2 - 1
-            xx_channel = xx_channel.repeat(batch_size_shape, 1, 1)
-
-            if torch.cuda.is_available and self.use_cuda:
-                input_tensor = input_tensor.cuda()
-                xx_channel = xx_channel.cuda()
-            out = torch.cat([input_tensor, xx_channel], dim=1)
-
-            if self.with_r:
-                rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2))
-                out = torch.cat([out, rr], dim=1)
-
-        elif self.rank == 2:
-            batch_size_shape, channel_in_shape, dim_y, dim_x = input_tensor.shape
-            xx_ones = torch.ones([1, 1, 1, dim_x], dtype=torch.int32)
-            yy_ones = torch.ones([1, 1, 1, dim_y], dtype=torch.int32)
-
-            xx_range = torch.arange(dim_y, dtype=torch.int32)
-            yy_range = torch.arange(dim_x, dtype=torch.int32)
-            xx_range = xx_range[None, None, :, None]
-            yy_range = yy_range[None, None, :, None]
-
-            xx_channel = torch.matmul(xx_range, xx_ones)
-            yy_channel = torch.matmul(yy_range, yy_ones)
-
-            # transpose y
-            yy_channel = yy_channel.permute(0, 1, 3, 2)
-
-            xx_channel = xx_channel.float() / (dim_y - 1)
-            yy_channel = yy_channel.float() / (dim_x - 1)
-
-            xx_channel = xx_channel * 2 - 1
-            yy_channel = yy_channel * 2 - 1
-
-            xx_channel = xx_channel.repeat(batch_size_shape, 1, 1, 1)
-            yy_channel = yy_channel.repeat(batch_size_shape, 1, 1, 1)
-
-            if torch.cuda.is_available and self.use_cuda:
-                input_tensor = input_tensor.cuda()
-                xx_channel = xx_channel.cuda()
-                yy_channel = yy_channel.cuda()
-            out = torch.cat([input_tensor, xx_channel, yy_channel], dim=1)
-
-            if self.with_r:
-                rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2) + torch.pow(yy_channel - 0.5, 2))
-                out = torch.cat([out, rr], dim=1)
-
-        elif self.rank == 3:
-            batch_size_shape, channel_in_shape, dim_z, dim_y, dim_x = input_tensor.shape
-            xx_ones = torch.ones([1, 1, 1, 1, dim_x], dtype=torch.int32)
-            yy_ones = torch.ones([1, 1, 1, 1, dim_y], dtype=torch.int32)
-            zz_ones = torch.ones([1, 1, 1, 1, dim_z], dtype=torch.int32)
-
-            xy_range = torch.arange(dim_y, dtype=torch.int32)
-            xy_range = xy_range[None, None, None, :, None]
-
-            yz_range = torch.arange(dim_z, dtype=torch.int32)
-            yz_range = yz_range[None, None, None, :, None]
-
-            zx_range = torch.arange(dim_x, dtype=torch.int32)
-            zx_range = zx_range[None, None, None, :, None]
-
-            xy_channel = torch.matmul(xy_range, xx_ones)
-            xx_channel = torch.cat([xy_channel + i for i in range(dim_z)], dim=2)
-            xx_channel = xx_channel.repeat(batch_size_shape, 1, 1, 1, 1)
-
-            yz_channel = torch.matmul(yz_range, yy_ones)
-            yz_channel = yz_channel.permute(0, 1, 3, 4, 2)
-            yy_channel = torch.cat([yz_channel + i for i in range(dim_x)], dim=4)
-            yy_channel = yy_channel.repeat(batch_size_shape, 1, 1, 1, 1)
-
-            zx_channel = torch.matmul(zx_range, zz_ones)
-            zx_channel = zx_channel.permute(0, 1, 4, 2, 3)
-            zz_channel = torch.cat([zx_channel + i for i in range(dim_y)], dim=3)
-            zz_channel = zz_channel.repeat(batch_size_shape, 1, 1, 1, 1)
-
-            if torch.cuda.is_available and self.use_cuda:
-                input_tensor = input_tensor.cuda()
-                xx_channel = xx_channel.cuda()
-                yy_channel = yy_channel.cuda()
-                zz_channel = zz_channel.cuda()
-            out = torch.cat([input_tensor, xx_channel, yy_channel, zz_channel], dim=1)
-
-            if self.with_r:
-                rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2) +
-                                torch.pow(yy_channel - 0.5, 2) +
-                                torch.pow(zz_channel - 0.5, 2))
-                out = torch.cat([out, rr], dim=1)
-        else:
-            raise NotImplementedError
-
-        return out
-
-
-class CoordConv2d(nn.Conv2d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True, with_r=False, use_cuda=True):
-        super(CoordConv2d, self).__init__(in_channels, out_channels, kernel_size,
-                                          stride, padding, dilation, groups, bias)
-        self.rank = 2
-        self.addcoords = AddCoords(self.rank, with_r, use_cuda=use_cuda)
-        self.conv = nn.Conv2d(in_channels + self.rank + int(with_r), out_channels,
-                              kernel_size, stride, padding, dilation, groups, bias)
-
-    def forward(self, input_tensor):
-        """
-        input_tensor_shape: (N, C_in,H,W)
-        output_tensor_shape: N,C_out,H_out,W_out）
-        :return: CoordConv2d Result
-        """
-        out = self.addcoords(input_tensor)
-        out = self.conv(out)
-
-        return out

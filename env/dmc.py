@@ -34,7 +34,7 @@ class DMCSuite(BaseEnv):
         task="recher_hard",
         part="hand",
         seed=0,
-        action_repeat=1,
+        action_repeat=2,
     ):
         
         super().__init__(env_config, task, part, seed, action_repeat)
