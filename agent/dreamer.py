@@ -589,7 +589,6 @@ class WorldModel(Module):
         feat = self.rssm.get_feat(states)
         if head_key == "decoder":
             pred = decoder(feat[:batch_size], only_mlp=True)["objects_pos"].mean
-            truth = truth.squeeze(-2)
         else:
             pred = decoder(feat[:batch_size]).mean            
         

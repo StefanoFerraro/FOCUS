@@ -136,8 +136,12 @@ class SampleDist:
         logprob = dist.log_prob(sample)
         return -torch.mean(logprob, 0)
 
-    def sample(self):
-        return self._dist.rsample()
+    def sample(self, num_samples=1):
+        if num_samples==1:
+            return self._dist.rsample()
+        dist = dist.expand((num_samples, *self._dist.batch_shape))
+        sample = torch.mean(self._dist.rsample())
+        return sample 
 
 class OneHotDist(D.OneHotCategorical):
     def __init__(self, logits=None, probs=None):
@@ -174,14 +178,6 @@ class BernoulliDist(D.Bernoulli):
         return sample
 
 class MultivariateNormal(Module):
-    def __init__(self, in_dim, out_dim, min_std=0.1, dist_mode=False):
-        super().__init__()
-        self._in_dim = in_dim
-        self._min_std = min_std
-        self._dist_mode = dist_mode
-        self._mean = nn.Linear(in_dim, out_dim, bias=True)
-        if dist_mode:
-            self._std = nn.Sequential(nn.Linear(in_dim, out_dim, bias=True), nn.Softplus())     
 
     def forward(self, input):
         state = {}
@@ -278,6 +274,7 @@ class MultivariateNormal(Module):
         return -loss.mean() # 1 = max similarity | -1 = max dissimilarity
 
 class DiscDist:
+# We thanks the authors of the original implementation https://github.com/NM512/dreamerv3-torch/blob/2c7a81a0e2f5f0c7659ba73b0ddbedf2a7e2ecf4/tools.py
     def __init__(
         self,
         logits,
@@ -334,6 +331,7 @@ class DiscDist:
         return (target * log_pred).sum(-1)
     
 class SymlogDist:
+# We thanks the authors of the original implementation https://github.com/NM512/dreamerv3-torch/blob/2c7a81a0e2f5f0c7659ba73b0ddbedf2a7e2ecf4/tools.py
     def __init__(self, mode, dist="mse", agg="sum", tol=1e-8):
         self._mode = mode
         self._dist = dist
@@ -364,27 +362,29 @@ class SymlogDist:
             raise NotImplementedError(self._agg)
         return -loss
 
+
 class DistLayer(Module):
     def __init__(
-        self, in_dim, shape, dist="mse", min_std=0.1, init_std=0.0, bias=True
-    ):
+        self, in_dim, out_dim, dist="mse", min_std=0.1, init_std=0.0, bias=True):
         super().__init__()
         self._in_dim = in_dim
-        self._shape = shape if type(shape) in [list, tuple] else [shape]
+        self._shape = out_dim if type(out_dim) in [list, tuple] else [out_dim]
         self._dist = dist
         self._min_std = min_std
         self._init_std = init_std
-        self._out = nn.Linear(in_dim, int(np.prod(shape)), bias=bias)
+        self._out = nn.Linear(in_dim, int(np.prod(out_dim)), bias=bias)
         
-        if dist in ("normal", "tanh_normal", "trunc_normal", "multivariat_normal"):
+        if dist in ("normal", "tanh_normal", "trunc_normal", "multivariate_normal"):
             self._std = nn.Sequential(
-                nn.Linear(in_dim, int(np.prod(shape))), nn.Softplus()
+                nn.Linear(in_dim, int(np.prod(out_dim))), nn.Softplus()
             )
             
     def forward(self, inputs):
         out = self._out(inputs)
         out = out.reshape(list(inputs.shape[:-1]) + list(self._shape))
-        if self._dist in ("normal", "tanh_normal", "trunc_normal"):
+        if self._dist in ["none", None]: # no distribution
+            return out
+        if self._dist in ("normal", "tanh_normal", "trunc_normal", "multivariate_normal"):
             std = self._std(inputs)
             std = std.reshape(list(inputs.shape[:-1]) + list(self._shape))
         if self._dist == "mse":
@@ -392,6 +392,9 @@ class DistLayer(Module):
             dist = D.Normal(out, _ones)
             return D.Independent(dist, len(self._shape))
         if self._dist == "normal":
+            dist = D.Normal(out, std)
+            return D.Independent(dist, len(self._shape))
+        if self._dist == "multivariate_normal": # same as normal definition we assume that the covariance is a diagonal matrix, indipendernce between dimensions
             dist = D.Normal(out, std)
             return D.Independent(dist, len(self._shape))
         if self._dist == "binary":
@@ -415,22 +418,24 @@ class DistLayer(Module):
             return DiscDist(logits=out, device=self._device)
         if self._dist == "symlog_mse":
             return SymlogDist(out)
-            
+                
         raise NotImplementedError(self._dist)
 
 ### NN_LAYERS ###
 
 class MLP(Module):
     def __init__(
-        self, in_shape, shape, layers, units, act=nn.ELU, norm="none", symlog_inputs=False, output_dist=True, **out
+        self, in_shape, out_shape, layers, units, act=nn.ELU, norm="none", symlog_inputs=False, **out
     ):
         super().__init__()
         self._layers = layers
         self._norm = norm
+        if type(act) is str:
+            act = getattr(nn, act)
         self._act = act()
         self._out = out
-        self._out_dist = nn.Identity()
         self._symlog_inputs = symlog_inputs
+        self._out_dist = nn.Identity()
 
         last_units = in_shape
         self._out  = nn.Sequential()
@@ -440,8 +445,8 @@ class MLP(Module):
             self._out.add_module(f"act{index}", self._act)
             last_units = units
         
-        if output_dist:
-            self._out_dist = DistLayer(units, shape, **out)
+        if out_shape is not None: # In case system distribution is handled outside the method
+            self._out_dist = DistLayer(units, out_shape, **out)
 
     def forward(self, features):
         x = features
@@ -451,6 +456,19 @@ class MLP(Module):
         x = self._out(x)
         x = x.reshape(list(features.shape[:-1]) + [x.shape[-1]])
         return self._out_dist(x)
+    
+    @staticmethod
+    def compose_output(input):
+        out = {}
+        # in case of distribution, need to sample
+        if type(input) != torch.tensor:
+            out["dist"] = input
+            out["mean"] = input.mean
+            out["sample"] = SampleDist(input).sample()
+        else:
+            out["mean"] = input
+            out["sample"] = input
+        return out
 
 class GRUCell(Module):
     def __init__(

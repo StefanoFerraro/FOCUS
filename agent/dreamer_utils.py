@@ -399,7 +399,6 @@ class Encoder(Module):
         mlp_units=400, 
         coordConv=False,
         symlog_inputs=False,
-        output_dist=False,
     ):
         super().__init__()
         self.shapes = shapes
@@ -435,7 +434,8 @@ class Encoder(Module):
         # MLP layers
         if len(self.mlp_keys) > 0:
             self._mlp_in_shape = np.sum([np.prod(shapes[k]) for k in self.mlp_keys])
-            self._mlp_model = MLP(self._mlp_in_shape, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, output_dist=output_dist)
+            dist_cfg = {"dist": "none"}
+            self._mlp_model = MLP(self._mlp_in_shape, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
 
     def forward(self, data):
         key, shape = list(self.shapes.items())[0]
@@ -480,7 +480,6 @@ class Decoder(Module):
         mlp_units=400,
         embed_dim=1024,
         symlog_inputs=False,
-        output_dist=False,
     ):
         super().__init__()
         self._embed_dim = embed_dim
@@ -541,9 +540,10 @@ class Decoder(Module):
 
         # MLP layers
         if len(self.mlp_keys) > 0:
-            self._mlp_model = MLP(embed_dim, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, output_dist=False)
+            dist_cfg = {"dist": "none"} 
+            self._mlp_model = MLP(embed_dim, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
             
-            # ground 
+            # get distrbutions out of the MLP to divide for the different keys
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
                 self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape))
 
@@ -588,13 +588,11 @@ class Decoder(Module):
         for key, shape in shapes.items():
             lin = getattr(self, f"dense_{key}")
             dists[key] = lin(x)
-            #TODO test out code that distributions are working as expected
         return dists
 
 class ObjEncoder(Module):
     def __init__(self,
         shapes,
-        obj_latent_as_dist,
         cnn_keys=r".*",
         mlp_keys=r".*",
         act="ELU",
@@ -604,6 +602,7 @@ class ObjEncoder(Module):
         mlp_layers=4,
         mlp_units=400,
         distance_mode="mse",
+        symlog_inputs=False
     ):
         super().__init__()
         self._shapes = {**shapes}
@@ -626,6 +625,7 @@ class ObjEncoder(Module):
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
+        self._mlp_units = mlp_units
 
         self.instances_dim = (
             shapes["segmentation"][0]  # this didn't got modified above
@@ -653,23 +653,11 @@ class ObjEncoder(Module):
             self._conv_model = nn.Sequential(*self._conv_model)
             
         if len(self.mlp_keys) > 0:
-            self._mlp_model = []
-            for i, width in enumerate(self._mlp_layers):
-                if i == 0:
-                    # prev_width = np.prod(*[shapes[k] for k in self.mlp_keys])
-                    prev_width = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
-                else:
-                    prev_width = self._mlp_layers[i - 1]
-                
-                # if i == len(self._mlp_layers) - 1: # condition to match the output to the number of encoded states + distribution output
-                    # width = 32 * self._cnn_depth
-                
-                self._mlp_model.append(nn.Linear(prev_width, width))
-                self._mlp_model.append(NormLayer(self._norm, width))
-                # if i != len(self._mlp_layers) - 1: # no activation for last layer (comment out for not mse approach)
-                self._mlp_model.append(self._act)
-            self._mlp_model.append(MultivariateNormal(width, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist))
-            self._mlp_model = nn.Sequential(*self._mlp_model)
+            self._mlp_in_shape = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
+            dist_cfg = {"dist": "multivariate_normal"}
+            self._mlp_model = MLP(self._mlp_in_shape, 32 * self._cnn_depth, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
+
+            # self._mlp_model.add_module(f"multivariate_normal_dist", (MultivariateNormal(self._mlp_units, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist)))
              
     def forward(self, poses):
         outputs = {}        
@@ -695,7 +683,8 @@ class ObjEncoder(Module):
         input.append(torch.cat((poses[..., 0, :], obj_feat), dim=-1))
 
         input = torch.stack(input, dim=2)
-        prior = self._mlp_model(input)
+        prior = self._mlp_model.compose_output(self._mlp_model(input))
+    
         return prior
 
 class ObjDecoder(Module):
@@ -712,7 +701,6 @@ class ObjDecoder(Module):
         mlp_units=400,
         embed_dim=1024,
         symlog_inputs=False,
-        output_dist=False,
         obj_extractor_cfg=None
     ):
         super().__init__()
@@ -737,6 +725,7 @@ class ObjDecoder(Module):
         self._cnn_depth = cnn_depth
         self._cnn_kernels = cnn_kernels
         self._mlp_layers = mlp_layers
+        self._mlp_units = mlp_units
 
         self.instances_dim = (
             shapes["segmentation"][0]  # this didn't got modified above
@@ -756,22 +745,11 @@ class ObjDecoder(Module):
             self.tile_tensors[key]  = torch.cat([init_dim * torch.arange(n_tile) + i for i in range(init_dim)]).cuda()
             
         if obj_extractor_cfg:
-            self._object_extractor = []
-            for i, width in enumerate(obj_extractor_cfg.mlp_layers):
-                if i == 0:
-                    prev_width = embed_dim + self.instances_dim
-                else:
-                    prev_width = obj_extractor_cfg.mlp_layers[i - 1] 
-                
-                self._object_extractor.append(nn.Linear(prev_width, width))
-                self._object_extractor.append(NormLayer(obj_extractor_cfg.norm, width))
-                self._object_extractor.append(ActLayer(obj_extractor_cfg.act))                
-            self._object_extractor.append(MultivariateNormal(512, 32 * self._cnn_depth, dist_mode=obj_extractor_cfg.obj_latent_as_dist))
+            starting_width = embed_dim + self.instances_dim
+            out_shape = 32 * self._cnn_depth
+            self._object_extractor = MLP(starting_width, out_shape, **obj_extractor_cfg)
             
-            self._object_extractor = nn.Sequential(*self._object_extractor)
-
         if len(self.cnn_keys) > 0:
-
             self._conv_model = []
             for i, kernel in enumerate(self._cnn_kernels):
                 if i == 0:
@@ -800,19 +778,13 @@ class ObjDecoder(Module):
             self._conv_model = nn.Sequential(*self._conv_model)
 
         if len(self.mlp_keys) > 0:
-            self._mlp_model = []
-            for i, width in enumerate(self._mlp_layers):
-                if i == 0:
-                    prev_width = 32 * self._cnn_depth
-                else:
-                    prev_width = self._mlp_layers[i - 1]
-                self._mlp_model.append(nn.Linear(prev_width, width))
-                self._mlp_model.append(NormLayer(self._norm, width))
-                self._mlp_model.append(self._act)
-
-            self._mlp_model = nn.Sequential(*self._mlp_model)
+            self._mlp_in_shape = 32 * self._cnn_depth
+            dist_cfg = {"dist": "none"}
+            self._mlp_model = MLP(self._mlp_in_shape, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
+            
+            # get distrbutions out of the MLP to divide for the different keys
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                self.add_module(f"dense_{key}", DistLayer(width, shape[1]))     
+                self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape[1]))     
 
     def forward(self, features, masks=None, only_mlp=False):
         outputs = {}
@@ -883,7 +855,6 @@ class ObjDecoder(Module):
                     OneHotDist(mean), 2
                 )  # output is a binary mask
             else:
-                # with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
                 mean = torch.reshape(mean,
                     (*features.shape[:2],
                     self.instances_dim * self.channels[key],
@@ -903,10 +874,7 @@ class ObjDecoder(Module):
                     *mean.shape[-2:])
                 )
                 
-                # ones = torch.ones_like(mean, device=mean.device)
-                
                 dists[key] = D.Independent(D.Normal(mean, torch.tensor(1.0, device="cuda:0", dtype=torch.float32)), 3) #TODO cause 30ms slow down everytime it is called
-                # prof.export_chrome_trace(f"/mnt/home/focus/log/skill_focus/{time.time()}.json")
         return dists
 
     def _object_latent_extractor(self, features, obj_onehot, instances=None):
@@ -918,9 +886,10 @@ class ObjDecoder(Module):
             # concatenate corresponding (index i) one-hot encoding of instance to the full embedding
             obj_feat = obj_onehot[..., i, :]
             feat.append(torch.cat((features, obj_feat), dim=-1))
+        
         feat = torch.stack(feat, dim=2)
 
-        extracted_feat = self._object_extractor(feat)
+        extracted_feat = self._object_extractor.compose_output(self._object_extractor(feat))
 
         return extracted_feat, feat
 
@@ -939,5 +908,4 @@ class ObjDecoder(Module):
             lin = getattr(self, f"dense_{key}")
             dists[key] = lin(x)
 
-        return dists
-    
+        return dists    

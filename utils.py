@@ -419,7 +419,8 @@ def TSNE_analysis(self):
             deter_feat.append(d_f.cpu().numpy()[0])
             
             if self.agent.name == "skill_focus":
-                o_f = self.agent.wm.heads["object_decoder"].object_latent_extractor(s_f)["post"]["mean"]
+                f_i = s_f if not self.cfg.agent.world_model.rssm.full_posterior else self.agent.wm.rssm.get_feat(agent_state[0]).unsqueeze(0)
+                o_f = self.agent.wm.heads["object_decoder"].object_latent_extractor(f_i)["post"]["mean"]
                 obj_feat.append(o_f.cpu().numpy()[0])
             step += 1
     
