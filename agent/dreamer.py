@@ -103,7 +103,7 @@ class DreamerAgent(Module):
         return rw, met
     
     def pos_reward_fn(self, seq):
-        pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean
+        pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean.squeeze(-2)
         # distance from current predicted position to the target
         squared_distance = torch.sum(((pos_pred - self._target_pos[0]) ** 2), dim=2)
         met = {"task_rw_mean": - squared_distance.mean(), "task_rw_svd": squared_distance.std()}

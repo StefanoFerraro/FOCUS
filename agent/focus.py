@@ -407,7 +407,7 @@ class OCWorldModel(WorldModel):
             obj_states["post"] = {k: v[:,:,0].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
             
             # loss type determined by distance_mode
-            loss_fn = getattr(common.MultivariateNormal, f"{self.object_encoder.distance_mode}_loss")  
+            loss_fn = getattr(common.DistLosses, f"{self.object_encoder.distance_mode}_loss")  
             # loss_fn = common.MultivariateNormal.kl_loss if not self.cfg.object_encoder.mse_mode  else common.MultivariateNormal.mse_loss
             losses["pose_prior"] = loss_fn(obj_states["post"], obj_states["prior"], self.cfg.objEnc_MSE_ratio)
 

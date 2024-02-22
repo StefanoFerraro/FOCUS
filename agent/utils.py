@@ -177,33 +177,7 @@ class BernoulliDist(D.Bernoulli):
         sample += probs - probs.detach()  # ST-gradients
         return sample
 
-class MultivariateNormal(Module):
-
-    def forward(self, input):
-        state = {}
-        state["mean"] = self._mean(input)
-        dist = None
-        if self._dist_mode: 
-            state["std"] = self._std(input)
-            dist = self._get_dist(state)
-            state["sample"] = self.sample(dist)
-        else:
-            state["sample"] = state["mean"]
-        return state
-    
-    @staticmethod
-    def sample(dist, num_samples=1):
-        if num_samples==1:
-            return dist.rsample()
-        dist = dist.expand((num_samples, *dist.batch_shape))
-        sample = torch.mean(dist.rsample())
-        return sample 
-    
-    def _get_dist(self, state):
-        dist = D.Normal(state["mean"], state["std"])
-        dist =  D.Independent(dist, 1)
-        return dist     
-    
+class DistLosses(Module):      
     @staticmethod
     def kl_loss(post, prior, balance):
         def _get_dist(state):

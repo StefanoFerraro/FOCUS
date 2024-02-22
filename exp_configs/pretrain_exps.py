@@ -365,7 +365,10 @@ exp_configs = {
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "agent|world_model|encoder|cnn_keys": "rgb",
         "agent|world_model|decoder|cnn_keys": "rgb",
+        "agent|world_model|encoder|symlog_inputs": False,
+        "agent|world_model|decoder|symlog_inputs": False,
         "agent|reward_fn": ["task"],
+        
     },  
     
     "online_reacher_benchmark_1_state_pretrain": {
