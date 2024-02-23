@@ -336,7 +336,6 @@ class SymlogDist:
             raise NotImplementedError(self._agg)
         return -loss
 
-
 class DistLayer(Module):
     def __init__(
         self, in_dim, out_dim, dist="mse", min_std=0.1, init_std=0.0, bias=True):

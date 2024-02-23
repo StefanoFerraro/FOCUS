@@ -24,7 +24,7 @@ target_modulator: 500000
 
 # mode
 obs_type: pixels
-action_repeat: 2 
+action_repeat: 2
 reward_free: true
 is_finetune: false
 precision: 16
