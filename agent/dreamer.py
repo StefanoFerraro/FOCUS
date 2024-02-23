@@ -131,14 +131,15 @@ class DreamerAgent(Module):
         metrics = {}
 
         data = self.wm.preprocess(data)
-        for key in self.wm.heads["decoder"].cnn_keys:
-            name = key.replace("/", "_")
-            report[f"{name}"] = self.wm.video_pred(data, key, nvid=4)
-        
-        if "objects_pos" in self.wm.heads["decoder"].mlp_keys:
-            metrics.update(self.wm.prediction_errors(data, "objects_pos", batch_size=10, head_key="decoder"))
-        metrics.update(self.wm.prediction_errors(data, "reward", batch_size=10, head_key="reward"))
-        
+        with torch.no_grad():
+            for key in self.wm.heads["decoder"].cnn_keys:
+                name = key.replace("/", "_")
+                report[f"{name}"] = self.wm.video_pred(data, key, nvid=4)
+            
+            if "objects_pos" in self.wm.heads["decoder"].mlp_keys:
+                metrics.update(self.wm.prediction_errors(data, "objects_pos", batch_size=10, head_key="decoder"))
+            metrics.update(self.wm.prediction_errors(data, "reward", batch_size=10, head_key="reward"))
+            
         return report, metrics
 
     def get_meta_specs(self):

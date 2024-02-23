@@ -1,10 +1,11 @@
 import numpy as np
+import math
 
-import utils
 import torch.nn as nn
 import torch
 import torch.distributions as D
 import torch.nn.functional as F
+from torch.distributions.utils import _standard_normal
 
 # Collection of utility functions for the agents definition
 
@@ -247,6 +248,73 @@ class DistLosses(Module):
         
         return -loss.mean() # 1 = max similarity | -1 = max dissimilarity
 
+
+class TruncatedNormal(D.Normal):
+    def __init__(self, loc, scale, low=-1.0, high=1.0, eps=1e-6):
+        super().__init__(loc, scale, validate_args=False)
+        self.low = low
+        self.high = high
+        self.eps = eps
+
+    def _clamp(self, x):
+        clamped_x = torch.clamp(x, self.low + self.eps, self.high - self.eps)
+        x = x - x.detach() + clamped_x.detach()
+        return x
+
+    def sample(self, sample_shape=torch.Size(), clip=None):
+        shape = self._extended_shape(sample_shape)
+        eps = _standard_normal(shape, dtype=self.loc.dtype, device=self.loc.device)
+        eps *= self.scale
+        if clip is not None:
+            eps = torch.clamp(eps, -clip, clip)
+        x = self.loc + eps
+        return self._clamp(x)
+
+class TanhTransform(D.transforms.Transform):
+    domain = D.constraints.real
+    codomain = D.constraints.interval(-1.0, 1.0)
+    bijective = True
+    sign = +1
+
+    def __init__(self, cache_size=1):
+        super().__init__(cache_size=cache_size)
+
+    @staticmethod
+    def atanh(x):
+        return 0.5 * (x.log1p() - (-x).log1p())
+
+    def __eq__(self, other):
+        return isinstance(other, TanhTransform)
+
+    def _call(self, x):
+        return x.tanh()
+
+    def _inverse(self, y):
+        # We do not clamp to the boundary here as it may degrade the performance of certain algorithms.
+        # one should use `cache_size=1` instead
+        return self.atanh(y)
+
+    def log_abs_det_jacobian(self, x, y):
+        # We use a formula that is more numerically stable, see details in the following link
+        # https://github.com/tensorflow/probability/commit/ef6bb176e0ebd1cf6e25c6b5cecdd2428c22963f#diff-e120f70e92e6741bca649f04fcd907b7
+        return 2.0 * (math.log(2.0) - x - F.softplus(-2.0 * x))
+
+class SquashedNormal(D.transformed_distribution.TransformedDistribution):
+    def __init__(self, loc, scale):
+        self.loc = loc
+        self.scale = scale
+
+        self.base_dist = D.Normal(loc, scale)
+        transforms = [TanhTransform()]
+        super().__init__(self.base_dist, transforms)
+
+    @property
+    def mean(self):
+        mu = self.loc
+        for tr in self.transforms:
+            mu = tr(mu)
+        return mu
+
 class DiscDist:
 # We thanks the authors of the original implementation https://github.com/NM512/dreamerv3-torch/blob/2c7a81a0e2f5f0c7659ba73b0ddbedf2a7e2ecf4/tools.py
     def __init__(
@@ -377,21 +445,20 @@ class DistLayer(Module):
         if self._dist == "tanh_normal":
             mean = 5 * torch.tanh(out / 5)
             std = F.softplus(std + self._init_std) + self._min_std
-            dist = utils.SquashedNormal(mean, std)
+            dist = SquashedNormal(mean, std)
             dist = D.Independent(dist, len(self._shape))
             return SampleDist(dist)
         if self._dist == "trunc_normal":
             mean = torch.tanh(out)
             std = 2 * torch.sigmoid((std + self._init_std) / 2) + self._min_std
-            dist = utils.TruncatedNormal(mean, std)
+            dist = TruncatedNormal(mean, std)
             return D.Independent(dist, 1)
         if self._dist == "onehot":
             return OneHotDist(out)
         if self._dist == "symlog_disc":
             return DiscDist(logits=out, device=self._device)
         if self._dist == "symlog_mse":
-            return SymlogDist(out)
-                
+            return SymlogDist(out)        
         raise NotImplementedError(self._dist)
 
 ### NN_LAYERS ###
