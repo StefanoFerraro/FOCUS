@@ -89,7 +89,7 @@ class Optimizer:
         else:
             for var in varibs:
                 var.data = (1 - self._wd) * var.data
-                
+
 class Interpolate(Module):
     def __init__(self, size, mode):
         Module.__init__(self)
@@ -164,6 +164,7 @@ class OneHotDist(D.OneHotCategorical):
         sample += probs - probs.detach()  # ST-gradients
         return sample
 
+
 class BernoulliDist(D.Bernoulli):
     def __init__(self, logits=None, probs=None):
         super().__init__(logits=logits, probs=probs)
@@ -177,77 +178,6 @@ class BernoulliDist(D.Bernoulli):
             probs = probs[None]
         sample += probs - probs.detach()  # ST-gradients
         return sample
-
-class DistLosses(Module):      
-    @staticmethod
-    def kl_loss(post, prior, balance):
-        def _get_dist(state):
-            dist = D.Normal(state["mean"], state["std"])
-            dist =  D.Independent(dist, 1)
-            return dist 
-
-        if 'std' not in post.keys() and 'std' not in prior.keys():
-            raise ValueError("Distance mode kl is available with distribution mode") 
-        kld = D.kl_divergence
-        sg = lambda x: {k: v.detach() for k, v in x.items()}
-        lhs, rhs = post, prior
-        dtype = post["mean"].dtype
-        device = post["mean"].device
-        free_tensor = torch.tensor([1], dtype=dtype, device=device)
-
-        value_lhs = kld(_get_dist(lhs), _get_dist(sg(rhs)))
-        value_rhs = kld(_get_dist(sg(lhs)), _get_dist(rhs))
-        loss_lhs = torch.maximum(value_lhs.mean(), free_tensor)
-        loss_rhs = torch.maximum(value_rhs.mean(), free_tensor)
-        loss = balance * loss_rhs + (1 - balance) * loss_lhs
-        return loss
-    
-    @staticmethod 
-    def mse_loss(post, prior, balance):
-        if 'std' in post.keys() and 'std' in prior.keys():
-            raise ValueError("Distance mode mse is not available with distribution mode") 
-
-        post = post["mean"]
-        prior = prior["mean"]
-        
-        prior_loss = torch.sum(
-            ((prior - post.detach()) ** 2), dim=-1
-        ).mean()
-        post_loss = torch.sum(((prior.detach() - post) ** 2), dim=-1
-        ).mean()
-        
-        loss = balance * prior_loss + (1 - balance) * post_loss
-        return loss
-    
-    @staticmethod 
-    def cosine_loss(post, prior, balance):
-        if 'std' in post.keys() and 'std' in prior.keys():
-            raise ValueError("Distance mode max_cosine is not available with distribution mode")         
-        post = post["mean"]
-        prior = prior["mean"]
-        
-        # cosine similarity dot(post, prior)/(norm(post)*norm(prior))
-        prior_loss = torch.einsum("ijkl,ijkl->ijk", (post.detach(), prior)) / (torch.norm(post.detach(), dim=-1) * torch.norm(prior, dim=-1) + 1e-8) # be sure that we are never dividing by 0
-        post_loss = torch.einsum("ijkl,ijkl->ijk", (post, prior.detach())) / (torch.norm(post, dim=-1) * torch.norm(prior.detach(), dim=-1) + 1e-8 )# be sure that we are never dividing by 0
-        
-        loss = balance * prior_loss.mean() + (1 - balance) * post_loss.mean()
-        
-        return -loss # 1 = max similarity | -1 = max dissimilarity
-    
-    
-    @staticmethod 
-    def max_cosine_loss(post, prior, balance):
-        if 'std' in post.keys() and 'std' in prior.keys():
-            raise ValueError("Distance mode cosine is not available with distribution mode") 
-                
-        post = post["mean"].detach()
-        prior = prior["mean"]
-        
-        norm = torch.max(torch.norm(post, dim=-1, keepdim=True), torch.norm(prior, dim=-1, keepdim=True)) + 1e-12
-        loss = torch.einsum("ijkl,ijkl->ijk", post / norm, prior / norm) # be sure that we are never dividing by 0
-        
-        return -loss.mean() # 1 = max similarity | -1 = max dissimilarity
-
 
 class TruncatedNormal(D.Normal):
     def __init__(self, loc, scale, low=-1.0, high=1.0, eps=1e-6):
@@ -404,6 +334,76 @@ class SymlogDist:
             raise NotImplementedError(self._agg)
         return -loss
 
+class DistLosses(Module):      
+    @staticmethod
+    def kl_loss(post, prior, balance):
+        def _get_dist(state):
+            dist = D.Normal(state["mean"], state["std"])
+            dist =  D.Independent(dist, 1)
+            return dist 
+
+        if 'std' not in post.keys() and 'std' not in prior.keys():
+            raise ValueError("Distance mode kl is available with distribution mode") 
+        kld = D.kl_divergence
+        sg = lambda x: {k: v.detach() for k, v in x.items()}
+        lhs, rhs = post, prior
+        dtype = post["mean"].dtype
+        device = post["mean"].device
+        free_tensor = torch.tensor([1], dtype=dtype, device=device)
+
+        value_lhs = kld(_get_dist(lhs), _get_dist(sg(rhs)))
+        value_rhs = kld(_get_dist(sg(lhs)), _get_dist(rhs))
+        loss_lhs = torch.maximum(value_lhs.mean(), free_tensor)
+        loss_rhs = torch.maximum(value_rhs.mean(), free_tensor)
+        loss = balance * loss_rhs + (1 - balance) * loss_lhs
+        return loss
+    
+    @staticmethod 
+    def mse_loss(post, prior, balance):
+        if 'std' in post.keys() and 'std' in prior.keys():
+            raise ValueError("Distance mode mse is not available with distribution mode") 
+
+        post = post["mean"]
+        prior = prior["mean"]
+        
+        prior_loss = torch.sum(
+            ((prior - post.detach()) ** 2), dim=-1
+        ).mean()
+        post_loss = torch.sum(((prior.detach() - post) ** 2), dim=-1
+        ).mean()
+        
+        loss = balance * prior_loss + (1 - balance) * post_loss
+        return loss
+    
+    @staticmethod 
+    def cosine_loss(post, prior, balance):
+        if 'std' in post.keys() and 'std' in prior.keys():
+            raise ValueError("Distance mode max_cosine is not available with distribution mode")         
+        post = post["mean"]
+        prior = prior["mean"]
+        
+        # cosine similarity dot(post, prior)/(norm(post)*norm(prior))
+        prior_loss = torch.einsum("ijkl,ijkl->ijk", (post.detach(), prior)) / (torch.norm(post.detach(), dim=-1) * torch.norm(prior, dim=-1) + 1e-8) # be sure that we are never dividing by 0
+        post_loss = torch.einsum("ijkl,ijkl->ijk", (post, prior.detach())) / (torch.norm(post, dim=-1) * torch.norm(prior.detach(), dim=-1) + 1e-8 )# be sure that we are never dividing by 0
+        
+        loss = balance * prior_loss.mean() + (1 - balance) * post_loss.mean()
+        
+        return -loss # 1 = max similarity | -1 = max dissimilarity
+    
+    
+    @staticmethod 
+    def max_cosine_loss(post, prior, balance):
+        if 'std' in post.keys() and 'std' in prior.keys():
+            raise ValueError("Distance mode cosine is not available with distribution mode") 
+                
+        post = post["mean"].detach()
+        prior = prior["mean"]
+        
+        norm = torch.max(torch.norm(post, dim=-1, keepdim=True), torch.norm(prior, dim=-1, keepdim=True)) + 1e-12
+        loss = torch.einsum("ijkl,ijkl->ijk", post / norm, prior / norm) # be sure that we are never dividing by 0
+        
+        return -loss.mean() # 1 = max similarity | -1 = max dissimilarity
+
 class DistLayer(Module):
     def __init__(
         self, in_dim, out_dim, dist="mse", min_std=0.1, init_std=0.0, bias=True):
@@ -461,41 +461,43 @@ class DistLayer(Module):
             return SymlogDist(out)        
         raise NotImplementedError(self._dist)
 
-### NN_LAYERS ###
 
+### NN_LAYERS ###
 class MLP(Module):
     def __init__(
-        self, in_shape, out_shape, layers, units, act=nn.ELU, norm="none", symlog_inputs=False, **out
+        self, in_shape, shape, layers, units, act=nn.ELU, norm="none", symlog_inputs=False, **out
     ):
         super().__init__()
+        self._in_shape = in_shape
+        self._shape = (shape,) if isinstance(shape, int) else shape
         self._layers = layers
+        self._units = units
         self._norm = norm
         if type(act) is str:
             act = getattr(nn, act)
-        self._act = act()
-        self._out = out
+        self._act = act()  
+        self._out = nn.Identity()
         self._symlog_inputs = symlog_inputs
-        self._out_dist = nn.Identity()
+        
 
         last_units = in_shape
-        self._out  = nn.Sequential()
         for index in range(self._layers):
-            self._out.add_module(f"dense{index}", nn.Linear(last_units, units))
-            self._out.add_module(f"norm{index}", NormLayer(norm, units))
-            self._out.add_module(f"act{index}", self._act)
+            self.add_module(f"dense{index}", nn.Linear(last_units, units))
+            self.add_module(f"norm{index}", NormLayer(norm, units))
             last_units = units
         
-        if out_shape is not None: # In case system distribution is handled outside the method
-            self._out_dist = DistLayer(units, out_shape, **out)
+        if shape is not None: # In case system distribution is handled outside the method
+            self._out = DistLayer(units, shape, **out)
 
     def forward(self, features):
-        x = features
-        if self._symlog_inputs:
-            x = symlog(x)
+        x = symlog(features) if self._symlog_inputs else features
         x = x.reshape([-1, x.shape[-1]])
-        x = self._out(x)
+        for index in range(self._layers):
+            x = getattr(self, f"dense{index}")(x)
+            x = getattr(self, f"norm{index}")(x)
+            x = self._act(x)
         x = x.reshape(list(features.shape[:-1]) + [x.shape[-1]])
-        return self._out_dist(x)
+        return self._out(x)
     
     @staticmethod
     def compose_output(input):
@@ -583,7 +585,7 @@ class ActLayer(Module):
         if self._act is None:
             return features
         return self._act(features)
-
+    
 class StreamNorm:
     def __init__(
         self, shape=(), momentum=0.99, scale=1.0, eps=1e-8, device="cuda"
@@ -633,7 +635,7 @@ class RequiresGrad:
 
     def __exit__(self, *args):
         self._model.requires_grad_(requires_grad=False)
-
+        
 class AddCoords(nn.Module):
     def __init__(self, rank, with_r=False, use_cuda=True):
         super(AddCoords, self).__init__()

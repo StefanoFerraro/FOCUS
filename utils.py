@@ -9,7 +9,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from omegaconf import OmegaConf
 from torch.distributions.utils import _standard_normal
 
 from sklearn.manifold import TSNE
