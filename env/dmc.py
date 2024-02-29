@@ -134,8 +134,7 @@ class DMCSuite(BaseEnv):
         
         return proprio, rgb, seg
     
-    def generate_segmentation(self):
-        
+    def generate_segmentation(self): 
         if self.gt_segmentation:
             seg = self._env.physics.render(height=self.size[0], width=self.size[0], camera_id=0, segmentation=True)
             seg = seg[:,:,0]

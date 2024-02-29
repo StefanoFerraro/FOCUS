@@ -10,9 +10,10 @@ reward_norm: {momentum: 1.0, scale: 1.0, eps: 1e-8}
 actor_ent: 0
 skill_reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
 train_target_reach: True
-distance_mode: 'mse'
+distance_mode: 'cosine'
 start_agent_training_after: 2500
-only_expl_during_training: True
+only_expl_during_training: False
+symlog_inputs: True
 
 world_model:
   encoder: {mlp_keys: '$^', cnn_keys: 'rgb', norm: none, cnn_depth: 48, cnn_kernels: [4, 4, 4, 4], mlp_layers: 4, mlp_units: 400, coordConv: False} # act: elu

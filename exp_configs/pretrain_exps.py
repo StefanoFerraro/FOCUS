@@ -360,26 +360,28 @@ exp_configs = {
     "online_reacher_benchmark_1_pretrain": {
         "agent": ["dreamer"],
         "env": "dmc",
-        "task": ["reacher_hard", "reacher_easy"],
-        "seed": [1,2,3],
+        "task": ["reacher_easy"],
+        "seed": [1,2],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "agent|world_model|encoder|cnn_keys": "rgb",
         "agent|world_model|decoder|cnn_keys": "rgb",
-        "agent|world_model|encoder|symlog_inputs": False,
-        "agent|world_model|decoder|symlog_inputs": False,
+        "agent|world_model|loss_scales|kl": [0.5, 1],
         "agent|reward_fn": ["task"],
-        
+        "agent|train_target_reach": [False]
     },  
     
     "online_reacher_benchmark_1_state_pretrain": {
         "agent": ["dreamer"],
         "env": "dmc",
-        "task": ["reacher_hard", "reacher_easy"],
-        "seed": [1,2,3],
+        "task": ["reacher_easy"],
+        "seed": [1,2],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|mlp_keys": "proprio",
+        "agent|world_model|decoder|mlp_keys": "proprio",
+        "agent|symlog_inputs": [True],
+        "agent|world_model|loss_scales|kl": [0.5, 1],
         "agent|reward_fn": ["task"],
-        "agent|world_model|encoder|mlp_keys": "objects_pos|proprio",
-        "agent|world_model|decoder|mlp_keys": "objects_pos|proprio",
+        "agent|train_target_reach": [False]
     },  
     
     "offline_reacher_benchmark_1_pretrain": {
@@ -399,25 +401,31 @@ exp_configs = {
     "online_reacher_online_benchmark_3_pretrain": {
         "agent": ["dreamer"],
         "env": "dmc",
-        "task": ["reacher_hard", "reacher_easy"],
-        "seed": [1,2,3],
+        "task": ["reacher_easy"],
+        "seed": [1,2],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "agent|reward_fn": ["pos"],
         "agent|world_model|encoder|mlp_keys": "objects_pos",
         "agent|world_model|decoder|mlp_keys": "objects_pos",
         "agent|world_model|encoder|cnn_keys": "rgb",
         "agent|world_model|decoder|cnn_keys": "rgb",
+        "agent|world_model|loss_scales|kl": [0.5, 1],
+        "agent|symlog_inputs": [True],
+        "agent|train_target_reach": [True],
     },  
     
     "online_reacher_online_benchmark_3_state_pretrain": {
         "agent": ["dreamer"],
         "env": "dmc",
-        "task": ["reacher_hard", "reacher_easy"],
+        "task": ["reacher_easy"],
         "seed": [1,2,3],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "agent|reward_fn": ["pos"],
         "agent|world_model|encoder|mlp_keys": "objects_pos|proprio",
         "agent|world_model|decoder|mlp_keys": "objects_pos|proprio",
+        "agent|world_model|encoder|symlog_inputs": [True],
+        "agent|world_model|decoder|symlog_outputs": [True],
+        "agent|world_model|loss_scales|kl": [0.5, 1],
     },  
     
     "offline_reacher_online_benchmark_3_pretrain": {
@@ -437,6 +445,18 @@ exp_configs = {
         "eval_every_frames": 2500,
         "dataset_dir": "/mnt/home/datasets/reacher_hard/plan2explore/2M"
     },  
+    "online_reacher_online_benchmark_5_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["reacher_hard", "reacher_easy"],
+        "seed": [1, 2],
+        "agent|world_model|objEnc_MSE_ratio": [0.95, 0.99],
+        "agent|world_model|object_encoder|distance_mode": ["mse", "cosine"],
+        "agent|distance_mode": ["cosine"],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "curriculum_learning": False, 
+        "agent|symlog_inputs": [False, True],
+    },
 }
 
 EXP_GROUPS = { k : hu.cartesian_exp_group(v) for k,v in exp_configs.items()} 

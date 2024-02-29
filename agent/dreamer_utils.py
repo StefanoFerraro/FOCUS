@@ -479,7 +479,7 @@ class Decoder(Module):
         mlp_layers=4,
         mlp_units=400,
         embed_dim=1024,
-        symlog_inputs=False,
+        symlog_outputs=False,
     ):
         super().__init__()
         self._embed_dim = embed_dim
@@ -541,11 +541,15 @@ class Decoder(Module):
         # MLP layers
         if len(self.mlp_keys) > 0:
             dist_cfg = {"dist": "none"} 
-            self._mlp_model = MLP(embed_dim, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
+            self._mlp_model = MLP(embed_dim, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_outputs, **dist_cfg)
             
             # get distrbutions out of the MLP to divide for the different keys
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape))
+                if symlog_outputs:
+                    dist = "symlog_mse"
+                else:
+                    dist = "mse"
+                self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape, dist=dist))
 
     def forward(self, features, only_mlp=False):
         outputs = {}
@@ -602,7 +606,7 @@ class ObjEncoder(Module):
         mlp_layers=4,
         mlp_units=400,
         distance_mode="mse",
-        symlog_inputs=False
+        symlog_inputs=False,
     ):
         super().__init__()
         self._shapes = {**shapes}
@@ -649,12 +653,12 @@ class ObjEncoder(Module):
                     nn.Conv2d(prev_depth, depth, kernel, stride=2)
                 )
                 self._conv_model.append(NormLayer(norm, depth))
-                self._conv_model.append(self._act())
+                self._conv_model.append(self._act())    
             self._conv_model = nn.Sequential(*self._conv_model)
             
         if len(self.mlp_keys) > 0:
             self._mlp_in_shape = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
-            dist_cfg = {"dist": "multivariate_normal"}
+            dist_cfg = {"dist": "multivariate_normal"} #TODO generalize to output different distributions
             self._mlp_model = MLP(self._mlp_in_shape, 32 * self._cnn_depth, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
 
             # self._mlp_model.add_module(f"multivariate_normal_dist", (MultivariateNormal(self._mlp_units, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist)))
@@ -700,7 +704,7 @@ class ObjDecoder(Module):
         mlp_layers=4,
         mlp_units=400,
         embed_dim=1024,
-        symlog_inputs=False,
+        symlog_outputs=False,
         obj_extractor_cfg=None
     ):
         super().__init__()
@@ -780,11 +784,15 @@ class ObjDecoder(Module):
         if len(self.mlp_keys) > 0:
             self._mlp_in_shape = 32 * self._cnn_depth
             dist_cfg = {"dist": "none"}
-            self._mlp_model = MLP(self._mlp_in_shape, None, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
+            self._mlp_model = MLP(self._mlp_in_shape, None, self._mlp_layers, self._mlp_units, self._act, self._norm, **dist_cfg)
             
             # get distrbutions out of the MLP to divide for the different keys
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape[1]))     
+                if symlog_outputs:
+                    dist = "symlog_mse"
+                else:
+                    dist = "mse"
+                self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape[1], dist=dist))     
 
     def forward(self, features, masks=None, only_mlp=False):
         outputs = {}

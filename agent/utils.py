@@ -262,6 +262,8 @@ class DiscDist:
         self.width = (self.buckets[-1] - self.buckets[0]) / 255
         self.transfwd = transfwd
         self.transbwd = transbwd
+        
+        self.mean = self.mode = self.transbwd(torch.sum(self.probs * self.buckets, dim=-1, keepdim=True))
 
     def mean(self):
         _mean = self.probs * self.buckets
@@ -306,15 +308,11 @@ class SymlogDist:
 # We thanks the authors of the original implementation https://github.com/NM512/dreamerv3-torch/blob/2c7a81a0e2f5f0c7659ba73b0ddbedf2a7e2ecf4/tools.py
     def __init__(self, mode, dist="mse", agg="sum", tol=1e-8):
         self._mode = mode
+        self.mean = symexp(self._mode)
+        self.mode = symexp(self._mode)
         self._dist = dist
         self._agg = agg
         self._tol = tol
-
-    def mode(self):
-        return symexp(self._mode)
-
-    def mean(self):
-        return symexp(self._mode)
 
     def log_prob(self, value):
         assert self._mode.shape == value.shape
@@ -456,7 +454,7 @@ class DistLayer(Module):
         if self._dist == "onehot":
             return OneHotDist(out)
         if self._dist == "symlog_disc":
-            return DiscDist(logits=out, device=self._device)
+            return DiscDist(logits=out)
         if self._dist == "symlog_mse":
             return SymlogDist(out)        
         raise NotImplementedError(self._dist)

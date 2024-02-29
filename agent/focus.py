@@ -132,6 +132,11 @@ class FocusAgent(Module):
         metrics.update(mets)
         return state, outputs, metrics
 
+    @staticmethod
+    def metric_reward_fn(values, reward_fn_name):
+        met = {f"{reward_fn_name}_rw_mean": values.mean(), f"{reward_fn_name}_rw_std": values.std()}
+        return met
+    
     def update(self, data, step, which_policy='expl'):
         if which_policy not in ['expl', 'task', 'both']:
             raise ValueError(f"which_policy must be one of ['expl', 'task', 'both'], got {which_policy}")
@@ -180,7 +185,7 @@ class FocusAgent(Module):
         pos_pred = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean
         # distance from current predicted position to the target
         squared_distance = torch.sum(((pos_pred - self._target_pos) ** 2), dim=-1) 
-        met = {"task_rw_mean": - squared_distance.mean()}
+        met = self.metric_reward_fn(squared_distance, "pos")
         return - squared_distance, met # maximization of reward coincide with the minimization of the distance
 
 
@@ -341,16 +346,15 @@ class FocusAgent(Module):
 
 
 class OCWorldModel(WorldModel):
-    # world model between dreamer and focus needs to be aligned in processing of the input
+    # World Model between dreamer and focus needs to be aligned in processing of the input
     def __init__(self, config, obs_space, act_dim, tfstep):
         super().__init__(config, obs_space, act_dim, tfstep)
         self.heads["object_decoder"] = common.ObjDecoder(
-            self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size, obj_extractor_cfg=self.cfg.object_extractor 
-        )
+            self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size, symlog_outputs=self.full_cfg.agent.symlog_inputs, obj_extractor_cfg=self.cfg.object_extractor)
         
         if self.cfg.get("object_encoder", False):
-            self.object_encoder = common.ObjEncoder(self.shapes, **self.cfg.object_encoder)
-        
+            self.object_encoder = common.ObjEncoder(self.shapes, symlog_inputs=self.full_cfg.agent.symlog_inputs, **self.cfg.object_encoder)
+    
         self.model_init()
         self.stoch_only = not self.cfg.rssm.full_posterior
 

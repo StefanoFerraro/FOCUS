@@ -97,17 +97,22 @@ class DreamerAgent(Module):
         metrics.update(mets)
         return state, outputs, metrics
 
+    @staticmethod
+    def metric_reward_fn(values, reward_fn_name):
+        met = {f"{reward_fn_name}_rw_mean": values.mean(), f"{reward_fn_name}_rw_std": values.std()}
+        return met
+    
     def task_reward_fn(self, seq):
         rw = self.wm.heads["reward"](seq["feat"]).mean
-        met = {"task_rw_mean": rw.mean(), "task_rw_std": rw.std()}
+        met = self.metric_reward_fn(rw, "task")
         return rw, met
     
     def pos_reward_fn(self, seq):
-        pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean.squeeze(-2)
+        pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean
         # distance from current predicted position to the target
-        squared_distance = torch.sum(((pos_pred - self._target_pos[0]) ** 2), dim=2)
-        met = {"task_rw_mean": - squared_distance.mean(), "task_rw_svd": squared_distance.std()}
-        return - squared_distance.unsqueeze(-1), met # maximization of reward coincide with the minimization of the distance
+        squared_distance = torch.sum(((pos_pred - self._target_pos) ** 2), dim=3)
+        met = self.metric_reward_fn(squared_distance, "pos")
+        return - squared_distance.detach(), met # maximization of reward coincide with the minimization of the distance
 
     def update(self, data, step, **kwargs):
         state, outputs, metrics = self.update_wm(data, step)
@@ -116,6 +121,7 @@ class DreamerAgent(Module):
         # Don't train the policy/value if just using MPC
         if getattr(self.cfg, "mpc", False) and (not self.cfg.mpc_opt.use_value):
             return state, metrics
+        
         start = {k: stop_gradient(v) for k, v in start.items()}
 
         reward_fn = getattr(self, self.cfg.agent.reward_fn + "_reward_fn")
@@ -341,7 +347,8 @@ class WorldModel(Module):
         self.cfg = config.agent.world_model
         self.device = config.device
         self.tfstep = tfstep
-        self.encoder = common.Encoder(self.shapes, **self.cfg.encoder)
+        
+        self.encoder = common.Encoder(self.shapes, symlog_inputs=self.full_cfg.agent.symlog_inputs, **self.cfg.encoder)
         self.encoder.to(self.device)
         
         # Computing embed dim
@@ -366,7 +373,7 @@ class WorldModel(Module):
             self.inp_size += self.cfg.rssm.stoch
         self.inp_size = self.inp_size
         self.heads["decoder"] = common.Decoder(
-            self.shapes, **self.cfg.decoder, embed_dim=self.inp_size
+            self.shapes, **self.cfg.decoder, symlog_outputs=self.full_cfg.agent.symlog_inputs, embed_dim=self.inp_size
         )
         self.heads["reward"] = MLP(self.inp_size, (1,), **self.cfg.reward_head)
         if self.cfg.pred_discount:
@@ -412,8 +419,8 @@ class WorldModel(Module):
             out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
-                if key == "objects_pos":
-                    data[key] = data[key].squeeze(-2)
+                # if key == "objects_pos":
+                    # data[key] = data[key].squeeze(-2)
                 like = dist.log_prob(data[key])
                 likes[key] = like
                 losses[key] = -like.mean()
@@ -645,7 +652,6 @@ class ActorCritic(Module):
 
     def update(self, world_model, start, is_terminal, reward_fn):
         metrics = {}
-
         # The weights are is_terminal flags for the imagination start states.
         # Technically, they should multiply the losses from the second trajectory
         # step onwards, which is the first imagined step. However, we are not
@@ -654,7 +660,12 @@ class ActorCritic(Module):
         with RequiresGrad(self.actor):
             with torch.cuda.amp.autocast(enabled=self._use_amp):
                 seq = world_model.imagine(self.actor, start, is_terminal, self.hor)
-                seq["reward"], mets1 = reward_fn(seq)
+                
+                # seq["reward"], mets1 = reward_fn(seq) # TODO: check if norm is necessary
+                reward, _ = reward_fn(seq)
+                seq['reward'], mets1 = self.rewnorm(reward)
+                mets1 = {f'reward_{k}': v for k, v in mets1.items()}
+        
                 target, mets2 = self.target(seq)
                 actor_loss, mets3 = self.actor_loss(seq, target)
             metrics.update(self.actor_opt(actor_loss, self.actor.parameters()))
