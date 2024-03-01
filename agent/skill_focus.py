@@ -41,8 +41,8 @@ class SkillFocusAgent(FocusAgent):
         T, B, O, P = obj_poses.shape
         obj_pos = obj_poses.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
         squared_distance = torch.sum(((obj_goal_pos - obj_pos) ** 2), dim=2).unsqueeze(-1) 
-        
-        return -squared_distance
+        met = self.metric_reward_fn(squared_distance, "object_context_position")
+        return -squared_distance, met
 
     def distance_to_object_reward_fn(self, seq):
         obj_id = 0
@@ -56,8 +56,8 @@ class SkillFocusAgent(FocusAgent):
             ]
         
         rw_dist_obj = torch.exp(-torch.linalg.norm(gripper_pos - obj_pos, dim=2)).unsqueeze(-1)
-        
-        return rw_dist_obj
+        met = self.metric_reward_fn(rw_dist_obj, "distance_to_object")
+        return rw_dist_obj, met
         
     def object_context_pose_reward_fn(self, seq):
         feat = seq["stoch"].flatten(-2) if self.stoch_only else seq["feat"]
@@ -67,7 +67,8 @@ class SkillFocusAgent(FocusAgent):
             squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2)
         elif self.cfg.agent.distance_mode == "cosine":
             squared_distance = - (torch.einsum("ijl,ijl->ij", (self._target_skill.unsqueeze(0), post_obj_state)) / (torch.norm(post_obj_state, dim=-1) * torch.norm(self._target_skill, dim=-1) + 1e-12))
-        return - squared_distance.unsqueeze(-1)
+        met = self.metric_reward_fn(squared_distance, "object_context_pose")
+        return - squared_distance.unsqueeze(-1), met
     
     def update(self, data, step, which_policy='expl'):
         

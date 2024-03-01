@@ -1,7 +1,5 @@
 import numpy as np
-import torch.nn as nn
 import torch
-import torch.distributions as D
 import torch.nn.functional as F
 import agent.dreamer_utils as common
 from agent.dreamer import stop_gradient
@@ -68,7 +66,7 @@ class SkillActorCritic(common.Module):
 
         seq = world_model.imagine(self.actor, start, is_terminal, self.hor, task_cond=img_skill)
         seq['skill'] = seq.pop('task')
-        reward = reward_fn(seq)
+        reward, _ = reward_fn(seq)
         seq['reward'], mets1 = self.rewnorm(reward)
         mets1 = {f'skill_reward_{k}': v for k, v in mets1.items()}
         target, mets2 = self.target(seq)

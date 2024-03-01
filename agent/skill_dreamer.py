@@ -21,8 +21,8 @@ class SkillDreamerAgent(DreamerAgent):
 
         self._mode = "train"
         
-        # NOTE: Only for debugging
-        self._skill_strategy = 'task'
+        self._reward_fn = cfg.agent.reward_fn
+        self._skill_strategy = "task" # place holder does not have any affect on the agent
         self._target_skill = self._target_pos[0][0]
         self.skill_dim = [self._target_skill.shape[-1]]
 
@@ -31,10 +31,6 @@ class SkillDreamerAgent(DreamerAgent):
 
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
-    
-    def task_reward_fn(self, seq):
-        rw = self.wm.heads["reward"](seq["feat"]).mean
-        return rw
     
     def update(self, data, step, which_policy='expl'):
         
@@ -54,23 +50,20 @@ class SkillDreamerAgent(DreamerAgent):
 
             self._target_skill = self._target_pos[0][0]
             self._skill_behavior.solved_meta['skill'] = self._target_skill
+            reward_fn = getattr(self, f'{self._reward_fn}_reward_fn')
             
             # agent update based on the achievement on the given skill 
             if which_policy == 'expl':
                 NotImplementedError
-                
+            
             elif which_policy == 'task':
                 metrics.update(
                     self._skill_behavior.update(
-                        self.wm, start, data["is_terminal"], getattr(self, f'{self._skill_strategy}_reward_fn')
-                    )
-                )
+                        self.wm, start, data["is_terminal"], reward_fn))
             else:
                 metrics.update(
                     self._skill_behavior.update(
-                        self.wm, start, data["is_terminal"], getattr(self, f'{self._skill_strategy}_reward_fn')
-                    )
-                )
+                        self.wm, start, data["is_terminal"], reward_fn))
             
         return state, metrics
 

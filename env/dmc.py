@@ -91,9 +91,10 @@ class DMCSuite(BaseEnv):
         del spaces["depth"] # depth not given in dmc env
         spaces.update(
             {
-                "proprio": gym.spaces.Box(
-                    -1,
-                    1,
+                "proprio": # self._env.observation_spec()["observations"],  
+                    gym.spaces.Box(
+                    -np.inf,
+                    np.inf,
                     self._env.observation_spec()["observations"].shape,
                     dtype=np.float32,
                 ),

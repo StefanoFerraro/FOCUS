@@ -457,6 +457,16 @@ exp_configs = {
         "curriculum_learning": False, 
         "agent|symlog_inputs": [False, True],
     },
+    
+    "online_reacher_benchmark_2_pretrain": {
+        "agent": ["skill_dreamer"],
+        "env": "dmc",
+        "task": ["reacher_easy"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True, False],
+        "agent|symlog_inputs": True
+    },  
 }
 
 EXP_GROUPS = { k : hu.cartesian_exp_group(v) for k,v in exp_configs.items()} 

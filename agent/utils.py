@@ -325,8 +325,9 @@ class SymlogDist:
         else:
             raise NotImplementedError(self._dist)
         if self._agg == "mean":
-            loss = distance.mean(list(range(len(distance.shape)))[2:])
+            loss = distance.mean(list(range(len(distance.shape)))[2:]) # assume that the batch dimensions are the first 2
         elif self._agg == "sum":
+
             loss = distance.sum(list(range(len(distance.shape)))[2:])
         else:
             raise NotImplementedError(self._agg)
