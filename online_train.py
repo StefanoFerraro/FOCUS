@@ -208,7 +208,8 @@ class Workspace:
             if self.cfg.agent.train_target_reach:
                 target_pos = self.agent._target_pos.cpu().numpy()
                 if episode == 0:
-                    move_to_target_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
+                    episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
+                    move_to_target_metrics = {k: v / self.cfg.num_eval_episodes for k, v in episode_metrics.items()}
                 else:
                     episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
                     move_to_target_metrics = {k: v / self.cfg.num_eval_episodes + move_to_target_metrics[k] for k, v in episode_metrics.items()}
@@ -234,7 +235,7 @@ class Workspace:
             log("episode", self.global_episode)
             log("step", self.global_step)
             if self.cfg.agent.train_target_reach:
-                utils.log_metrics_dict(move_to_target_metrics, log)
+                 utils.log_metrics_dict(move_to_target_metrics, log)
 
         # B, T, C, H, W = video.shape
         video = np.uint8(video * 255)

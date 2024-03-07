@@ -47,6 +47,7 @@ class DMCSuite(BaseEnv):
             self.part_bodyid = part_bodyids[self.task]
             
         self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
+        self.dist_as_rw = env_config.dist_as_rw
         
         self._make()
                 
@@ -100,6 +101,7 @@ class DMCSuite(BaseEnv):
                 ),
                 "objects_pos": gym.spaces.Box(-2, 2, (len(self.segmentation_instances), 2), dtype=np.float32
             ),
+                "dist_to_target": gym.spaces.Box(0, 1, (1,), dtype=np.float32),
             }
         )
         return spaces
@@ -178,17 +180,20 @@ class DMCSuite(BaseEnv):
         self.is_first = False
         time_step = self._env.step(action)
         # env_state, rew, done, info = self._env.step(action)
-        success = True if time_step.reward >= 1 else False
-
-        proprio, rgb, seg = self._state_extraction(time_step)
-        new_obj_pos = self.get_object_pose()
-        
-        true_pos_displacement = self.compute_displacements(new_obj_pos)
-        # in_areas = self.check_in_areas(new_true_obj_pos)
-
+        reward = time_step.reward
         reward = (
             max(reward, 0.01) if reward > 0 else 0
         )  # avoid small rewards to help the predictor learning
+        success = True if reward >= 1 else False
+        
+        proprio, rgb, seg = self._state_extraction(time_step)
+        new_obj_pos = self.get_object_pose()
+        if self.dist_as_rw:
+            reward = - np.sqrt(np.sum(proprio[2:4]**2))
+        
+        
+        true_pos_displacement = self.compute_displacements(new_obj_pos)
+        # in_areas = self.check_in_areas(new_true_obj_pos)
 
         self.obj_pos = new_obj_pos
 
@@ -197,7 +202,7 @@ class DMCSuite(BaseEnv):
         objects_pos = np.array([new_obj_pos])
         
         obs = {
-            "reward": time_step.reward,
+            "reward": reward,
             "is_first": self.is_first,
             "is_last": time_step.last(),
             "is_terminal": time_step.discount == 0,
@@ -218,7 +223,7 @@ class DMCSuite(BaseEnv):
 
     def reset(self):
         self.is_first = True
-        
+        reward = 0.0
         time_step = self._env.reset() 
         
         if self.task == "manipulator_bring_ball":
@@ -230,8 +235,11 @@ class DMCSuite(BaseEnv):
             self._env.physics.set_state(_st)
             self._env.physics.named.data.qvel[8:10] = 0
         
+        
         proprio, rgb, seg = self._state_extraction(time_step)
-
+        if self.dist_as_rw:
+            reward = - np.sqrt(np.sum(proprio[2:4]**2))
+        
         new_obj_pos = self.get_object_pose()
         
         self.obj_pos = new_obj_pos
@@ -240,7 +248,7 @@ class DMCSuite(BaseEnv):
         
         objects_pos = np.array([new_obj_pos])
         obs = {
-            "reward": 0.0,
+            "reward": reward,
             "is_first": self.is_first,
             "is_last": time_step.last(),
             "is_terminal": time_step.discount == 0,

@@ -6,6 +6,7 @@ import torch
 import torch.distributions as D
 import torch.nn.functional as F
 from agent.utils import *
+import omegaconf
 
 from collections import defaultdict 
 
@@ -365,8 +366,12 @@ class EnsembleRSSM(Module):
     def kl_loss(self, post, prior, forward, balance, free, free_avg):
         kld = D.kl_divergence
         sg = lambda x: {k: v.detach() for k, v in x.items()}
-        lhs, rhs = (prior, post) if forward else (post, prior)
-        mix = balance if forward else (1 - balance)
+        lhs, rhs = (prior, post) if forward else (post, prior)        
+
+        # mixing of variable to balance the loss like in dreamer v3
+        mix = balance if isinstance(balance, (np.ndarray, list, omegaconf.listconfig.ListConfig)) else [balance, 1 - balance]
+        mix = mix if forward else mix[::-1]
+        
         dtype = post["stoch"].dtype
         device = post["stoch"].device
         free_tensor = torch.tensor([free], dtype=dtype, device=device)
@@ -382,7 +387,7 @@ class EnsembleRSSM(Module):
             else:
                 loss_lhs = torch.maximum(value_lhs, free_tensor).mean()
                 loss_rhs = torch.maximum(value_rhs, free_tensor).mean()
-            loss = mix * loss_lhs + (1 - mix) * loss_rhs
+            loss = mix[0] * loss_lhs + mix[1] * loss_rhs
         return loss, value
 
 class Encoder(Module):
@@ -545,10 +550,7 @@ class Decoder(Module):
             
             # get distrbutions out of the MLP to divide for the different keys
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                if symlog_outputs:
-                    dist = "symlog_mse"
-                else:
-                    dist = "mse"
+                dist = "symlog_mse" if symlog_outputs else "mse"
                 self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape, dist=dist))
 
     def forward(self, features, only_mlp=False):
@@ -607,6 +609,7 @@ class ObjEncoder(Module):
         mlp_units=400,
         distance_mode="mse",
         symlog_inputs=False,
+        dist="mse"
     ):
         super().__init__()
         self._shapes = {**shapes}
@@ -658,7 +661,7 @@ class ObjEncoder(Module):
             
         if len(self.mlp_keys) > 0:
             self._mlp_in_shape = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
-            dist_cfg = {"dist": "multivariate_normal"} #TODO generalize to output different distributions
+            dist_cfg = {"dist": dist} #TODO generalize to output different distributions
             self._mlp_model = MLP(self._mlp_in_shape, 32 * self._cnn_depth, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
 
             # self._mlp_model.add_module(f"multivariate_normal_dist", (MultivariateNormal(self._mlp_units, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist)))
@@ -788,10 +791,7 @@ class ObjDecoder(Module):
             
             # get distrbutions out of the MLP to divide for the different keys
             for key, shape in {k: shapes[k] for k in self.mlp_keys}.items():
-                if symlog_outputs:
-                    dist = "symlog_mse"
-                else:
-                    dist = "mse"
+                dist = "symlog_mse" if symlog_outputs else "mse" # apply symlog_mse in case the input was modified
                 self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape[1], dist=dist))     
 
     def forward(self, features, masks=None, only_mlp=False):

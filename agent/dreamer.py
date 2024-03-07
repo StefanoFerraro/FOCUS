@@ -107,6 +107,11 @@ class DreamerAgent(Module):
         met = self.metric_reward_fn(rw, "task")
         return rw, met
     
+    def dist_reward_fn(self, seq):
+        dist_rw = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["dist_to_target"].mean
+        met = self.metric_reward_fn(dist_rw, "dist_to_target")
+        return - dist_rw, met # want to minimize the distance
+    
     def pos_reward_fn(self, seq):
         pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean
         # distance from current predicted position to the target

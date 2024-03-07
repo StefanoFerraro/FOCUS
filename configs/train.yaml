@@ -31,7 +31,7 @@ precision: 16
 profile: false
 
 # model specs
-batch_size: 32
+batch_size: 16
 batch_length: 32
 imag_horizon: 15
 eval_state_mean: False
@@ -41,7 +41,7 @@ train_every_actions: 10
 num_train_frames: 2000010
 num_seed_frames: 4000
 # eval settings
-eval_every_frames: 25000
+eval_every_frames: 10000
 num_eval_episodes: 5
 # snapshot
 snapshots: [100000, 500000, 1000000, 2000000] 

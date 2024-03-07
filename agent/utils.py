@@ -498,17 +498,17 @@ class MLP(Module):
         x = x.reshape(list(features.shape[:-1]) + [x.shape[-1]])
         return self._out(x)
     
-    @staticmethod
-    def compose_output(input):
+    def compose_output(self, input):
         out = {}
-        # in case of distribution, need to sample
-        if type(input) != torch.tensor:
-            out["dist"] = input
-            out["mean"] = input.mean
-            out["sample"] = SampleDist(input).sample()
+        out["dist"] = input
+        out["mean"] = input.mean
+
+        # in case of mse distribution, we take the mean as the sample
+        if self._out._dist == "mse":
+            out["sample"] = input.mean
         else:
-            out["mean"] = input
-            out["sample"] = input
+            out["sample"] = SampleDist(input).sample()
+
         return out
 
 class GRUCell(Module):

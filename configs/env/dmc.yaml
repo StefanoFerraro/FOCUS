@@ -30,3 +30,5 @@ limits_exploration_area: [[-0.24, 0.24], [-0.24, 0.24]]
 object_start_pos: [0, 0]
 target_modulator: 500000
 visualize_target: True
+
+dist_as_rw: False
