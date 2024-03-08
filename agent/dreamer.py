@@ -31,37 +31,17 @@ class DreamerAgent(Module):
         self.wm.model_init()
 
         self._task_behavior = ActorCritic(cfg, self.act_spec, self.tfstep, name="task")
-
-        self.init_exploration_area = self.cfg.env.init_exploration_area
-        self.init_lower_bound_expl_area = np.array([x[0] for x in self.init_exploration_area])
-        self.init_upper_bound_expl_area = np.array([x[1] for x in self.init_exploration_area])
-        self.min_exploration_area = np.array([x[0] for x in self.cfg.env.limits_exploration_area])
-        self.max_exploration_area = np.array([x[1] for x in self.cfg.env.limits_exploration_area])
+        self.set_target(cfg.env.object_start_pos)
         
-        # sample a circle from the center of the workspace
-        self._exploration_area = [self.min_exploration_area, self.max_exploration_area]
-
-        self.update_target()
-
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
-    def update_target(self):
-        new_target = np.random.uniform(*self._exploration_area)    
-        self.set_target(new_target)
-    
     def set_target(self, target_from_zero):
         new_target =  target_from_zero
         self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float) 
     
     def get_target(self):
         return self._target_pos
-    
-    def set_exploration_area(self, exploration_area):
-        self._exploration_area = exploration_area
-        
-    def get_init_exploration_area(self):
-        return self.init_exploration_area
     
     def act(self, obs, meta, step, eval_mode, state):
         obs = {

@@ -493,3 +493,15 @@ def expl_area_update(agent, global_step, modulation_factor=10e6, curriculum_lear
     
     agent.set_exploration_area(new_exploration_area)
     return new_exploration_area
+
+def generate_target(exploration_limits : list,  curriculum_learning: bool, global_step: int, modulation_factor: int):
+    
+    if curriculum_learning:
+        exploration_area = exp_func(global_step, modulation_factor)
+    else:
+        # sample from full exploration area
+        exploration_area = [exploration_limits[0], exploration_limits[1]]
+    
+    target = np.random.uniform(*exploration_area)    
+    return target
+

@@ -32,15 +32,7 @@ class FocusAgent(Module):
         self.obj_instances = self.obs_space["objects_pos"].shape[0]
         self.stoch_only = not self.cfg.agent.world_model.rssm.full_posterior
 
-        self.init_exploration_area = self.cfg.env.init_exploration_area
-        self.init_lower_bound_expl_area = np.array([x[0] for x in self.init_exploration_area])
-        self.init_upper_bound_expl_area = np.array([x[1] for x in self.init_exploration_area])
-        self.min_exploration_area = np.array([x[0] for x in self.cfg.env.limits_exploration_area])
-        self.max_exploration_area = np.array([x[1] for x in self.cfg.env.limits_exploration_area])
-        
-        # sample a circle from the center of the workspace
-        self._exploration_area = [self.min_exploration_area, self.max_exploration_area]
-        self.update_target()
+        self.set_target(cfg.env.object_start_pos)
         
         self.tfstep = None
         self._use_amp = cfg.precision == 16

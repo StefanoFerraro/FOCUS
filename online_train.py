@@ -297,8 +297,7 @@ class Workspace:
                             utils.log_metrics_dict(obj_metrics, log)
                         
                             if self.cfg.agent.train_target_reach:
-                                target_pos = self.agent._target_pos.cpu().numpy()
-                                move_to_target_metrics = utils.move_to_target_metrics(self.obj_pos, target_pos)
+                                move_to_target_metrics = utils.move_to_target_metrics(self.obj_pos, target)
                                 utils.log_metrics_dict(move_to_target_metrics, log)
                                 
                     utils.init_metrics_counters(self)
@@ -322,9 +321,12 @@ class Workspace:
                     
                     # set target position for rewarding
                     if self.cfg.agent.train_target_reach:
-                        utils.expl_area_update(self.agent, self.global_step, self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
-                        self.agent.update_target() # update target in the agent based on the new exploration area 
-                        self.train_env.set_target(self.agent.get_target()[0,0,0].detach().cpu().numpy().copy())  # visually set the target                  
+                        if self.cfg.env.env_target:
+                            target = self.train_env.get_target()
+                        else:
+                            target = utils.generate_target(self.train_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
+                            self.train_env.set_target(target)  # visually set the target  
+                            self.agent.set_target(target)  # visually set the target                                  
                     
                 # try to evaluate
                 if eval_every_step(self.global_step):

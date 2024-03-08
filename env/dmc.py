@@ -23,9 +23,9 @@ os.environ["MUJOCO_GL"] = "egl"
 part_ids = {"reacher_hard": 3, "reacher_easy": 3, "manipulator_bring_ball": 10}   
 part_bodyids = {"reacher_hard": 9, "reacher_easy": 9}   
 
-limits_exploration_area = {"reacher_hard": [[-0.24, 0.24], [-0.24, 0.24]],
-                           "reacher_easy": [[-0.24, 0.24], [-0.24, 0.24]],
-                           "manipulator_bring_ball": [[-0.5, 0.5], [0.01, 0.9]]}
+limits_exploration_area = {"reacher_hard": [[-0.24, -0.24], [0.24, 0.24]],
+                           "reacher_easy": [[-0.24, -0.24], [0.24, 0.24]],
+                           "manipulator_bring_ball": [[-0.5, 0.01], [0.5, 0.9]]}
 
 class DMCSuite(BaseEnv):
     def __init__(
@@ -278,7 +278,16 @@ class DMCSuite(BaseEnv):
             self._env.physics.named.model.geom_pos[self.target_part] = [target_pos[0], 0.0, target_pos[1]]
         else:
             raise NotImplementedError
-           
+    
+    def get_target(self):
+        if "reacher" in self.task:
+            target = self._env.physics.named.data.geom_xpos[self.target_part][0, :2]
+        elif "manipulator" in self.task:
+            target = self._env.physics.named.data.geom_xpos[self.target_part][0, 0::2]
+        else:
+            raise NotImplementedError
+        return target
+    
     def get_rgb_with_target(self, target=None):
         # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
         if "manipulator" in self.task:

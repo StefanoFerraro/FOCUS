@@ -84,10 +84,15 @@ class OfflineWorkspace(Workspace):
                     self.eval()
 
                 # change target for training
-                if self.cfg.agent.train_target_reach:
-                    utils.expl_area_update(self.agent, self.global_step, self.cfg.env.target_modulator, self.cfg.curriculum_learning) # update pos target according to scheduler 
-                    self.agent.update_target() # update target in the agent based on the new exploration area 
-                    
+                    # set target position for rewarding
+                    if self.cfg.agent.train_target_reach:
+                        if self.cfg.env.env_target:
+                            target = self.eval_env.get_target()
+                        else:
+                            target = utils.generate_target(self.eval_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
+                            self.eval_env.set_target(target)  # visually set the target  
+                            self.agent.set_target(target)  # visually set the target                                  
+                
                 self.metrics = self.agent.update(
                     next(self.replay_iter), self.global_step, which_policy='task'
                 )[1]

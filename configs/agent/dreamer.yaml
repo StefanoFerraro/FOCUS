@@ -12,6 +12,7 @@ reward_fn: "task"
 actor_ent: 1e-4
 
 train_target_reach: True
+
 symlog_inputs: True
 
 world_model:
