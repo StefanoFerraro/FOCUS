@@ -383,7 +383,7 @@ exp_configs = {
         "agent|train_target_reach": [False]
     },  
     
-    "offline_reacher_benchmark_1_pretrain": {
+    "offline_reacher_benchmark_1_dreamer_dataset_pretrain": {
         "agent": ["dreamer"],
         "env": "dmc",
         "task": ["reacher_hard", "reacher_easy"],
@@ -393,8 +393,8 @@ exp_configs = {
         "num_train_frames": 100000,  
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
-        "eval_every_frames": 2500,
-        "dataset_dir": "/mnt/home/datasets/reacher_hard/plan2explore/2M"
+        "eval_every_frames": 2500, 
+        "dataset_dir": "/mnt/public/projects/mazpie/online_reacher_benchmark_1_rgb_state/pretrain/c08a7eb939c353712e91f67e8d975b22/code/buffer"
     },
       
     "online_reacher_online_benchmark_3_dist_pretrain": {

@@ -21,70 +21,20 @@ from env.utils import obs_specs
 import utils
 from logger import Logger
 from replay_buffer import ReplayBuffer, make_replay_loader
+from online_train import Workspace
 
 # Offline implementation loads a dataset of trajectories and trains the world model and the agent on it, without the need for interaction with the environment and need for any exploration
-class Workspace:
+class OfflineWorkspace(Workspace):
     def __init__(self, cfg, maindir=None, workdir=None):
-        self.maindir = Path.cwd() if maindir is None else maindir
-        self.workdir = Path.cwd() if workdir is None else workdir
-        print(f"workspace: {self.workdir}")
+        super().__init__(cfg, maindir=None, workdir=None)
         
-        # setup and configaration adjustments 
-        self.cfg = cfg
-        domain = cfg.domain
-        task = (
-            cfg.task if cfg.task != "none" else PRIMAL_TASKS[domain]
-        )  # -> which is the URLB default
-        objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
-        if cfg.agent.world_model.name == "focus":
-            cfg.agent.world_model.objects = objets_list
-        self.device = torch.device(cfg.device)
-        cfg.agent.world_model.device = cfg.device
-        
-        # seed everything for reproducibility        
-        utils.set_seed_everywhere(cfg.seed)
-
-        self.logger = Logger(self.workdir, use_tb=cfg.use_tb, use_wandb=cfg.use_wandb)
-        
-        # change to original working directory for loading URDF models
-        os.chdir(self.maindir)  
-        
-        self.eval_env = make(
-            domain,
-            task,
-            cfg.action_repeat,
-            cfg.seed,
-            cfg.env,
-        )
-        # after env creation, change back to main directory
-        os.chdir(self.maindir)
-
         # reset to obtain observation specs
         self.eval_env.reset()
-        # create agent
-        train_obs_spec = self.eval_env.obs_space
-        self.agent = utils.make_dreamer_agent(
-            train_obs_spec,
-            self.eval_env.action_spec(),
-            cfg,
-        )
 
-        # get meta specs
-        meta_specs = self.agent.get_meta_specs()
-
-        print(f'replay dir : {cfg.dataset_dir}')
-        
-        data_specs = (
-            *obs_specs(train_obs_spec),
-            self.eval_env.action_spec(),
-            specs.Array((1,), np.float32, "reward"),
-            specs.Array((1,), np.float32, "discount"),
-        )
-
-        # create data storage
+        # create data storage and load data
         self.replay_storage = ReplayBuffer(
-            data_specs,
-            meta_specs,
+            self.data_specs,
+            self.meta_specs,
             Path(cfg.dataset_dir),
             length=cfg.batch_length,
             **cfg.replay,
@@ -99,142 +49,6 @@ class Workspace:
             cfg.replay_buffer_num_workers,
         )
 
-        self._replay_iter = None
-
-        # Globals
-        self.timer = utils.Timer()
-        self._global_step = 0
-        self._global_episode = 0
-        self._horizon = cfg.env.horizon
-
-    def reset(self, func):
-        os.chdir(
-          (self.maindir)
-        )  # change to original working directory for loading URDF models
-        obs = func.reset()
-        os.chdir(self.workdir)
-
-        return obs
-
-    @property
-    def global_step(self):
-        return self._global_step
-
-    @property
-    def global_episode(self):
-        return self._global_episode
-
-    @property
-    def global_frame(self):
-        return self.global_step * self.cfg.action_repeat
-
-    @property
-    def replay_iter(self):
-        if self._replay_iter is None:
-            self._replay_iter = iter(self.replay_loader)
-        return self._replay_iter
-
-    def eval(self):
-        if self.global_step == 0:
-            return
-
-        # Initialization
-        step = episode = total_reward = total_success = 0
-        step_to_success = self._horizon
-        step_to_success_list = []        
-        eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
-        meta = self.agent.init_meta()
-        obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
-        video = np.empty([1, int(self._horizon/2) + 1 , 3, *self.cfg.env.renderer.size])
-        
-        while eval_until_episode(episode):
-            episode_data = []
-            
-            # set target before reset of env
-            if self.cfg.agent.train_target_reach:
-                # pick goal for evaluation
-                target = self.eval_env.get_random_goal()[1]
-                self.agent.set_target(target) # update pos target only along x axis 
-                if self.cfg.env.visualize_target:   
-                    self.eval_env.set_target(target)                    
-    
-            obs = self.eval_env.reset()
-            
-            # dmc envs adapt objects position after the res
-            if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:   
-                self.eval_env.set_target(target)
-                   
-            obs["eval_rgb"] = obs["rgb"]
-            
-            episode_data.append(obs)
-            agent_state = None
-            
-            while not bool(obs["is_last"]):
-                with torch.no_grad(), utils.eval_mode(self.agent):
-                    action, agent_state = self.agent.act(
-                        obs,
-                        meta,
-                        self.global_step,
-                        eval_mode=True,
-                        state=agent_state,
-                    )
-                obs = self.eval_env.step(action)
-                
-                # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
-                if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:
-                    obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target)
-                else:
-                    obs["eval_rgb"] = obs["rgb"]
-
-                episode_data.append(obs)
-                total_reward += obs["reward"]
-                step += 1
-                
-                # Hacky way to say that step_to_success was set
-                if step_to_success == self._horizon and obs["success"]:
-                    step_to_success = (step * self.cfg.action_repeat) - (episode * self._horizon)
-
-                obj_pos = np.concatenate((obj_pos, [obs["objects_pos"][0]]))
-
-            # log moving average, move to target metrics
-            if self.cfg.agent.train_target_reach:
-                target_pos = self.agent._target_pos.cpu().numpy()
-                if episode == 0:
-                    move_to_target_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
-                else:
-                    episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
-                    move_to_target_metrics = {k: v / self.cfg.num_eval_episodes + move_to_target_metrics[k] for k, v in episode_metrics.items()}
-
-            # video output for visualization                 
-            if episode==0:
-                video = np.expand_dims(np.stack([obs['eval_rgb'] for obs in episode_data], axis=0), axis=0)    
-            else:
-                video = np.concatenate([video, np.expand_dims(np.stack([obs['eval_rgb'] for obs in episode_data], axis=0), axis=0)], axis=-1)    
-            
-            episode += 1
-            step_to_success_list += [step_to_success]
-            step_to_success = self._horizon
-            total_success += obs["success"]
-            obj_pos = np.zeros_like([self.cfg.env.object_start_pos]).astype(float) 
-        
-        # logging 
-        with self.logger.log_and_dump_ctx(self.global_frame, ty="eval") as log:
-            log("episode_reward", total_reward / episode)
-            log("avg_success", total_success / episode)
-            log("episode_length", step * self.cfg.action_repeat / episode)
-            log("avg_step_to_success", sum(step_to_success_list) / episode)
-            log("episode", self.global_episode)
-            log("step", self.global_step)
-            if self.cfg.agent.train_target_reach:
-                utils.log_metrics_dict(move_to_target_metrics, log)
-
-        # B, T, C, H, W = video.shape
-        video = np.uint8(video * 255)
-        self.logger.log_video({'eval_video' : video }, self.global_frame)
-
-        # Eval episodes for testing the prior
-        utils.TSNE_analysis(self)      
-          
     def train(self):
         # Initialization
         train_until_step = utils.Until(self.cfg.num_train_frames, self.cfg.action_repeat)
@@ -243,7 +57,6 @@ class Workspace:
         should_log_recon = utils.Every(self.cfg.recon_every_frames, self.cfg.action_repeat)
         
         utils.init_metrics_counters(self)
-        
         
         warmnup_profiler = 2990
         profiler_active_for = 10
@@ -290,7 +103,7 @@ class Workspace:
                 if self.global_step > 0 and should_log_recon(self.global_step):
                     videos, text = self.agent.report(next(self.replay_iter))
                     self.logger.log_video(videos, self.global_frame)
-                    self.logger.log_text(text, self.global_frame)
+                    self.logger.log_metrics(text, self.global_frame, ty="train")
 
                 self._global_step += 1
 
@@ -400,7 +213,7 @@ def toolkit_main(cfg, maindir, workdir):
 
 @hydra.main(config_path="configs", config_name="train")
 def main(cfg):
-    from offline_train import Workspace as W
+    from offline_train import OfflineWorkspace as W
     root_dir = Path.cwd()
     workspace = W(cfg, maindir=get_original_cwd())
 

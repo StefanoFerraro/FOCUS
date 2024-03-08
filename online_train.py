@@ -80,9 +80,9 @@ class Workspace:
         )
 
         # get meta specs
-        meta_specs = self.agent.get_meta_specs()
+        self.meta_specs = self.agent.get_meta_specs()
 
-        data_specs = (
+        self.data_specs = (
             *obs_specs(train_obs_spec),
             self.train_env.action_spec(),
             specs.Array((1,), np.float32, "reward"),
@@ -91,8 +91,8 @@ class Workspace:
 
         # create data storage
         self.replay_storage = ReplayBuffer(
-            data_specs,
-            meta_specs,
+            self.data_specs,
+            self.meta_specs,
             self.workdir / "buffer",
             length=cfg.batch_length,
             **cfg.replay,
