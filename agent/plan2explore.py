@@ -156,12 +156,13 @@ class Plan2Explore(DreamerAgent):
         metrics.update(mets)
         start = outputs["post"]
         start = {k: stop_gradient(v) for k, v in start.items()}
+        reward_fn = getattr(self, self.cfg.agent.reward_fn + "_reward_fn")
 
         
         if which_policy=='task':
             metrics.update(
                 self._task_behavior.update(
-                    self.wm, start, data["is_terminal"], self.reward_fn
+                    self.wm, start, data["is_terminal"], reward_fn
                 )
             )
         elif which_policy=='expl':
@@ -199,7 +200,7 @@ class Plan2Explore(DreamerAgent):
 
             metrics.update(
                 self._task_behavior.update(
-                    self.wm, start, data["is_terminal"], self.reward_fn
+                    self.wm, start, data["is_terminal"], reward_fn
                 )
             )
 

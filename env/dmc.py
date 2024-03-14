@@ -38,16 +38,15 @@ class DMCSuite(BaseEnv):
     ):
         
         super().__init__(env_config, task, part, seed, action_repeat)
-
         
         if self.task not in part_ids.keys():
             raise NotImplementedError
         else:
             self.part_id = part_ids[self.task]   
             self.part_bodyid = part_bodyids[self.task]
-            
+                
         self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
-        self.dist_as_rw = env_config.dist_as_rw
+        self.visualize_target = env_config.visualize_target
         
         self._make()
                 
@@ -224,6 +223,9 @@ class DMCSuite(BaseEnv):
     def reset(self):
         self.is_first = True
         reward = 0.0
+        if not self.visualize_target:
+            self._env.physics.named.model.geom_rgba["target"][-1] = 0 # hide the target          
+             
         time_step = self._env.reset() 
         
         if self.task == "manipulator_bring_ball":
@@ -290,9 +292,12 @@ class DMCSuite(BaseEnv):
     
     def get_rgb_with_target(self, target=None):
         # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
+        self._env.physics.named.model.geom_rgba["target"][-1] = 1 # be sure that the target is in view          
         if "manipulator" in self.task:
             self.set_target(target)
         target_rgb = self._env.physics.render(height=self.size[0], width=self.size[1], camera_id=0).transpose(2, 0, 1)
+
+        if not self.visualize_target: self._env.physics.named.model.geom_rgba["target"][-1] = 0 # hide the target 
         return target_rgb
     
     def get_goals(self):

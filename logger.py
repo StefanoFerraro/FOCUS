@@ -35,7 +35,12 @@ class AverageMeter(object):
         self._count = 0
 
     def update(self, value, n=1):
-        self._sum += value
+        if type(value) == list and len(value) > 1:
+            if self._sum == 0:
+                self._sum = np.zeros_like(value)
+            self._sum += np.array(value)
+        else:
+            self._sum += value
         self._count += n
 
     def value(self):
@@ -80,6 +85,7 @@ class MetersGroup(object):
                     if float(row["episode"]) >= data["episode"]:
                         break
                     rows.append(row)
+                    
         with self._csv_file_name.open("w") as f:
             # To handle CSV that have more keys than new data
             keys = set(data.keys())
@@ -156,7 +162,7 @@ class MetersGroup(object):
         data = self._prime_meters()
         data["frame"] = step
         if self.use_wandb:
-            wandb_data = {prefix + "/" + key: val for key, val in data.items()}
+            wandb_data = {prefix + "/" + key: wandb.Histogram(val) if (type(val) == np.ndarray and len(val) > 1) else val for key, val in data.items()}
             self._dump_to_wandb(data=wandb_data)
         self._dump_to_csv(data)
         self._dump_to_console(data, prefix)
@@ -184,12 +190,17 @@ class Logger(object):
 
     def _try_sw_log(self, key, value, step):
         if self._sw is not None:
-            self._sw.add_scalar(key, value, step)
+            if type(value) == list:
+                value = np.array(value)
+                self._sw.add_histogram(key, value, step)
+            else:
+                self._sw.add_scalar(key, value, step)
 
     def log(self, key, value, step):
         assert key.startswith("train") or key.startswith("eval")
         if type(value) == torch.Tensor:
             value = value.item()
+
         self._try_sw_log(key, value, step)
         mg = self._train_mg if key.startswith("train") else self._eval_mg
         mg.log(key, value)

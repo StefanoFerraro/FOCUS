@@ -22,6 +22,9 @@ _CLOSE = 2
 _FAR = 3
 _UP = 4
 
+limits_exploration_area = {"Lift": [[-0.25, -0.25, 0], [0.25, 0.25, 0.1]],
+                           "CustomLift": [[-0.25, -0.25, 0], [0.25, 0.25, 0.1]],
+                           "Stack": [[-0.25, -0.25, 0], [0.25, 0.25, 0.2]]}
 
 class PandaRoboSuite(ObjectsEnv):
     def __init__(
@@ -70,6 +73,8 @@ class PandaRoboSuite(ObjectsEnv):
         self.lift_norm = int(abs(1 / (self.area_threshold)) + 1)
         self.push_norm = int(abs(1 / (self.area_threshold - self.area_target)) + 1)
         
+        self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
+        
         self._make()
 
     def _make(self):
@@ -114,7 +119,7 @@ class PandaRoboSuite(ObjectsEnv):
                 "proprio": gym.spaces.Box(
                     -5,
                     5,
-                    self._env.modality_dims["robot0_proprio-state"],
+                    (self._env.modality_dims["robot0_proprio-state"][0] + 3, ), # 3 states for the target
                     dtype=np.float32,
                 ),
                 "state": self._env.observation_space,
@@ -246,7 +251,7 @@ class PandaRoboSuite(ObjectsEnv):
             abs(obj_pos[0]) > self.area_threshold
             or abs(obj_pos[1]) > self.area_threshold
         )
-
+        
     def push_reward(self, in_areas, true_obj_pos):
         success = in_areas[_RIGHT]  # and done
         reward = (
@@ -347,6 +352,12 @@ class PandaRoboSuite(ObjectsEnv):
 
         # objects_pos = self.pixel_to_world(seg, depth)
         objects_pos = [self.true_obj_pos[self.target_obj]]
+        object_to_target = objects_pos[0] - (self._env.env.target_pos - self.object_start_pos)
+        if self.dist_as_rw:
+            reward = - np.linalg.norm(object_to_target)
+            
+        # include target information in the proprioception
+        proprio = proprio + list(object_to_target)
         
         action = np.delete(action, [3, 4, 5])  # remove dummy orientation values
 
@@ -377,6 +388,7 @@ class PandaRoboSuite(ObjectsEnv):
 
     def reset(self):
         self._env.reset()  # reset environment
+        reward = 0.0
 
         self.set_camera_pos()  # move camera closer to the robot
         self.is_first = True
@@ -390,9 +402,15 @@ class PandaRoboSuite(ObjectsEnv):
 
         # objects_pos = self.pixel_to_world(seg, depth)
         objects_pos = [self.true_obj_pos[self.target_obj]]
-
+        object_to_target = objects_pos[0] - (self._env.env.target_pos - self.object_start_pos)
+        if self.dist_as_rw:
+            reward = - np.linalg.norm(object_to_target)
+            
+        # include target information in the proprioception
+        proprio = proprio + list(object_to_target)
+        
         obs = {
-            "reward": 0.0,
+            "reward": reward,
             "is_first": self.is_first,
             "is_last": False,
             "is_terminal": False,

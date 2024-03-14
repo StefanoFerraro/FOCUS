@@ -11,7 +11,6 @@ actor_ent: 0
 skill_reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
 
 train_target_reach: True
-env_target: True
 
 distance_mode: 'cosine'
 start_agent_training_after: 2500

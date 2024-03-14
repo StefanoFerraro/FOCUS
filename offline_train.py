@@ -58,7 +58,7 @@ class OfflineWorkspace(Workspace):
         
         utils.init_metrics_counters(self)
         
-        warmnup_profiler = 2990
+        warmnup_profiler = 2490
         profiler_active_for = 10
         
         # clean approch for having the posibility to choose if profiling or not the algorithm
@@ -84,15 +84,16 @@ class OfflineWorkspace(Workspace):
                     self.eval()
 
                 # change target for training
-                    # set target position for rewarding
-                    if self.cfg.agent.train_target_reach:
-                        if self.cfg.env.env_target:
-                            target = self.eval_env.get_target()
-                        else:
-                            target = utils.generate_target(self.eval_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
-                            self.eval_env.set_target(target)  # visually set the target  
-                            self.agent.set_target(target)  # visually set the target                                  
-                
+                # set target position for rewarding
+                if self.cfg.agent.train_target_reach:
+                    if self.cfg.env.env_target:
+                        target = self.eval_env.get_target()
+                    else:
+                        target = utils.generate_target(self.eval_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
+                        self.eval_env.set_target(target)  # visually set the target  
+                    self.agent.set_target(target)  # visually set the target                                  
+                 
+                # here i set a target but do not match the observation with the target
                 self.metrics = self.agent.update(
                     next(self.replay_iter), self.global_step, which_policy='task'
                 )[1]
@@ -103,7 +104,6 @@ class OfflineWorkspace(Workspace):
                     with self.logger.log_and_dump_ctx(self.global_step, ty='train') as log:
                         log('fps', self.cfg.log_every_frames / elapsed_time)
                         log('step', self.global_step)
-                        log('episode_reward', 0.)
                 
                 if self.global_step > 0 and should_log_recon(self.global_step):
                     videos, text = self.agent.report(next(self.replay_iter))
@@ -195,7 +195,7 @@ class OfflineWorkspace(Workspace):
         return snapshot_dir
     
 def toolkit_main(cfg, maindir, workdir):
-    from offline_train import Workspace as W
+    from offline_train import OfflineWorkspace as W
     root_dir = Path.cwd()
     cfg.use_tb = False
     maindir="/mnt/home/focus" # get_original_cwd() does not work in this contenxt 

@@ -6,6 +6,7 @@ from agent.utils import *
 import agent.dreamer_utils as common
 from collections import OrderedDict
 import numpy as np
+from scipy import ndimage
 
 def stop_gradient(x):
     return x.detach()
@@ -130,7 +131,8 @@ class DreamerAgent(Module):
             if "objects_pos" in self.wm.heads["decoder"].mlp_keys:
                 metrics.update(self.wm.prediction_errors(data, "objects_pos", batch_size=10, head_key="decoder"))
             metrics.update(self.wm.prediction_errors(data, "reward", batch_size=10, head_key="reward"))
-            
+        
+        metrics.update(self.wm.RSSM_errors(data))
         return report, metrics
 
     def get_meta_specs(self):
@@ -521,6 +523,50 @@ class WorldModel(Module):
         obs["discount"] *= self.full_cfg.agent.discount
         return obs
 
+    def RSSM_errors(self, data):
+        metrics = {"prior_error": [], "prior_recon_error": [], "prior_recon_masked_error": []}
+        error_steps = [1, 3, 5, 8, 10]
+        decoder = self.heads["decoder"]  # B, T, C, H, W
+        truth = data["rgb"] + 0.5
+        embed = self.encoder(data)
+        imag_start_step = 5
+        over_steps = lambda x : [x[:s] for s in error_steps]
+        
+        post, prior = self.rssm.observe(
+            embed,
+            data["action"],
+            data["is_first"],
+        )
+    
+        recon = decoder(self.rssm.get_feat(post))["rgb"].mean
+        
+        init = {k: v[:, imag_start_step] for k, v in post.items()}
+        for s in error_steps:
+            # mse errors in the predictions
+            pred_prior = self.rssm.imagine(data["action"][:, imag_start_step:imag_start_step+s], init)
+            prior_recon = decoder(self.rssm.get_feat(pred_prior))["rgb"].mean
+            
+            prior_error = torch.mean((self.rssm.get_feat(pred_prior)[:, -1] - self.rssm.get_feat(prior)[:, imag_start_step + s]) ** 2)
+            metrics["prior_error"].append(prior_error.item())
+            prior_recon_error = torch.mean((prior_recon[:, -1] - truth[:, imag_start_step + s]) ** 2)
+            metrics["prior_recon_error"].append(prior_recon_error.item())
+            
+            # mse objects errors in the predictions
+            # Mask of object -> dilate mask -> compute mse over selected region
+            if "segmentation" in data.keys():
+                seg = data["segmentation"][:,:,0]
+                struct = np.array([[[[0, 1, 0], [1, 1, 1], [0, 1, 0]]]]) # structure to dilatate only on the last two channels, 2D propagation, batches are keeped separate
+                dilated_seg = ndimage.binary_dilation(seg.detach().cpu().numpy(), struct, iterations=3)
+                dilated_seg_rgb_axis = np.repeat(dilated_seg[:, imag_start_step + s, np.newaxis], 3, axis=1)
+                
+                truth_masked = truth[:, imag_start_step + s].detach().cpu().numpy() * dilated_seg_rgb_axis
+                prior_recon_masked = prior_recon[:, -1].detach().cpu().numpy() * dilated_seg_rgb_axis
+                
+                prior_recon_masked_error = np.mean((truth_masked - prior_recon_masked) ** 2)
+                metrics["prior_recon_masked_error"].append(prior_recon_masked_error)
+
+        return metrics
+    
     def video_pred(self, data, key, nvid=8):
         decoder = self.heads["decoder"]  # B, T, C, H, W
         truth = data[key][:nvid] + 0.5
@@ -536,7 +582,7 @@ class WorldModel(Module):
         prior_recon = decoder(self.rssm.get_feat(prior))[key].mean  # mode
         model = torch.clip(torch.cat([recon[:, :5] + 0.5, prior_recon + 0.5], 1), 0, 1)
         error = (model - truth + 1) / 2
-
+        
         if getattr(self, "recon_skills", False):
             prior_feat = self.rssm.get_feat(prior)
             if self.skill_module.discrete_skills:

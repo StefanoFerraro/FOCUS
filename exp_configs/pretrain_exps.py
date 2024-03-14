@@ -346,7 +346,6 @@ exp_configs = {
         "env": ["dmc"],
         "task": ["reacher_hard"],
         "seed": [1, 2],
-        "train_every_actions": 10,
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "num_train_frames": 100000,  
         "curriculum_learning": False, 
@@ -357,75 +356,20 @@ exp_configs = {
         "dataset_dir": "/mnt/public/projects/mazpie/dataset_collection/pretrain/64088d629660ba59ba06beb5b702b6dd/code/buffer",  
     },
 
-    "online_reacher_benchmark_1_pretrain": {
-        "agent": ["dreamer"],
-        "env": "dmc",
-        "task": ["reacher_easy"],
-        "seed": [1,2],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
-        "agent|world_model|encoder|cnn_keys": "rgb",
-        "agent|world_model|decoder|cnn_keys": "rgb",
-        "agent|world_model|loss_scales|kl": [0.5, 1],
-        "agent|reward_fn": ["task"],
-        "agent|train_target_reach": [False]
-    },  
-    
-    "online_reacher_benchmark_1_state_pretrain": {
+    "offline_reacher_benchmark_1_test_pretrain": {
         "agent": ["dreamer"],
         "env": "dmc",
         "task": ["reacher_easy"],
         "seed": [1,2,3],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
-        "agent|world_model|encoder|mlp_keys": "proprio",
-        "agent|world_model|decoder|mlp_keys": "proprio",
-        "agent|symlog_inputs": [True],
         "agent|reward_fn": ["task"],
-        "agent|train_target_reach": [False]
-    },  
-    
-    "offline_reacher_benchmark_1_dreamer_dataset_pretrain": {
-        "agent": ["dreamer"],
-        "env": "dmc",
-        "task": ["reacher_hard", "reacher_easy"],
-        "seed": [1,2,3],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
-        "agent|reward_fn": ["task"],
-        "num_train_frames": 100000,  
+        "agent|train_target_reach": [True],
+        "num_train_frames": 250000,  
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
-        "dataset_dir": "/mnt/public/projects/mazpie/online_reacher_benchmark_1_rgb_state/pretrain/c08a7eb939c353712e91f67e8d975b22/code/buffer"
+        "dataset_dir": "/mnt/public/projects/mazpie/online_reacher_benchmark_1/pretrain/861fcdbba354d1d39ed21ec4a6201d73/code/buffer"
     },
-      
-    "online_reacher_online_benchmark_3_dist_pretrain": {
-        "agent": ["dreamer"],
-        "env": "dmc",
-        "task": ["reacher_easy"],
-        "seed": [1,2],
-        "env|dist_as_rw": [True],
-        "agent|reward_fn": ["task"],
-        "agent|world_model|encoder|cnn_keys": "rgb",
-        "agent|world_model|decoder|cnn_keys": "rgb",
-        "agent|symlog_inputs": [False, True],
-        "agent|world_model|kl|balance": [0.8, [0.5, 0.1]],
-        "agent|world_model|encoder|coordConv": [False, True],  
-        "agent|train_target_reach": [True],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
-    },  
-    
-    "online_reacher_online_benchmark_3_state_pretrain": {
-        "agent": ["dreamer"],
-        "env": "dmc",
-        "task": ["reacher_easy"],
-        "seed": [1,2,3],
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
-        "agent|reward_fn": ["pos"],
-        "agent|world_model|encoder|mlp_keys": "objects_pos|proprio",
-        "agent|world_model|decoder|mlp_keys": "objects_pos|proprio",
-        "agent|world_model|encoder|symlog_inputs": [True],
-        "agent|world_model|decoder|symlog_outputs": [True],
-        "agent|world_model|loss_scales|kl": [0.5, 1],
-    },  
     
     "offline_reacher_online_benchmark_3_pretrain": {
         "agent": ["dreamer"],
@@ -444,36 +388,214 @@ exp_configs = {
         "eval_every_frames": 2500,
         "dataset_dir": "/mnt/home/datasets/reacher_hard/plan2explore/2M"
     },  
-    "online_reacher_online_benchmark_5_debug_pretrain" : {
+    
+    "online_reacher_benchmark_1_dataset_no_visual_target_pretrain": {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_easy", "reacher_hard"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "eval_every_frames": 10000000,
+        "env|visualize_target": False,
+    },  
+    
+    "online_rs_benchmark_1_dataset_pretrain": {
+        "agent": ["dreamer"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "eval_every_frames": 10000000,
+    },  
+
+    "online_reacher_plan2explore_dataset_no_visual_target_pretrain": {
+        "agent": ["plan2explore"],
+        "env": "dmc",
+        "task": ["reacher_easy", "reacher_hard"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "eval_every_frames": 10000000,
+        "env|visualize_target": False,
+    },  
+    
+    "online_rs_plan2explore_dataset_pretrain": {
+        "agent": ["plan2explore"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "eval_every_frames": 10000000,
+    }, 
+            
+    "online_reacher_benchmark_5_dataset_no_visual_target_pretrain" : {
         "agent": ["skill_focus"],
         "env": "dmc",
-        "task": ["reacher_hard"],
+        "task": ["reacher_easy", "reacher_hard"],
         "seed": [1, 2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|symlog_inputs": [True],
+        "agent|world_model|objEnc_MSE_ratio": [0.99],
+        "agent|world_model|object_encoder|distance_mode": ["cosine"],
+        "agent|distance_mode": ["cosine"],        
+        "eval_every_frames": 10000000,
+        "env|visualize_target": False,
+    }, 
+    
+    "online_rs_benchmark_5_dataset_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1, 2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|symlog_inputs": [True],
+        "agent|world_model|objEnc_MSE_ratio": [0.99],
+        "agent|world_model|object_encoder|distance_mode": ["cosine"],
+        "agent|distance_mode": ["cosine"],        
+        "eval_every_frames": 10000000,
+    }, 
+    
+    # Online Recher Benchmarking FOCUS++
+     
+    "online_reacher_benchmark_1_pretrain": {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_easy", "reacher_hard"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|cnn_keys": "rgb",
+        "agent|world_model|decoder|cnn_keys": "rgb",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+    },  
+    
+    "online_reacher_benchmark_1_state_pretrain": {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_easy", "reacher_hard"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|mlp_keys": "proprio",
+        "agent|world_model|decoder|mlp_keys": "proprio",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "agent|symlog_inputs": [True],
+    },  
+    
+    "online_reacher_benchmark_2_pretrain": {
+        "agent": ["skill_dreamer"],
+        "env": "dmc",
+        "task": ["reacher_easy", "reacher_hard"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|symlog_inputs": [True],
+        "batch_size": 50,
+        "batch_length": 50,
+        "env|horizon": [250, 1000], 
+    },  
+      
+    "online_reacher_benchmark_3_pretrain": {
+        "agent": ["dreamer"],
+        "env": "dmc",
+        "task": ["reacher_easy", "reacher_hard"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|cnn_keys": "rgb",
+        "agent|world_model|decoder|cnn_keys": "rgb",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "env|dist_as_rw": [True],
+        "agent|world_model|encoder|coordConv": [False, True], # Ablation with CoordConv
+    },  
+
+    "online_reacher_benchmark_5_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "dmc",
+        "task": ["reacher_easy", "reacher_hard"],
+        "seed": [1, 2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|symlog_inputs": [True],
         "agent|world_model|objEnc_MSE_ratio": [0.99],
         "agent|world_model|object_encoder|distance_mode": ["cosine"],
         "agent|distance_mode": ["cosine"],
-        "agent|world_model|kl|balance": [0.8, [0.5, 0.1]],
-        "agent|symlog_inputs": [False, True],
-        "batch_size": 16,
-        "batch_length": 32,
-        "env|horizon": [250, 1000], 
-        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
-    },
+        "env|horizon": [250, 1000], # shorter horizon converge faster, longer horizon gets more precise 
+    }, 
     
-    "online_reacher_benchmark_2_DrV3_horizon_pretrain": {
-        "agent": ["skill_dreamer"],
-        "env": "dmc",
-        "task": ["reacher_easy"],
+    # Online Robosuite Benchmarking FOCUS++
+    
+    "online_rs_benchmark_1_pretrain": {
+        "agent": ["dreamer"],
+        "env": "rs",
+        "task": ["CustomLift"],
         "seed": [1,2],
-        "agent|train_target_reach": [True],
-        "agent|world_model|kl|balance": [0.8, [0.5, 0.1]],
-        "agent|symlog_inputs": [False, True],
-        "batch_size": 50,
-        "batch_length": 50,
-        "env|horizon": [250], 
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
-        
+        "agent|world_model|encoder|cnn_keys": "rgb",
+        "agent|world_model|decoder|cnn_keys": "rgb",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
     },  
+    
+    "online_rs_benchmark_1_state_pretrain": {
+        "agent": ["dreamer"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|mlp_keys": "proprio",
+        "agent|world_model|decoder|mlp_keys": "proprio",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "agent|symlog_inputs": [True],
+    },  
+    
+    "online_rs_benchmark_2_pretrain": {
+        "agent": ["skill_dreamer"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|symlog_inputs": [True],
+        "env|horizon": [250, 1000], 
+    },  
+      
+    "online_rs_benchmark_3_pretrain": {
+        "agent": ["dreamer"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1,2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|world_model|encoder|cnn_keys": "rgb",
+        "agent|world_model|decoder|cnn_keys": "rgb",
+        "agent|train_target_reach": [True],
+        "agent|reward_fn": ["task"],
+        "env|dist_as_rw": [True],
+        "agent|world_model|encoder|coordConv": [False, True], # Ablation with CoordConv
+    },  
+
+    "online_rs_benchmark_5_pretrain" : {
+        "agent": ["skill_focus"],
+        "env": "rs",
+        "task": ["CustomLift"],
+        "seed": [1, 2],
+        "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
+        "agent|train_target_reach": [True],
+        "agent|symlog_inputs": [False, True],
+        "agent|world_model|objEnc_MSE_ratio": [0.99],
+        "agent|world_model|object_encoder|distance_mode": ["mse", "cosine"],
+        "agent|distance_mode": ["cosine"],
+    }, 
 }
 
 EXP_GROUPS = { k : hu.cartesian_exp_group(v) for k,v in exp_configs.items()} 

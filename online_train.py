@@ -162,13 +162,12 @@ class Workspace:
                 # pick random goal for evaluation
                 target = self.eval_env.get_random_goal()[1]
                 self.agent.set_target(target) 
-                if self.cfg.env.visualize_target: # visualize target if required   
-                    self.eval_env.set_target(target)                    
+                self.eval_env.set_target(target)                    
     
             obs = self.eval_env.reset()
             
             # dmc envs adapt objects position after the res
-            if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:   
+            if self.cfg.agent.train_target_reach:   
                 self.eval_env.set_target(target)
 
             # double for visualization purposes
@@ -189,7 +188,7 @@ class Workspace:
                 obs = self.eval_env.step(action)
                 
                 # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
-                if self.cfg.agent.train_target_reach and self.cfg.env.visualize_target:
+                if self.cfg.agent.train_target_reach:
                     obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target)
                 else:
                     obs["eval_rgb"] = obs["rgb"]
@@ -262,7 +261,7 @@ class Workspace:
         data = obs
         self.replay_storage.add(data, meta)
         
-        warmnup_profiler = 2990
+        warmnup_profiler = 2490
         profiler_active_for = 10
         
         # clean approch for having the posibility to choose if profiling or not the algorithm
@@ -326,7 +325,7 @@ class Workspace:
                         else:
                             target = utils.generate_target(self.train_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
                             self.train_env.set_target(target)  # visually set the target  
-                            self.agent.set_target(target)  # visually set the target                                  
+                        self.agent.set_target(target)  # visually set the target                                  
                     
                 # try to evaluate
                 if eval_every_step(self.global_step):

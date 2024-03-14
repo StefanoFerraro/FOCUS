@@ -65,7 +65,7 @@ class CustomLift(SingleArmEnv):
         # object placement initializer
         self.placement_initializer = placement_initializer
         self.spawn_range = spawn_range
-        self.target_pos = [0, 0, 0.9]
+        self.target_pos = np.array([0, 0, 0.9])
 
         super().__init__(
             robots=robots,
@@ -133,10 +133,14 @@ class CustomLift(SingleArmEnv):
             gripper_site_pos = self.sim.data.site_xpos[
                 self.robots[0].eef_site_id
             ]
-            dist = np.linalg.norm(gripper_site_pos - cube_pos)
-            reaching_reward = 1 - np.tanh(10.0 * dist)
+            dist_to_cube = np.linalg.norm(gripper_site_pos - cube_pos)
+            reaching_reward = 1 - np.tanh(10.0 * dist_to_cube)
             reward += reaching_reward
 
+            dist_to_target = np.linalg.norm(cube_pos - self.target_pos)
+            reaching_reward = 1 - np.tanh(10.0 * dist_to_target)
+            reward += reaching_reward
+            
             # grasping reward
             if self._check_grasp(
                 gripper=self.robots[0].gripper, object_geoms=self.cube
@@ -328,15 +332,30 @@ class CustomLift(SingleArmEnv):
                 gripper=self.robots[0].gripper, target=self.cube
             )
 
+    # def _check_success(self):
+    #     """
+    #     Check if cube has been lifted.
+
+    #     Returns:
+    #         bool: True if cube has been lifted
+    #     """
+    #     cube_height = self.sim.data.body_xpos[self.cube_body_id][2]
+    #     table_height = self.model.mujoco_arena.table_offset[2]
+
+    #     # cube is higher than the table top above a margin
+    #     return cube_height > table_height + 0.04
+    
+    
     def _check_success(self):
         """
-        Check if cube has been lifted.
+        Check distance of the cube from the target.
 
         Returns:
             bool: True if cube has been lifted
         """
-        cube_height = self.sim.data.body_xpos[self.cube_body_id][2]
-        table_height = self.model.mujoco_arena.table_offset[2]
+        cube_pos = self.sim.data.body_xpos[self.cube_body_id]
+        target_pos = self.sim.data.body_xpos[self.target_body_id]
+        dist = np.linalg.norm(cube_pos - target_pos)
 
         # cube is higher than the table top above a margin
-        return cube_height > table_height + 0.04
+        return dist < 0.01 # less than 1 cm distance between the cube and the target 

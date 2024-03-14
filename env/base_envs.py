@@ -44,6 +44,8 @@ class BaseEnv:
                 img_size=self.seg_size,
                 device="cuda:0",
             )
+            
+        self.dist_as_rw = env_config.dist_as_rw
         
     def obs_specs(self):
         obs_keys = ["rgb", "depth", "proprio", "objects_pos", "segmentation"]
