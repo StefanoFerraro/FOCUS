@@ -13,7 +13,7 @@ renderer:
   seg_size: [256, 256]
   gt_segmentation: True
 reward_shaping: True
-task_reward: "lift"
+task_reward: "distance"
 objects:
   rgba: [1, 0, 0, 1]
   minsize: 0.025
@@ -33,4 +33,4 @@ target_modulator: 500000
 
 env_target: False
 visualize_target: True
-dist_as_rw: True
+dist_as_rw: False
