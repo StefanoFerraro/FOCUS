@@ -7,7 +7,6 @@ defaults:
 task: none
 domain: ${env.name}
 comment: ""
-curriculum_learning: false
 
 # experiment
 experiment: pt
@@ -20,7 +19,10 @@ save_video: false
 save_train_video: true
 use_tb: true
 use_wandb: true
+curriculum_learning: false
 target_modulator: 500000
+expl_dataset: p2e
+vis_target_dataset: False
 
 # mode
 obs_type: pixels
@@ -56,7 +58,7 @@ replay:
   maxlen: 50 
   prioritize_ends: False
 # dataset dir for offline training
-dataset_dir: /mnt/public/projects/mazpie/dataset_collection/pretrain/64088d629660ba59ba06beb5b702b6dd/code/buffer
+dataset_dir: none
 # log settings
 log_every_frames: 1000
 recon_every_frames: 25000 # edit for debug

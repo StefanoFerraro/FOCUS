@@ -28,6 +28,11 @@ class OfflineWorkspace(Workspace):
     def __init__(self, cfg, maindir=None, workdir=None):
         super().__init__(cfg, maindir=None, workdir=None)
         
+        # query the desired data for training
+        cfg.dataset_dir = f"/mnt/home/datasets/{cfg.task}"
+        cfg.dataset_dir = cfg.dataset_dir + "/visual_target" if cfg.vis_target_dataset else cfg.dataset_dir
+        cfg.dataset_dir = cfg.dataset_dir + f"/{cfg.expl_dataset}"
+        
         # reset to obtain observation specs
         self.eval_env.reset()
 
@@ -94,8 +99,17 @@ class OfflineWorkspace(Workspace):
                     self.agent.set_target(target)  # visually set the target                                  
                  
                 # here i set a target but do not match the observation with the target
+                obs = next(self.replay_iter) 
+                if self.cfg.env.dist_as_rw: 
+                    if self.cfg.task in ["reacher_easy", "reacher_hard"]:
+                        obs["reward"] = - torch.sqrt(torch.sum(obs["proprio"][:,:,2:4]**2, dim=-1)).unsqueeze(-1)
+                    elif self.cfg.task in ["CustomLift"]:
+                        obs["reward"] = - torch.linalg.norm(obs["proprio"][:,:,-3:], dim=-1).unsqueeze(-1)
+                    else:
+                        raise ValueError("Task not implemented")
+                    
                 self.metrics = self.agent.update(
-                    next(self.replay_iter), self.global_step, which_policy='task'
+                    obs, self.global_step, which_policy='task'
                 )[1]
                 
                 if should_log_scalars(self.global_step):
