@@ -454,7 +454,7 @@ exp_configs = {
     "offline_reacher_benchmark_1_pretrain": {
         "agent": ["dreamer"],
         "env": "dmc",
-        "task": ["reacher_easy"],
+        "task": ["reacher_easy", "reacher_hard"],
         "seed": [1,2],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "agent|train_target_reach": [True],
@@ -462,7 +462,8 @@ exp_configs = {
         "num_train_frames": 250000,  
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
-        "eval_every_frames": 2500, 
+        "eval_every_frames": 2500,
+        "vis_target_dataset": [True, False], 
         "expl_dataset": ["dreamer", "p2e", "focus"],
     },
     
@@ -502,6 +503,7 @@ exp_configs = {
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
+        "vis_target_dataset": [True], 
         "expl_dataset": ["dreamer", "p2e", "focus"],
     },  
       
@@ -535,6 +537,7 @@ exp_configs = {
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
+        "vis_target_dataset": [True], 
         "expl_dataset": ["dreamer", "p2e", "focus"],
     },  
 
@@ -568,6 +571,7 @@ exp_configs = {
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
+        "vis_target_dataset": [True], 
         "expl_dataset": ["dreamer", "p2e", "focus"],
     }, 
     

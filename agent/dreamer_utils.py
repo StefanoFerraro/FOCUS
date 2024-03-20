@@ -553,7 +553,7 @@ class Decoder(Module):
                 dist = "symlog_mse" if symlog_outputs else "mse"
                 self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape, dist=dist))
 
-    def forward(self, features, only_mlp=False):
+    def forward(self, features, only_mlp=False, **kwargs):
         outputs = {}
         if self.cnn_keys and not only_mlp:
             outputs.update(self._cnn(features))
@@ -794,7 +794,7 @@ class ObjDecoder(Module):
                 dist = "symlog_mse" if symlog_outputs else "mse" # apply symlog_mse in case the input was modified
                 self.add_module(f"dense_{key}", DistLayer(self._mlp_units, shape[1], dist=dist))     
 
-    def forward(self, features, masks=None, only_mlp=False):
+    def forward(self, features, masks=None, only_mlp=False, **kwargs):
         outputs = {}
         obj_onehot = torch.eye(
             self.instances_dim, device=features.device
