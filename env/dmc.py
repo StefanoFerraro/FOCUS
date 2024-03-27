@@ -307,8 +307,8 @@ class DMCSuite(BaseEnv):
         if self.task in ["reacher_hard", "reacher_easy"]:
             full_right = [[0,0], [0.24, 0]]
             full_left = [[3.14, 0], [-0.24, 0]]
-            full_down = [[-1.57, 0], [0, 0.24]]
-            full_up = [[1.57, 0], [0, -0.24]]
+            full_down = [[-1.57, 0], [0, -0.24]]
+            full_up = [[1.57, 0], [0, 0.24]]
             top_left_V = [[1.57, 2.], [-0.11, 0.07]]
             down_right_V = [[-1.57, 2.], [0.11, -0.07]]
             top_right_openV = [[0.5, 1], [0.11, 0.18]]

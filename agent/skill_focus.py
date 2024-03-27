@@ -23,7 +23,11 @@ class SkillFocusAgent(FocusAgent):
         
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
-        self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+        target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+        self._shape_full_skill_latent = len(target_skill[0])
+        self._shape_skill_latent = int(self._shape_full_skill_latent * self.cfg.agent.world_model.objlatent_ratio)
+        self._target_skill = target_skill[:, :self._shape_skill_latent]
+        
         self.skill_dim = [self._target_skill.shape[-1]]
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
@@ -62,7 +66,7 @@ class SkillFocusAgent(FocusAgent):
     def object_context_pose_reward_fn(self, seq):
         feat = seq["stoch"].flatten(-2) if self.stoch_only else seq["feat"]
         
-        post_obj_state = self.wm.heads["object_decoder"].object_latent_extractor(stop_gradient(feat))["post"]["mean"][:,:,0,:] #consider only first object
+        post_obj_state = self.wm.heads["object_decoder"].object_latent_extractor(stop_gradient(feat))["post"]["mean"][:,:,0,:self._shape_skill_latent] #consider only first object
         if self.cfg.agent.distance_mode == "mse":
             squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2)
         elif self.cfg.agent.distance_mode == "cosine":
@@ -84,7 +88,7 @@ class SkillFocusAgent(FocusAgent):
             start = outputs["post"]
             start = {k: stop_gradient(v) for k, v in start.items()}
 
-            self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+            self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
             self._skill_behavior.solved_meta['skill'] = self._target_skill
             
             # agent update based on the achievement on the given skill 
@@ -114,7 +118,7 @@ class SkillFocusAgent(FocusAgent):
             
         return state, metrics
 
-    def act(self, obs, meta, step, eval_mode, state):
+    def act(self, obs, meta, step, eval_mode, state, target_skill=None):
         obs = {
             k: torch.as_tensor(np.copy(v), device=self.device).unsqueeze(0)
             for k, v in obs.items()
@@ -135,7 +139,11 @@ class SkillFocusAgent(FocusAgent):
 
         if eval_mode:
             policy =  self._skill_behavior.actor
-            skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+            if target_skill is None:
+                skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
+            else:
+                skill = target_skill
+            
             inp = torch.cat([feat, skill], dim=-1)
         else:
             if self.cfg.agent.only_expl_during_training: # split to avoid errors down the line with meta["use_skill_behaviour"]
@@ -144,7 +152,7 @@ class SkillFocusAgent(FocusAgent):
             else:
                 if meta["use_skill_behaviour"]:
                     policy = self._skill_behavior.actor 
-                    skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
+                    skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
                     inp = torch.cat([feat, skill], dim=-1)
                 else:
                     policy = self._expl_behavior.actor

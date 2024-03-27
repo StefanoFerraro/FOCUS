@@ -345,8 +345,8 @@ class OCWorldModel(WorldModel):
             self.shapes, **self.cfg.object_decoder, embed_dim=self.inp_size, symlog_outputs=self.full_cfg.agent.symlog_inputs, obj_extractor_cfg=self.cfg.object_extractor)
         
         if self.cfg.get("object_encoder", False):
-            self.object_encoder = common.ObjEncoder(self.shapes, symlog_inputs=self.full_cfg.agent.symlog_inputs, **self.cfg.object_encoder)
-    
+            self.object_encoder = common.ObjEncoder(self.shapes, symlog_inputs=self.full_cfg.agent.symlog_inputs, objlatent_ratio=self.cfg.objlatent_ratio, **self.cfg.object_encoder)
+            self._shape_skill_latent = int(32 * self.cfg.object_decoder.cnn_depth * self.cfg.objlatent_ratio)
         self.model_init()
         self.stoch_only = not self.cfg.rssm.full_posterior
 
@@ -400,8 +400,12 @@ class OCWorldModel(WorldModel):
         if self.cfg.get("object_encoder", False):
             obj_states["prior"] = self.object_encoder(data["objects_pos"])["prior"]
             del obj_states["post"]["dist"] # remove dist to pick only one object
-            obj_states["post"] = {k: v[:,:,0].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
+            del obj_states["prior"]["dist"] # remove dist to pick only one object
             
+            obj_states["post"] = {k: v[:,:,0, :self._shape_skill_latent].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
+            obj_states["prior"] = {k: v[:,:,0,:self._shape_skill_latent].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
+            
+            # reduce the dimension of the object states to consider for matching purposes, 
             # loss type determined by distance_mode
             loss_fn = getattr(common.DistLosses, f"{self.object_encoder.distance_mode}_loss")  
             # loss_fn = common.MultivariateNormal.kl_loss if not self.cfg.object_encoder.mse_mode  else common.MultivariateNormal.mse_loss

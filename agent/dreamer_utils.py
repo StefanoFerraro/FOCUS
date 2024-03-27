@@ -609,7 +609,8 @@ class ObjEncoder(Module):
         mlp_units=400,
         distance_mode="mse",
         symlog_inputs=False,
-        dist="mse"
+        dist="mse",
+        objlatent_ratio=1,
     ):
         super().__init__()
         self._shapes = {**shapes}
@@ -662,11 +663,11 @@ class ObjEncoder(Module):
         if len(self.mlp_keys) > 0:
             self._mlp_in_shape = self._shapes[self.mlp_keys[0]][1] + self.instances_dim
             dist_cfg = {"dist": dist} #TODO generalize to output different distributions
-            self._mlp_model = MLP(self._mlp_in_shape, 32 * self._cnn_depth, self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
+            self._mlp_model = MLP(self._mlp_in_shape, int(32 * self._cnn_depth * objlatent_ratio), self._mlp_layers, self._mlp_units, self._act, self._norm, symlog_inputs=symlog_inputs, **dist_cfg)
 
             # self._mlp_model.add_module(f"multivariate_normal_dist", (MultivariateNormal(self._mlp_units, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist)))
              
-    def forward(self, poses):
+    def forward(self, poses, images=0):
         outputs = {}        
         obj_onehot = torch.eye(
             self.instances_dim, device=poses.device

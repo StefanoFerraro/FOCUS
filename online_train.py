@@ -236,12 +236,13 @@ class Workspace:
             if self.cfg.agent.train_target_reach:
                  utils.log_metrics_dict(move_to_target_metrics, log)
 
-        # B, T, C, H, W = video.shape
-        video = np.uint8(video * 255)
-        self.logger.log_video({'eval_video' : video }, self.global_frame)
+        if self.global_frame % 25000 == 0: # in order to reduce space loggin space in wandb (takes 5MB each video/TSNE)
+            # B, T, C, H, W = video.shape
+            video = np.uint8(video * 255)
+            self.logger.log_video({'eval_video' : video }, self.global_frame)
 
-        # Eval episodes for testing the prior
-        utils.TSNE_analysis(self)         
+            # Eval episodes for testing the prior
+            utils.TSNE_analysis(self)         
           
     def train(self):
         # Initialization
@@ -264,6 +265,15 @@ class Workspace:
         warmnup_profiler = 2490
         profiler_active_for = 10
         
+        # set target position for rewarding
+        if self.cfg.agent.train_target_reach:
+            if self.cfg.env.env_target:
+                target = self.train_env.get_target()
+            else:
+                target = utils.generate_target(self.train_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
+                self.train_env.set_target(target)  # visually set the target  
+            self.agent.set_target(target)  # visually set the target   
+
         # clean approch for having the posibility to choose if profiling or not the algorithm
         with utils.Profiler(warmnup_profiler, profiler_active_for) if self.cfg.profile else utils.DummyProfiler() as prof:
             while train_until_step(self.global_step):
@@ -272,7 +282,7 @@ class Workspace:
                 if bool(obs["is_last"]):
                     self._global_episode += 1
                     # wait until all the metrics schema is populated
-                    if self.metrics is not None:
+                    if self.metrics is not None and self.episode_step > 1:
                         # log stats
                         elapsed_time, total_time = self.timer.reset()
                         episode_frame = self.episode_step * self.cfg.action_repeat
@@ -298,7 +308,7 @@ class Workspace:
                             if self.cfg.agent.train_target_reach:
                                 move_to_target_metrics = utils.move_to_target_metrics(self.obj_pos, target)
                                 utils.log_metrics_dict(move_to_target_metrics, log)
-                                
+                                    
                     utils.init_metrics_counters(self)
                     
                     # save last model

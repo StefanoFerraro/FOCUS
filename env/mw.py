@@ -8,6 +8,10 @@ import mujoco
 import metaworld
 from copy import deepcopy
 from gymnasium.envs.mujoco.mujoco_rendering import OffScreenViewer
+from metaworld.envs import reward_utils
+
+limits_exploration_area = {"bin-picking": [[-0.35, -0.1, 0], [0.3, 0.4, 0.03]],
+                           "shelf-place": [[-0.35, -0.1, 0], [0.3, 0.4, 0.3]]}
 
 class Metaworld(ObjectsEnv):
     def __init__(
@@ -19,6 +23,8 @@ class Metaworld(ObjectsEnv):
         action_repeat=1,
     ):
         super().__init__(env_config, task, objs, seed, action_repeat)
+        self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
+        
         self._make()
 
     def _make(self):
@@ -57,6 +63,7 @@ class Metaworld(ObjectsEnv):
         self.seg_render = OffScreenViewer(self._env.model, self._env.data)
         self.camera_id = self._env.model.camera(self.camera).id
         self.true_obj_pos, self.true_obj_ori = self.get_objects_pose()
+        
 
     def action_spec(
         self,
@@ -77,7 +84,7 @@ class Metaworld(ObjectsEnv):
                 "proprio": gym.spaces.Box(
                     -5,
                     5,
-                    [18],  # qpos + qvel * (7 joints + 2 fingers)
+                    [18 + 3],  # qpos + qvel * (7 joints + 2 fingers) + 3 states for the target
                     dtype=np.float32,
                 ),
             }
@@ -207,6 +214,65 @@ class Metaworld(ObjectsEnv):
 
         return K_exp @ T.pose_inv(R)
 
+    def compute_distance_to_reward(self, action, obs):
+        _TARGET_RADIUS = 0.05
+        tcp = self._env.tcp_center
+        obj = obs[4:7]
+        tcp_opened = obs[3]
+        target = self._env._target_pos
+
+        obj_to_target = np.linalg.norm(obj - target)
+        tcp_to_obj = np.linalg.norm(obj - tcp)
+        in_place_margin = np.linalg.norm(self._env.obj_init_pos - target)
+
+        in_place = reward_utils.tolerance(
+            obj_to_target,
+            bounds=(0, _TARGET_RADIUS),
+            margin=in_place_margin,
+            sigmoid="long_tail",
+        )
+
+        object_grasped = self._env._gripper_caging_reward(
+            action=action,
+            obj_pos=obj,
+            obj_radius=0.02,
+            pad_success_thresh=0.05,
+            object_reach_radius=0.01,
+            xz_thresh=0.01,
+            high_density=False,
+        )
+        reward = reward_utils.hamacher_product(object_grasped, in_place)
+
+        if (
+            0.0 < obj[2] < 0.24
+            and (target[0] - 0.15 < obj[0] < target[0] + 0.15)
+            and ((target[1] - 3 * _TARGET_RADIUS) < obj[1] < target[1])
+        ):
+            z_scaling = (0.24 - obj[2]) / 0.24
+            y_scaling = (obj[1] - (target[1] - 3 * _TARGET_RADIUS)) / (
+                3 * _TARGET_RADIUS
+            )
+            bound_loss = reward_utils.hamacher_product(y_scaling, z_scaling)
+            in_place = np.clip(in_place - bound_loss, 0.0, 1.0)
+
+        if (
+            (0.0 < obj[2] < 0.24)
+            and (target[0] - 0.15 < obj[0] < target[0] + 0.15)
+            and (obj[1] > target[1])
+        ):
+            in_place = 0.0
+
+        if (
+            tcp_to_obj < 0.025
+            and (tcp_opened > 0)
+            and (obj[2] - 0.01 > self._env.obj_init_pos[2])
+        ):
+            reward += 1.0 + 5.0 * in_place
+
+        if obj_to_target < _TARGET_RADIUS:
+            reward = 10.0
+        return [reward, tcp_to_obj, tcp_opened, obj_to_target, object_grasped, in_place]
+
     def step(self, action):
         self._duration += 1
         reward = 0.0
@@ -215,6 +281,17 @@ class Metaworld(ObjectsEnv):
             state, rew, _, _, info = self._env.step(action)
             if self.task == "hammer": # success metric worngly defined in native env, this is a workaround 
                 info["success"] = True if (info["success"] and rew > 5.0) else False
+            
+            if self.task == "bin-picking": # in case of reward as distance to the chosen target
+                (
+                rew,
+                tcp_to_obj,
+                tcp_open,
+                obj_to_target,
+                grasp_reward,
+                in_place,
+                )  = self.compute_distance_to_reward(action, state)
+                info["success"] = float(obj_to_target <= 0.07)
                 
             success += float(info["success"])
             reward += float(rew) if self.reward_shaping else float(info["success"])
@@ -236,7 +313,14 @@ class Metaworld(ObjectsEnv):
         self.true_obj_ori = new_true_obj_ori
 
         # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
-        objects_pos = [self.true_obj_pos[self.segmentation_instances[0][0]]]
+        objects_pos = [self.true_obj_pos[self.target_obj[0]]]
+        
+        object_to_target = objects_pos[0] - (self._env._target_pos - self.object_start_pos)
+        if self.dist_as_rw:
+            reward = - np.linalg.norm(object_to_target)
+            
+        # include target information in the proprioception
+        proprio = proprio + list(object_to_target)
 
         self.is_first = False
 
@@ -288,9 +372,11 @@ class Metaworld(ObjectsEnv):
         task = self._tasks[task_id]
         self._env.set_task(task)
 
+        reward = 0.0
         _ = self._env.reset()[0]
         if self.task != "bin-picking":
             self._env.model.site("goal").rgba[-1] = 0 # hide the goal in the scene
+        
         getattr(
             self, self.task.replace("-", "_") + "_init_pos"
         )()  # fix position of starting point of object (for segmentation purposes)
@@ -305,10 +391,17 @@ class Metaworld(ObjectsEnv):
         self.true_obj_pos, self.true_obj_ori = self.get_objects_pose()
 
         # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
-        objects_pos = [self.true_obj_pos[self.segmentation_instances[0][0]]]
+        objects_pos = [self.true_obj_pos[self.target_obj[0]]]
 
+        object_to_target = objects_pos[0] - (self._env._target_pos - self.object_start_pos)
+        if self.dist_as_rw:
+            reward = - np.linalg.norm(object_to_target)
+            
+        # include target information in the proprioception
+        proprio = proprio + list(object_to_target)
+        
         obs = {
-            "reward": 0.0,
+            "reward": reward,
             "is_first": self.is_first,
             "is_last": False,
             "is_terminal": False,
@@ -461,7 +554,6 @@ class Metaworld(ObjectsEnv):
         self._env.obj_init_pos = np.array([  -0.075,     0.725,    0.03])
         random_init = np.random.uniform([-0.005, -0.005, 0], [0.005, 0.005, 0.01])
         self._env._set_obj_xyz(self._env.obj_init_pos + random_init)
-        
 
     def touching_object(self, object_geom_id):
         leftpad_geom_id = self._env.data.geom("leftpad_geom").id
@@ -498,15 +590,26 @@ class Metaworld(ObjectsEnv):
         return 0 < leftpad_object_contact_force or 0 < rightpad_object_contact_force
 
     #### ADDED FUNCTIONS ####
-    
+    def _target_hide(self):
+        if self.task != "bin-picking":
+            self._env.model.site("goal").rgba[-1] = 0 # hide the goal in the scene
+        
+    def _target_show(self):
+        if self.task != "bin-picking":
+            self._env.model.site("goal").rgba[-1] = 0.5 # hide the goal in the scene
+                
     def set_target(self, target_pos): 
         # set target in env (visualization purposes)
-        # self._env.target_pos = target_pos + np.array(self.object_start_pos)   
-        pass
+        self._env._target_pos = target_pos + np.array(self.object_start_pos)   
+        if self.task != "bin-picking":
+            self._env.model.site("goal").pos = target_pos + np.array(self.object_start_pos)   
     
     def get_rgb_with_target(self, target=None):
         # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
-        return self.render()
+        self._target_show()
+        target_rgb = self.render()
+        self._target_hide()
+        return target_rgb
     
     def get_goals(self):
         return self.goals

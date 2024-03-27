@@ -128,7 +128,13 @@ class OfflineWorkspace(Workspace):
 
     @utils.retry
     def save_snapshot(self):
-        snapshot = self.get_snapshot_dir() / f"snapshot_{self.global_frame}.pt"
+        # divide for the different ablation experimented with (expl_dataset + vis_target + coordconv) 
+        snapshot_dir = self.get_snapshot_dir() / f"expl_{self.cfg.expl_dataset}"
+        if self.cfg.vis_target_dataset: snapshot_dir = snapshot_dir  / f"vis_target"
+        if self.cfg.agent.world_model.encoder.coordConv: snapshot_dir = snapshot_dir  / f"coordConv" 
+        snapshot_dir.mkdir(exist_ok=True, parents=True)
+        
+        snapshot = snapshot_dir / f"snapshot_{self.global_frame}.pt"
         keys_to_save = ["agent", "_global_step", "_global_episode"]
         payload = {k: self.__dict__[k] for k in keys_to_save}
         with snapshot.open("wb") as f:
@@ -205,7 +211,6 @@ class OfflineWorkspace(Workspace):
             snap_dir = self.cfg.snapshot_dir
         snapshot_dir = self.workdir / Path(snap_dir)
         snapshot_dir.mkdir(exist_ok=True, parents=True)
-        snapshot = snapshot_dir
         return snapshot_dir
     
 def toolkit_main(cfg, maindir, workdir):

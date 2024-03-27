@@ -26,6 +26,7 @@ world_model:
   grad_heads: [decoder, object_decoder]
   replay.capacity: 5e5
   objEnc_MSE_ratio: 0.975
+  objlatent_ratio: 1
   objects: [] 
   device: cuda
   name: focus
