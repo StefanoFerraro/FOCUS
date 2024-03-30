@@ -37,11 +37,13 @@ class DreamerAgent(Module):
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
-    def set_target(self, target_from_zero):
-        new_target =  target_from_zero
-        self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float) 
+    def set_target(self, target):
+        if isinstance(target, dict):
+            raise NotImplementedError("Observation targets not available with this agent.")
+        
+        self._target_pos = torch.tensor([[[target]]], device="cuda", dtype=torch.float) 
     
-    def get_target(self):
+    def get_target_pos(self):
         return self._target_pos
     
     def act(self, obs, meta, step, eval_mode, state):

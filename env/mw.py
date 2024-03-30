@@ -645,3 +645,11 @@ class Metaworld(ObjectsEnv):
     
     def render(self):
         return cv2.resize(self._env.mujoco_renderer.render(render_mode="rgb_array", camera_name=self.camera)[::-1].copy(), self.size, interpolation=cv2.INTER_NEAREST).transpose(2,0,1)
+    
+    def set_goal_state(self, target_pos):
+        pos = target_pos + self.object_start_pos
+        self._env._set_obj_xyz(pos)
+        self._env.obj_init_pos = self._env._get_pos_objects()
+        
+        return self.step(np.zeros_like(self.act_space["action"].sample()))
+            

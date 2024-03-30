@@ -667,7 +667,7 @@ class ObjEncoder(Module):
 
             # self._mlp_model.add_module(f"multivariate_normal_dist", (MultivariateNormal(self._mlp_units, 32 * self._cnn_depth, dist_mode=obj_latent_as_dist)))
              
-    def forward(self, poses, images=0):
+    def forward(self, poses):
         outputs = {}        
         obj_onehot = torch.eye(
             self.instances_dim, device=poses.device

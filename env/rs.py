@@ -477,4 +477,9 @@ class PandaRoboSuite(ObjectsEnv):
     def render(self):
         return self._env.sim.render(height=self.size[0], width=self.size[1])[::-1].transpose(2, 0, 1)
     
-                
+    def set_goal_state(self, goal_pos):
+        goal_pos = goal_pos + np.array(self.object_start_pos)
+        goal_pose = np.concatenate([goal_pos, [0, 0, 0, 0]])
+        self._env.sim.data.set_joint_qpos(self.segmentation_instances[0] + "_joint0", goal_pose)
+    
+        return self.step(np.zeros_like(self.act_space["action"].sample()))

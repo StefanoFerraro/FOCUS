@@ -31,8 +31,11 @@ limits_exploration_area: [[-0.35, 0.35], [-0.1, 0.4], [0, 0.03]] # removed z axi
 object_start_pos: [0, 0.5, 0]
 target_modulator: 500000
 
+visualize_target: True
 env_target: False
-visualize_target: False
-dist_as_rw: False
+target_from_replay_bf: False
+only_obs_target: False
+mixed_target: False # requires target_from_replay_bf = True for observations targets, otherwise only position targets are used
 
+dist_as_rw: False
 

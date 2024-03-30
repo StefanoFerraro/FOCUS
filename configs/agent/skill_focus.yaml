@@ -13,7 +13,7 @@ skill_reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
 train_target_reach: True
 
 distance_mode: 'cosine'
-start_agent_training_after: 2500
+start_agent_training_after: 10
 only_expl_during_training: False
 symlog_inputs: True
 

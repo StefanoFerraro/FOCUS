@@ -9,12 +9,13 @@ import numpy as np
 
 from agent.focus import FocusAgent
 from agent.skill_utils import SkillActorCritic
+from functools import singledispatchmethod
 
 def stop_gradient(x):
     return x.detach()
 
 Module = nn.Module
-
+         
 class SkillFocusAgent(FocusAgent):
     def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
         super().__init__(name, cfg, obs_space, act_spec, **kwargs)
@@ -23,11 +24,9 @@ class SkillFocusAgent(FocusAgent):
         
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
-        target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0]
-        self._shape_full_skill_latent = len(target_skill[0])
-        self._shape_skill_latent = int(self._shape_full_skill_latent * self.cfg.agent.world_model.objlatent_ratio)
-        self._target_skill = target_skill[:, :self._shape_skill_latent]
+        self._shape_skill_latent = self.wm._shape_skill_latent
         
+        self._target_skill = self.skill_target_extractor()
         self.skill_dim = [self._target_skill.shape[-1]]
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
@@ -36,6 +35,42 @@ class SkillFocusAgent(FocusAgent):
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
     
+    def skill_target_extractor(self):
+        return self._skill_target_extractor(self._target)
+    
+    @singledispatchmethod
+    def _skill_target_extractor(self, target):
+        pass
+
+    @_skill_target_extractor.register
+    def _(self, target: torch.Tensor):
+        target_skill = self.wm.object_encoder(stop_gradient(target))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
+        return target_skill
+    
+    @_skill_target_extractor.register
+    def _(self, target: dict):
+        tensor_target_obs =  target
+
+        with torch.no_grad():
+            embed = self.wm.encoder(self.wm.preprocess(tensor_target_obs))
+            
+            warmup_cycles = 1
+            latent = self.wm.rssm.initial(len([target["reward"]]))
+            
+            for _ in range(warmup_cycles):
+                latent, _ = self.wm.rssm.obs_step(
+                    latent,
+                    tensor_target_obs["action"],
+                    embed,
+                    tensor_target_obs["is_first"],
+                    should_sample=True
+                    )
+                
+            f_i = self.wm.rssm.get_feat(latent).unsqueeze(0)
+            target_skill = self.wm.heads["object_decoder"].object_latent_extractor(f_i.detach())["post"]["mean"][0,0,0,:self._shape_skill_latent].unsqueeze(0)
+            
+        return target_skill
+        
     def object_context_position_reward_fn(self, seq):
         obj_id, obj_goal_pos = torch.split(seq['skill'] , self.skill_dim, dim=-1) 
         
@@ -88,7 +123,7 @@ class SkillFocusAgent(FocusAgent):
             start = outputs["post"]
             start = {k: stop_gradient(v) for k, v in start.items()}
 
-            self._target_skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
+            self._target_skill = self.skill_target_extractor()
             self._skill_behavior.solved_meta['skill'] = self._target_skill
             
             # agent update based on the achievement on the given skill 
@@ -140,7 +175,7 @@ class SkillFocusAgent(FocusAgent):
         if eval_mode:
             policy =  self._skill_behavior.actor
             if target_skill is None:
-                skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
+                skill = self.skill_target_extractor()
             else:
                 skill = target_skill
             
@@ -152,7 +187,7 @@ class SkillFocusAgent(FocusAgent):
             else:
                 if meta["use_skill_behaviour"]:
                     policy = self._skill_behavior.actor 
-                    skill = self.wm.object_encoder(stop_gradient(self._target_pos))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
+                    skill = self.skill_target_extractor()
                     inp = torch.cat([feat, skill], dim=-1)
                 else:
                     policy = self._expl_behavior.actor

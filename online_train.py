@@ -242,8 +242,10 @@ class Workspace:
             self.logger.log_video({'eval_video' : video }, self.global_frame)
 
             # Eval episodes for testing the prior
-            utils.TSNE_analysis(self)         
-          
+            utils.TSNE_analysis(self)     
+        
+        self.eval_env.reset()          
+    
     def train(self):
         # Initialization
         train_until_step = utils.Until(self.cfg.num_train_frames, self.cfg.action_repeat)

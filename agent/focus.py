@@ -6,10 +6,11 @@ import torch.distributions as D
 import utils
 import agent.dreamer_utils as common
 from collections import OrderedDict
+from typing import Union
 import numpy as np
 
 from agent.dreamer import ActorCritic, WorldModel
-
+import omegaconf
 
 
 def stop_gradient(x):
@@ -70,11 +71,14 @@ class FocusAgent(Module):
         new_target = np.random.uniform(*self._exploration_area)
         self.set_target(new_target)
     
-    def set_target(self, target_from_zero):
-        new_target =  target_from_zero
-        self._target_pos = torch.tensor([[[new_target]]], device="cuda", dtype=torch.float) 
-    
-    def get_target(self):
+    def set_target(self, target):
+        if isinstance(target, dict):
+            self._target_pos = target["objects_pos"]           
+            self._target = target
+        elif isinstance(target, Union[np.ndarray, list, torch.Tensor, omegaconf.listconfig.ListConfig]):
+            self._target_pos = self._target = torch.tensor([[[target]]], device="cuda", dtype=torch.float)
+         
+    def get_target_pos(self):
         return self._target_pos
        
     def set_exploration_area(self, exploration_area):
@@ -402,8 +406,8 @@ class OCWorldModel(WorldModel):
             del obj_states["post"]["dist"] # remove dist to pick only one object
             del obj_states["prior"]["dist"] # remove dist to pick only one object
             
-            obj_states["post"] = {k: v[:,:,0, :self._shape_skill_latent].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
-            obj_states["prior"] = {k: v[:,:,0,:self._shape_skill_latent].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
+            obj_states["post"] = {k: v[:,:,0,:self._shape_skill_latent].unsqueeze(2) for k, v in obj_states["post"].items()} # consider only first object in the scene
+            obj_states["prior"] = {k: v[:,:,0,:self._shape_skill_latent].unsqueeze(2) for k, v in obj_states["prior"].items()} # consider only first object in the scene
             
             # reduce the dimension of the object states to consider for matching purposes, 
             # loss type determined by distance_mode

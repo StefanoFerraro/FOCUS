@@ -13,6 +13,7 @@ import numpy as np
 import torch
 import wandb
 from dm_env import specs
+import random
 
 from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, DMC_TASKS_OBJ, PRIMAL_TASKS 
 from env.make import make
@@ -22,6 +23,7 @@ import utils
 from logger import Logger
 from replay_buffer import ReplayBuffer, make_replay_loader
 from online_train import Workspace
+from typing import Union
 
 # Offline implementation loads a dataset of trajectories and trains the world model and the agent on it, without the need for interaction with the environment and need for any exploration
 class OfflineWorkspace(Workspace):
@@ -88,22 +90,37 @@ class OfflineWorkspace(Workspace):
                     )
                     self.eval()
 
-                # change target for training
                 # set target position for rewarding
                 if self.cfg.agent.train_target_reach:
                     if self.cfg.env.env_target:
-                        target = self.eval_env.get_target()
+                        target = target_pos = self.eval_env.get_target()
+                    else:                        
+                        if self.cfg.env.target_from_replay_bf:  # Sampling goals using batch length of 1 
+                            self.replay_storage._length = 1
+                            target_obs = {k: v[0] for k,v in next(self.replay_iter).items()} # batch size cannot be modified after initialization, so take only the first element
+                            self.replay_storage._length = self.cfg.batch_length # Restoring replay buffer settings
+                            target_pos = target_obs["objects_pos"][0,0].cpu().numpy()
+                        else:
+                            target_pos = utils.generate_target(self.eval_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
+                            if self.cfg.env.mixed_target or self.cfg.env.only_obs_target:
+                                target_obs = self.eval_env.set_goal_state(target_pos)    
+                                if target_obs["is_last"] == True: self.eval_env.reset()
+                                target_obs = { k: torch.as_tensor(np.copy(v), device=self.cfg.device).unsqueeze(0) for k, v in target_obs.items()}
+                    
+                    if (self.cfg.env.mixed_target and random.choice([True, False])) or self.cfg.env.only_obs_target: # 50% of the time the target is the position unless specified
+                        target = target_obs
                     else:
-                        target = utils.generate_target(self.eval_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
-                        self.eval_env.set_target(target)  # visually set the target  
-                    self.agent.set_target(target)  # visually set the target                                  
+                        target = target_pos
+                            
+                    self.eval_env.set_target(target_pos)  # visually set the target  
+                    self.agent.set_target(target)                                  
                  
                 # here i set a target but do not match the observation with the target
                 obs = next(self.replay_iter) 
                 if self.cfg.env.dist_as_rw: 
                     if self.cfg.task in ["reacher_easy", "reacher_hard"]:
                         obs["reward"] = - torch.sqrt(torch.sum(obs["proprio"][:,:,2:4]**2, dim=-1)).unsqueeze(-1)
-                    elif self.cfg.task in ["CustomLift"]:
+                    elif self.cfg.task in ["CustomLift", "shelf-place", "bin-picking"]:
                         obs["reward"] = - torch.linalg.norm(obs["proprio"][:,:,-3:], dim=-1).unsqueeze(-1)
                     else:
                         raise ValueError("Task not implemented")

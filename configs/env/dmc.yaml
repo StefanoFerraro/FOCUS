@@ -31,6 +31,9 @@ limits_exploration_area: [[-0.24, 0.24], [-0.24, 0.24]]
 object_start_pos: [0, 0]
 target_modulator: 500000
 
-env_target: False
 visualize_target: True
+env_target: False
+target_from_replay_bf: False
+mixed_target: False # requires target_from_replay_bf = True for observations targets, otherwise only position targets are used
+
 dist_as_rw: False
