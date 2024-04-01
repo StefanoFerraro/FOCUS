@@ -34,6 +34,7 @@ target_modulator: 500000
 visualize_target: True
 env_target: False
 target_from_replay_bf: False
+only_obs_target: False
 mixed_target: False # requires target_from_replay_bf = True for observations targets, otherwise only position targets are used
 
 dist_as_rw: False
