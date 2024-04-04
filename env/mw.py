@@ -552,7 +552,7 @@ class Metaworld(ObjectsEnv):
         # self._env.model.material('obj_green').rgba = [1,1,0,1] 
         mujoco.mj_forward(self._env.model, self._env.data)
         self._env.obj_init_pos = np.array([  -0.075,     0.725,    0.03])
-        random_init = np.random.uniform([-0.005, -0.005, 0], [0.005, 0.005, 0.01])
+        random_init = np.random.uniform([-0.05, -0.05, 0], [0.05, 0.05, 0.01])
         self._env._set_obj_xyz(self._env.obj_init_pos + random_init)
 
     def touching_object(self, object_geom_id):

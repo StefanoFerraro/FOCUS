@@ -76,8 +76,12 @@ class FocusAgent(Module):
             self._target_pos = target["objects_pos"]           
             self._target = target
         elif isinstance(target, Union[np.ndarray, list, torch.Tensor, omegaconf.listconfig.ListConfig]):
-            self._target_pos = self._target = torch.tensor([[[target]]], device="cuda", dtype=torch.float)
-         
+            target = np.array(target)
+            if len(target.shape) == 1: 
+                self._target_pos = self._target = torch.tensor([[[target]]], device="cuda", dtype=torch.float)
+            elif len(target.shape) == 3:
+                self._target_pos = self._target = torch.tensor(target, device="cuda", dtype=torch.float).unsqueeze(-2) # unsqueeze along the object dimension
+            
     def get_target_pos(self):
         return self._target_pos
        

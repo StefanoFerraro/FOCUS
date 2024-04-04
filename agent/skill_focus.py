@@ -44,7 +44,7 @@ class SkillFocusAgent(FocusAgent):
 
     @_skill_target_extractor.register
     def _(self, target: torch.Tensor):
-        target_skill = self.wm.object_encoder(stop_gradient(target))["prior"]["mean"][0][0][:, :self._shape_skill_latent]
+        target_skill = self.wm.object_encoder(stop_gradient(target))["prior"]["mean"][:,:,:, :self._shape_skill_latent]
         return target_skill
     
     @_skill_target_extractor.register
@@ -105,6 +105,8 @@ class SkillFocusAgent(FocusAgent):
         if self.cfg.agent.distance_mode == "mse":
             squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2)
         elif self.cfg.agent.distance_mode == "cosine":
+            B, T, _, S = self._target_skill.shape
+            self._target_skill = self._target_skill.reshape(B*T, S)
             squared_distance = - (torch.einsum("ijl,ijl->ij", (self._target_skill.unsqueeze(0), post_obj_state)) / (torch.norm(post_obj_state, dim=-1) * torch.norm(self._target_skill, dim=-1) + 1e-12))
         met = self.metric_reward_fn(squared_distance, "object_context_pose")
         return - squared_distance.unsqueeze(-1), met
@@ -122,8 +124,10 @@ class SkillFocusAgent(FocusAgent):
                 
             start = outputs["post"]
             start = {k: stop_gradient(v) for k, v in start.items()}
-
+            
             self._target_skill = self.skill_target_extractor()
+            if self.cfg.env.batch_sampling:
+                self._target_skill = self._target_skill.repeat(1, self.cfg.batch_size, 1, 1)
             self._skill_behavior.solved_meta['skill'] = self._target_skill
             
             # agent update based on the achievement on the given skill 
@@ -175,7 +179,7 @@ class SkillFocusAgent(FocusAgent):
         if eval_mode:
             policy =  self._skill_behavior.actor
             if target_skill is None:
-                skill = self.skill_target_extractor()
+                skill = self.skill_target_extractor()[0,0]
             else:
                 skill = target_skill
             
@@ -187,7 +191,7 @@ class SkillFocusAgent(FocusAgent):
             else:
                 if meta["use_skill_behaviour"]:
                     policy = self._skill_behavior.actor 
-                    skill = self.skill_target_extractor()
+                    skill = self.skill_target_extractor()[0,0]
                     inp = torch.cat([feat, skill], dim=-1)
                 else:
                     policy = self._expl_behavior.actor

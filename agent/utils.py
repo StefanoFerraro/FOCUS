@@ -562,6 +562,9 @@ class NormLayer(Module):
         elif name == "layer":
             assert dim != None
             self._layer = nn.LayerNorm(dim)
+        elif name == "batch1d":
+            assert dim != None
+            self._layer = nn.BatchNorm1d(dim)
         else:
             raise NotImplementedError(name)
 

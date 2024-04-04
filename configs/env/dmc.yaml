@@ -36,5 +36,7 @@ env_target: False
 target_from_replay_bf: False
 only_obs_target: False
 mixed_target: False # requires target_from_replay_bf = True for observations targets, otherwise only position targets are used
+target_sampling_generation_strategy: "uniform"
+batch_sampling: False
 
 dist_as_rw: False

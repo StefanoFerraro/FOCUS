@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import agent.dreamer_utils as common
+import agent.utils as agent_utils
+
 from agent.dreamer import stop_gradient
 
 import utils
@@ -29,27 +31,31 @@ class SkillActorCritic(common.Module):
       inp_size += self.cfg.world_model.rssm.stoch
     
     inp_size += skill_dim if type(skill_dim) == int else sum(skill_dim)
-    self.actor = common.MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
-    self.critic = common.MLP(inp_size, (1,), **self.cfg.critic)
+    self.actor = agent_utils.MLP(inp_size, act_spec.shape[0], **self.cfg.actor)
+    self.critic = agent_utils.MLP(inp_size, (1,), **self.cfg.critic)
     if self.cfg.slow_target:
-      self._target_critic = common.MLP(inp_size, (1,), **self.cfg.critic)
+      self._target_critic = agent_utils.MLP(inp_size, (1,), **self.cfg.critic)
       self._updates = 0 
     else:
       self._target_critic = self.critic
-    self.actor_opt = common.Optimizer('skill_actor', self.actor.parameters(), **self.cfg.actor_opt, use_amp=self._use_amp)
-    self.critic_opt = common.Optimizer('skill_critic', self.critic.parameters(), **self.cfg.critic_opt, use_amp=self._use_amp)
-    self.rewnorm = common.StreamNorm(**self.cfg.skill_reward_norm, device=self.device)
+    self.actor_opt = agent_utils.Optimizer('skill_actor', self.actor.parameters(), **self.cfg.actor_opt, use_amp=self._use_amp)
+    self.critic_opt = agent_utils.Optimizer('skill_critic', self.critic.parameters(), **self.cfg.critic_opt, use_amp=self._use_amp)
+    self.rewnorm = agent_utils.StreamNorm(**self.cfg.skill_reward_norm, device=self.device)
 
   def update(self, world_model, start, is_terminal, reward_fn):
     metrics = {}
-    with common.RequiresGrad(self.actor):
+    with agent_utils.RequiresGrad(self.actor):
       with torch.cuda.amp.autocast(enabled=self._use_amp):
         B,T , _ = start['deter'].shape
         if self.solved_meta is not None:
-          if type(self.solved_meta['skill']) == np.ndarray:
-            img_skill = torch.from_numpy(self.solved_meta['skill']).repeat(B*T, 1).to(self.device)
-          else:
-            img_skill = self.solved_meta['skill'].repeat(B*T, 1).to(self.device) # target for the agent
+          if self.solved_meta['skill'].shape[0] == 1: # in case a single goal is provided repeat for the amount of expected dimensions
+            if type(self.solved_meta['skill']) == np.ndarray:
+              img_skill = torch.from_numpy(self.solved_meta['skill'])[0,0].repeat(B*T, 1).to(self.device)
+            else:
+              img_skill = self.solved_meta['skill'][0,0].repeat(B*T, 1).to(self.device) # target for the agent
+          else: 
+            img_skill = self.solved_meta['skill'].reshape(B*T, -1) # different goal for batch size, but same for batch length
+        
         else:
           if self.sampling_strategy == 'discrete':
             img_skill = F.one_hot(torch.randint(0, self.skill_dim, 
@@ -72,7 +78,7 @@ class SkillActorCritic(common.Module):
         target, mets2 = self.target(seq)
         actor_loss, mets3 = self.actor_loss(seq, target)
       metrics.update(self.actor_opt(actor_loss, self.actor.parameters()))
-    with common.RequiresGrad(self.critic):
+    with agent_utils.RequiresGrad(self.critic):
       with torch.cuda.amp.autocast(enabled=self._use_amp):
 
         seq = {k: stop_gradient(v) for k,v in seq.items()}

@@ -15,6 +15,7 @@ from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 import cv2
 import scipy.ndimage
+from typing import Union
 
 import hydra 
 
@@ -494,7 +495,7 @@ def expl_area_update(agent, global_step, modulation_factor=10e6, curriculum_lear
     agent.set_exploration_area(new_exploration_area)
     return new_exploration_area
 
-def generate_target(exploration_limits : list,  curriculum_learning: bool, global_step: int, modulation_factor: int):
+def generate_target(exploration_limits : list,  curriculum_learning: bool, global_step: int, modulation_factor: int, sampling_stategy: str = "uniform", shape: Union[list, np.ndarray] = [1]):
     
     if curriculum_learning:
         exploration_area = exp_func(global_step, modulation_factor)
@@ -502,6 +503,16 @@ def generate_target(exploration_limits : list,  curriculum_learning: bool, globa
         # sample from full exploration area
         exploration_area = [exploration_limits[0], exploration_limits[1]]
     
-    target = np.random.uniform(*exploration_area)    
+    min = np.tile(exploration_area[0], shape)
+    max = np.tile(exploration_area[1], shape)
+    mean = np.tile(np.mean(exploration_area, axis=0), shape)
+    sigma = np.tile((np.array(exploration_area[1]) - np.array(exploration_area[0])) / 6, shape) 
+    if sampling_stategy == "uniform":
+        target = np.random.uniform(min, max)    
+        
+    elif sampling_stategy == "normal":
+        target = np.random.normal(mean, sigma)
+        target = np.clip(target, min, max)
+    
     return target
 
