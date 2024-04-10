@@ -156,7 +156,7 @@ class FocusAgent(Module):
         elif which_policy == 'task':
             metrics.update(
                 self._task_behavior.update(
-                    self.wm, start, data["is_terminal"], self.pos_reward_fn
+                    self.wm, start, data["is_terminal"], self.task_reward_fn
                 )
             )
         else:
@@ -168,7 +168,7 @@ class FocusAgent(Module):
 
             metrics.update(
                 self._task_behavior.update(
-                    self.wm, start, data["is_terminal"], self.pos_reward_fn
+                    self.wm, start, data["is_terminal"], self.task_reward_fn
                 )
             )
         return state, metrics

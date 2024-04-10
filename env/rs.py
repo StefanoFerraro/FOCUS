@@ -455,14 +455,14 @@ class PandaRoboSuite(ObjectsEnv):
   
     def set_goals_for_task(self):
         if self.task in ["CustomLift", "Lift"]: # TODO first dimension to define properly
-            full_right = [[0], [0.25, 0, 0]]
-            full_left = [[0], [-0.25, 0, 0]]
-            full_down = [[0], [0, 0.25, 0]]
-            full_up = [[0], [0, -0.25, 0]]
-            right_down = [[0], [0.12, 0.12, 0]]
-            left_up = [[0], [-0.12, -0.12, 0]]
-            left_down = [[0], [-0.12, 0.12, 0]]
-            right_up = [[0], [0.12, -0.12, 0]]
+            full_right = [[0.25, 0, 0], [0.25, 0, 0]]
+            full_left = [[0.25, 0, 0], [-0.25, 0, 0]]
+            full_down = [[0.25, 0, 0], [0, 0.25, 0]]
+            full_up = [[0.25, 0, 0], [0, -0.25, 0]]
+            right_down = [[0.25, 0, 0], [0.12, 0.12, 0]]
+            left_up = [[0.25, 0, 0], [-0.12, -0.12, 0]]
+            left_down = [[0.25, 0, 0], [-0.12, 0.12, 0]]
+            right_up = [[0.25, 0, 0], [0.12, -0.12, 0]]
 
             self.goals = np.stack([full_right, full_left, full_down, full_up,
                                    right_down, left_up, left_down, right_up])

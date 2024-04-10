@@ -148,7 +148,7 @@ class EnsembleRSSM(Module):
             self._hidden, self._deter, norm=True, device=self.device
         )
 
-        if discrete:
+        if self._discrete:
             inp_dim = stoch * discrete + action_dim
         else:
             inp_dim = stoch + action_dim
@@ -164,7 +164,7 @@ class EnsembleRSSM(Module):
                 for _ in range(ensemble)
             ]
         )
-        if discrete:
+        if self._discrete:
             self._ensemble_img_dist = nn.ModuleList(
                 [nn.Linear(hidden, stoch * discrete) for _ in range(ensemble)]
             )
@@ -276,8 +276,9 @@ class EnsembleRSSM(Module):
             logit = state["logit"]
             dist = D.Independent(OneHotDist(logit), 1)
         else:
-            mean, std = state["mean"], state["std"]
-            dist = D.MultivariateNormal(mean, torch.eye(std))
+            mean, std = state['mean'], state['std']
+            dist = D.Independent(D.Normal(mean, std), 1)
+            dist.sample = dist.rsample
         return dist
 
     def obs_step(

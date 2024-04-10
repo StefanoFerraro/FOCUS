@@ -7,6 +7,8 @@ import agent.dreamer_utils as common
 from collections import OrderedDict
 import numpy as np
 from scipy import ndimage
+from typing import Union
+import omegaconf
 
 def stop_gradient(x):
     return x.detach()
@@ -37,14 +39,29 @@ class DreamerAgent(Module):
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
 
+    def update_target(self):
+        new_target = np.random.uniform(*self._exploration_area)
+        self.set_target(new_target)
+    
     def set_target(self, target):
         if isinstance(target, dict):
-            raise NotImplementedError("Observation targets not available with this agent.")
-        
-        self._target_pos = torch.tensor([[[target]]], device="cuda", dtype=torch.float) 
-    
+            self._target_pos = target["objects_pos"]           
+            self._target = target
+        elif isinstance(target, Union[np.ndarray, list, torch.Tensor, omegaconf.listconfig.ListConfig]):
+            target = np.array(target)
+            if len(target.shape) == 1: 
+                self._target_pos = self._target = torch.tensor([[[target]]], device="cuda", dtype=torch.float)
+            elif len(target.shape) == 3:
+                self._target_pos = self._target = torch.tensor(target, device="cuda", dtype=torch.float).unsqueeze(-2) # unsqueeze along the object dimension
+            
     def get_target_pos(self):
         return self._target_pos
+       
+    def set_exploration_area(self, exploration_area):
+        self._exploration_area = exploration_area
+        
+    def get_init_exploration_area(self):
+        return self.init_exploration_area
     
     def act(self, obs, meta, step, eval_mode, state):
         obs = {
@@ -413,6 +430,17 @@ class WorldModel(Module):
                 like = dist.log_prob(data[key])
                 likes[key] = like
                 losses[key] = -like.mean()
+        
+        # in case we are training a lexa model we need to update also the temporal loss
+        if self.cfg.name == "lexa" and self.full_cfg.agent.distance_mode == "temporal": 
+            states, _ = self.rssm.observe(
+                self.encoder(data),
+                data["action"],
+                data["is_first"],
+            )
+            feat = self.rssm.get_feat(states)
+            losses["dynamical_distance"] = self.get_dynamical_distance_loss(feat, corr_factor=1)
+            
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()
         )
@@ -431,6 +459,8 @@ class WorldModel(Module):
         last_state = {k: v[:, -1] for k, v in post.items()}
         return model_loss, last_state, outs, metrics
 
+
+    
     def imagine(
         self,
         policy,

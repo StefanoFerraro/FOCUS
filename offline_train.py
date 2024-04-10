@@ -99,16 +99,14 @@ class OfflineWorkspace(Workspace):
                             self.replay_storage._length = 1
                             target_obs = next(self.replay_iter)
                             self.replay_storage._length = self.cfg.batch_length # Restoring replay buffer settings
-                            if self.cfg.env.batch_sampling:
-                                target_pos = target_obs["objects_pos"][:,:,0].cpu().numpy()
-                            else:
-                                target_obs = {k: v[0] for k,v in target_obs.items()} # batch size cannot be modified after initialization, so take only the first element
-                                target_pos = target_obs["objects_pos"][0,0].cpu().numpy()
+                            if not self.cfg.env.batch_sampling:
+                                target_obs = {k: v[0].unsqueeze(0) for k,v in target_obs.items()} # batch size cannot be modified after initialization, so take only the first element
+                            target_pos = target_obs["objects_pos"][:,:,0].cpu().numpy()
                         else:
                             shape = [self.cfg.batch_size, 1, 1] if self.cfg.env.batch_sampling else [1,1,1]
                             target_pos = utils.generate_target(self.eval_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator, self.cfg.env.target_sampling_generation_strategy, shape=shape)
                             if self.cfg.env.mixed_target or self.cfg.env.only_obs_target:
-                                target_obs = self.eval_env.set_goal_state(target_pos)    
+                                target_obs = self.eval_env.set_goal_state(target_pos[0,0])    
                                 if target_obs["is_last"] == True: self.eval_env.reset()
                                 target_obs = { k: torch.as_tensor(np.copy(v), device=self.cfg.device).unsqueeze(0) for k, v in target_obs.items()}
                     
@@ -118,7 +116,7 @@ class OfflineWorkspace(Workspace):
                         target = target_pos
                             
                     if self.cfg.env.mixed_target or self.cfg.env.only_obs_target:
-                        self.eval_env.set_target(target_pos)  # visually set the target  
+                        self.eval_env.set_target(target_pos[0,0])  # visually set the target  
                     self.agent.set_target(target)                                  
                  
                 # here i set a target but do not match the observation with the target

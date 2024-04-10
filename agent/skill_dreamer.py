@@ -48,7 +48,7 @@ class SkillDreamerAgent(DreamerAgent):
             start = outputs["post"]
             start = {k: stop_gradient(v) for k, v in start.items()}
 
-            self._target_skill = self._target_pos[0][0]
+            self._target_skill = self._target_pos
             self._skill_behavior.solved_meta['skill'] = self._target_skill
             reward_fn = getattr(self, f'{self._reward_fn}_reward_fn')
             

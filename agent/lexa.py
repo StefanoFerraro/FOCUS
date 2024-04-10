@@ -1,13 +1,10 @@
 import torch.nn as nn
 import torch
-from torch.nn.functional import normalize
 
-import utils
-import agent.dreamer_utils as common
-from collections import OrderedDict
 import numpy as np
 
-from agent.focus import FocusAgent
+from agent.utils import MLP
+from agent.plan2explore import Plan2Explore
 from agent.skill_utils import SkillActorCritic
 from functools import singledispatchmethod
 
@@ -16,7 +13,7 @@ def stop_gradient(x):
 
 Module = nn.Module
          
-class SkillFocusAgent(FocusAgent):
+class LEXA(Plan2Explore):
     def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
         super().__init__(name, cfg, obs_space, act_spec, **kwargs)
 
@@ -24,14 +21,24 @@ class SkillFocusAgent(FocusAgent):
         
         # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
-        self._shape_skill_latent = self.wm._shape_skill_latent
         
-        self._target_skill = self.skill_target_extractor()
-        self.skill_dim = [self._target_skill.shape[-1]]
+        self._target_skill = torch.zeros(1,1,self.wm.inp_size)
+        self.skill_dim = self.wm.inp_size # the target feature has the same size of feat
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
                                                     sampling_strategy=self._skill_strategy, solved_meta={'skill' : self._target_skill}) 
 
+        self.wm.dd_out_dim = 1
+        self.wm.dynamical_distance = MLP(in_shape=self.skill_dim*2, shape=self.wm.dd_out_dim, layers = 4, units = 128, norm="batch1d", dist="none")
+        self.wm.dd_cur_idxs, self.wm.dd_goal_idxs = self.get_future_goal_idxs(seq_len = cfg.batch_length, bs = cfg.batch_size)
+        self.wm.dd_seq_len = cfg.batch_length
+        
+        # self._dd_opt = tools.Optimizer('dynamical_distance_opt', config.value_lr, config.opt_eps, config.value_grad_clip, **kw)
+
+        self.wm.get_dynamical_distance_loss = self.get_dynamical_distance_loss
+        
+        self.wm.model_init() # include the dynamical distance into the model optimizer 
+        
         self.to(cfg.device)
         self.requires_grad_(requires_grad=False)
     
@@ -44,7 +51,7 @@ class SkillFocusAgent(FocusAgent):
 
     @_skill_target_extractor.register
     def _(self, target: torch.Tensor):
-        target_skill = self.wm.object_encoder(stop_gradient(target))["prior"]["mean"][:,:,:, :self._shape_skill_latent]
+        target_skill = self.wm.object_encoder(stop_gradient(target))["prior"]["mean"][:,:,:,:self._shape_skill_latent]
         return target_skill
     
     @_skill_target_extractor.register
@@ -66,48 +73,73 @@ class SkillFocusAgent(FocusAgent):
                     should_sample=True
                     )
                 
-            f_i = self.wm.rssm.get_feat(latent).unsqueeze(1)
-            target_skill = self.wm.heads["object_decoder"].object_latent_extractor(f_i.detach())["post"]["mean"][:,:,0,:self._shape_skill_latent].unsqueeze(-2)
+            f_i = self.wm.rssm.get_feat(latent).unsqueeze(1).unsqueeze(1)
             
-        return target_skill
+        return f_i
+    
+    def get_future_goal_idxs(self, seq_len, bs):
+   
+        cur_idx_list = []
+        goal_idx_list = []
         
-    def object_context_position_reward_fn(self, seq):
-        obj_id, obj_goal_pos = torch.split(seq['skill'] , self.skill_dim, dim=-1) 
-        
-        obj_poses = self.wm.heads["object_decoder"](seq["feat"], only_mlp=True)[
-            "objects_pos"
-        ].mean
-        T, B, O, P = obj_poses.shape
-        obj_pos = obj_poses.reshape(T*B, O, P)[torch.arange(T*B), torch.argmax(obj_id,-1).reshape(T*B)].reshape(T,B,P)
-        squared_distance = torch.sum(((obj_goal_pos - obj_pos) ** 2), dim=2).unsqueeze(-1) 
-        met = self.metric_reward_fn(squared_distance, "object_context_position")
-        return -squared_distance, met
+        #generate indices grid
+        for cur_idx in range(seq_len):
+            for goal_idx in range(cur_idx, seq_len):
+                cur_idx_list.append(np.concatenate([np.ones((bs,1), dtype=np.int32)*cur_idx, np.arange(bs).reshape(-1,1)], axis = -1))
+                goal_idx_list.append(np.concatenate([np.ones((bs,1), dtype=np.int32)*goal_idx, np.arange(bs).reshape(-1,1)], axis = -1))
+            
+        return np.concatenate(cur_idx_list,0), np.concatenate(goal_idx_list,0)
 
-    def distance_to_object_reward_fn(self, seq):
-        obj_id = 0
-        obj_poses = self.wm.heads["object_decoder"](seq["feat"])["objects_pos"].mean
-        obj_pos = obj_poses[:, :, obj_id]
+    def get_future_goal_idxs_neg_sampling(self, num_negs, seq_len, bs, batch_len):
+        cur_idxs = np.random.randint((0,0), (seq_len, bs), size=(num_negs,2))
+        goal_idxs = np.random.randint((0,0), (seq_len, bs), size=(num_negs,2))
+        for i in range(num_negs):
+            goal_idxs[i,1] = np.random.choice([j for j in range(bs) if j//batch_len != cur_idxs[i,1]//batch_len])
+        return cur_idxs, goal_idxs
+
+    def get_dynamical_distance_loss(self, _data, corr_factor = None):
+        seq_len, bs = _data.shape[:2]
+    
+        def _helper(cur_idxs, goal_idxs, distance):
+            loss = 0
+            # cur_states = torch.expand_dims(torch.gather_nd(_data, cur_idxs),0)
+            cur_states = _data[cur_idxs[:,0], cur_idxs[:,1]].unsqueeze(0)
+            # goal_states = torch.expand_dims(torch.gather_nd(_data, goal_idxs),0)
+            goal_states = _data[goal_idxs[:,0], goal_idxs[:,1]].unsqueeze(0)
+            
+            pred = self.wm.dynamical_distance(torch.concat([cur_states, goal_states], axis=-1))
         
-        # "robot0_eef_pos" x, y, z is located at index 21 in full proprio_state
-        id_eef = 21 if self.env == "rs" else 18
-        gripper_pos = self.wm.heads["decoder"](seq["feat"])["proprio"].mean[
-                :, :, id_eef : id_eef + 3
-            ]
+            _label = torch.tensor(distance, device="cuda:0")/self.wm.dd_seq_len
+            loss += torch.mean((_label-pred)**2)
+
+            return loss
         
-        rw_dist_obj = torch.exp(-torch.linalg.norm(gripper_pos - obj_pos, dim=2)).unsqueeze(-1)
-        met = self.metric_reward_fn(rw_dist_obj, "distance_to_object")
-        return rw_dist_obj, met
-        
+        #positives
+        idxs = np.random.choice(np.arange(len(self.wm.dd_cur_idxs)), self.cfg.agent.dd_num_positives)
+        loss = _helper(self.wm.dd_cur_idxs[idxs], self.wm.dd_goal_idxs[idxs], self.wm.dd_goal_idxs[idxs][:,0] - self.wm.dd_cur_idxs[idxs][:,0])
+
+        #negatives
+        corr_factor = corr_factor if corr_factor != None else self.cfg.batch_length
+        if self.cfg.agent.dd_neg_sampling_factor>0:
+            num_negs = int(self.cfg.agent.dd_neg_sampling_factor*self.cfg.agent.dd_num_positives)
+        neg_cur_idxs, neg_goal_idxs = self.get_future_goal_idxs_neg_sampling(num_negs, seq_len, bs, corr_factor)
+        loss += _helper(neg_cur_idxs, neg_goal_idxs, torch.ones(num_negs)*seq_len)
+
+        return loss
+    
     def object_context_pose_reward_fn(self, seq):
-        feat = seq["stoch"].flatten(-2) if self.stoch_only else seq["feat"]
         
-        post_obj_state = self.wm.heads["object_decoder"].object_latent_extractor(stop_gradient(feat))["post"]["mean"][:,:,0,:self._shape_skill_latent] #consider only first object
-        if self.cfg.agent.distance_mode == "mse":
-            squared_distance = torch.sum(((post_obj_state - self._target_skill) ** 2), dim=2)
-        elif self.cfg.agent.distance_mode == "cosine":
+        post_obj_state = seq["feat"]        
+        
+        if self.cfg.agent.distance_mode == "cosine":
             B, T, _, S = self._target_skill.shape
             self._target_skill = self._target_skill.reshape(B*T, S)
             squared_distance = - (torch.einsum("ijl,ijl->ij", (self._target_skill.unsqueeze(0), post_obj_state)) / (torch.norm(post_obj_state, dim=-1) * torch.norm(self._target_skill, dim=-1) + 1e-12))
+        elif self.cfg.agent.distance_mode == "temporal":
+            I, BT, S = post_obj_state.shape
+            self._target_skill = self._target_skill.reshape(BT, S).repeat(I,1,1)
+            squared_distance = - self.wm.dynamical_distance(torch.concat([post_obj_state, self._target_skill], axis=-1)).squeeze(-1)
+        
         met = self.metric_reward_fn(squared_distance, "object_context_pose")
         return - squared_distance.unsqueeze(-1), met
     
@@ -124,7 +156,7 @@ class SkillFocusAgent(FocusAgent):
                 
             start = outputs["post"]
             start = {k: stop_gradient(v) for k, v in start.items()}
-            
+
             self._target_skill = self.skill_target_extractor()
             if self.cfg.env.batch_sampling:
                 self._target_skill = self._target_skill.repeat(1, self.cfg.batch_size, 1, 1)
@@ -191,7 +223,7 @@ class SkillFocusAgent(FocusAgent):
             else:
                 if meta["use_skill_behaviour"]:
                     policy = self._skill_behavior.actor 
-                    skill = self.skill_target_extractor()[0,0]
+                    skill = self.skill_target_extractor()
                     inp = torch.cat([feat, skill], dim=-1)
                 else:
                     policy = self._expl_behavior.actor

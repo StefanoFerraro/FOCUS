@@ -363,6 +363,8 @@ def TSNE_analysis(self):
     rgb_video = np.array(rgb_video)
     
     for k, f in feat_dict.items():
+        if len(f.shape) < 2:
+            continue
         TSNE_analysis[k] = TSNE(n_components=2).fit_transform(f)
 
     fig, axs = plt.subplots(1, len(TSNE_analysis), figsize=(3 * len(TSNE_analysis), 3)) #, subplot_kw=dict(projection='3d'))

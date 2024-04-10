@@ -40,6 +40,7 @@ class Workspace:
             cfg.agent.world_model.objects = objets_list
         self.device = torch.device(cfg.device)
         cfg.agent.world_model.device = cfg.device
+        if cfg.agent.world_model.rssm.discrete == "None": cfg.agent.world_model.rssm.discrete = None 
         
         # seed everything for reproducibility        
         utils.set_seed_everywhere(cfg.seed)
@@ -160,15 +161,22 @@ class Workspace:
             # set target before reset of env
             if self.cfg.agent.train_target_reach:
                 # pick random goal for evaluation
-                target = self.eval_env.get_random_goal()[1]
+                if self.cfg.evaluation_target_obs:
+                    self.eval_env.reset()
+                    target_pose = self.eval_env.get_random_goal()[0]
+                    target = self.eval_env.set_goal_state(target_pose)    
+                    target_pos = target["objects_pos"][0]
+                    target = {k: torch.as_tensor(np.copy(v), device=self.cfg.device).unsqueeze(0).unsqueeze(0) for k, v in target.items()} # add batch size and length dimensions
+                else:
+                    target = target_pos = self.eval_env.get_random_goal()[1]
                 self.agent.set_target(target) 
-                self.eval_env.set_target(target)                    
+                self.eval_env.set_target(target_pos)                    
     
             obs = self.eval_env.reset()
             
             # dmc envs adapt objects position after the res
             if self.cfg.agent.train_target_reach:   
-                self.eval_env.set_target(target)
+                self.eval_env.set_target(target_pos)
 
             # double for visualization purposes
             obs["eval_rgb"] = obs["rgb"]
@@ -189,7 +197,7 @@ class Workspace:
                 
                 # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
                 if self.cfg.agent.train_target_reach:
-                    obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target)
+                    obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target_pos)
                 else:
                     obs["eval_rgb"] = obs["rgb"]
 
@@ -237,14 +245,14 @@ class Workspace:
                  utils.log_metrics_dict(move_to_target_metrics, log)
 
         if self.global_frame % 25000 == 0: # in order to reduce space loggin space in wandb (takes 5MB each video/TSNE)
-            # B, T, C, H, W = video.shape
+           # B, T, C, H, W = video.shape
             video = np.uint8(video * 255)
             self.logger.log_video({'eval_video' : video }, self.global_frame)
 
             # Eval episodes for testing the prior
             utils.TSNE_analysis(self)     
-        
-        self.eval_env.reset()          
+            
+            self.eval_env.reset()          
     
     def train(self):
         # Initialization

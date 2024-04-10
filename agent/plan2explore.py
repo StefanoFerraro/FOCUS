@@ -50,8 +50,8 @@ class Disagreement(nn.Module):
 
 
 class Plan2Explore(DreamerAgent):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name, cfg, obs_space, act_spec, **kwargs):
+        super().__init__(name, cfg, obs_space, act_spec, **kwargs)
         in_dim = self.wm.inp_size
         pred_dim = self.wm.embed_dim
         self.hidden_dim = pred_dim

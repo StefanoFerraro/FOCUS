@@ -23,6 +23,7 @@ curriculum_learning: false
 target_modulator: 500000
 expl_dataset: p2e
 vis_target_dataset: False
+evaluation_target_obs: False
 
 # mode
 obs_type: pixels
