@@ -138,7 +138,7 @@ class LEXA(Plan2Explore):
         elif self.cfg.agent.distance_mode == "temporal":
             I, BT, S = post_obj_state.shape
             self._target_skill = self._target_skill.reshape(BT, S).repeat(I,1,1)
-            squared_distance = - self.wm.dynamical_distance(torch.concat([post_obj_state, self._target_skill], axis=-1).detach()).squeeze(-1)
+            squared_distance = self.wm.dynamical_distance(torch.concat([post_obj_state, self._target_skill], axis=-1).detach()).squeeze(-1)
         
         met = self.metric_reward_fn(squared_distance, "object_context_pose")
         return - squared_distance.unsqueeze(-1), met

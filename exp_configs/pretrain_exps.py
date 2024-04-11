@@ -575,7 +575,6 @@ exp_configs = {
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
         "expl_dataset": ["dreamer", "p2e", "focus"],
-        
     },  
     
     "online_rs_benchmark_1_state_pretrain": {
