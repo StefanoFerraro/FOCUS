@@ -665,7 +665,7 @@ exp_configs = {
         "expl_dataset": ["dreamer", "p2e", "focus"],
         "env|target_from_replay_bf": True,
         "env|only_obs_target": True,
-        "env|batch_sampling": [True, False],
+        "env|batch_sampling": [True],
         "evaluation_target_obs": True,
     },  
 
