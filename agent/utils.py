@@ -493,8 +493,8 @@ class MLP(Module):
         x = x.reshape([-1, x.shape[-1]])
         for index in range(self._layers):
             x = getattr(self, f"dense{index}")(x)
-            x = getattr(self, f"norm{index}")(x)
             x = self._act(x)
+            x = getattr(self, f"norm{index}")(x)
         x = x.reshape(list(features.shape[:-1]) + [x.shape[-1]])
         return self._out(x)
     

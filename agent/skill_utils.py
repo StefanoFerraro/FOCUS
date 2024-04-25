@@ -91,12 +91,12 @@ class SkillActorCritic(common.Module):
         # critic_loss += critic_loss_start
       metrics.update(self.critic_opt(critic_loss, self.critic.parameters()))
 
-    # TODO: in case of lexa agent, train the dynamical distance loss using the imagination steps
-    # if world_model.cfg.name == "lexa":
-    #   with agent_utils.RequiresGrad(self.world_model.dynamical_distance):
-    #     with torch.cuda.amp.autocast(enabled=self._use_amp):
-    #       if world_model.full_cfg.agent.distance_mode == "temporal":
-    #         metrics.update(world_model.dynamical_distance_loss(world_model.rssm.get_feat(seq)))
+    if world_model.cfg.name == "lexa" and world_model.full_cfg.agent.distance_mode == "temporal":
+      with agent_utils.RequiresGrad(self.dynamical_distance):
+        with torch.cuda.amp.autocast(enabled=self._use_amp):
+            inp_embed = world_model.heads["embed"](seq["feat"]).mode
+            dd_loss = self.get_dynamical_distance_loss(self, world_model, inp_embed)
+        metrics.update(self.dd_opt(dd_loss, self.dynamical_distance.parameters()))
             
     metrics.update(**mets1, **mets2, **mets3, **mets4)
     self.update_slow_target()  # Variables exist after first forward pass.

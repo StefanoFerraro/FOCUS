@@ -153,6 +153,8 @@ class OfflineWorkspace(Workspace):
         snapshot_dir = self.get_snapshot_dir() / f"expl_{self.cfg.expl_dataset}"
         if self.cfg.vis_target_dataset: snapshot_dir = snapshot_dir  / f"vis_target"
         if self.cfg.agent.world_model.encoder.coordConv: snapshot_dir = snapshot_dir  / f"coordConv" 
+        if self.cfg.agent.name == "lexa": snapshot_dir = snapshot_dir  / f"{self.cfg.agent.distance_mode}" 
+        
         snapshot_dir.mkdir(exist_ok=True, parents=True)
         
         snapshot = snapshot_dir / f"snapshot_{self.global_frame}.pt"

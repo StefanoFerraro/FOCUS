@@ -411,6 +411,7 @@ class WorldModel(Module):
     def loss(self, data, state=None):
         data = self.preprocess(data)
         embed = self.encoder(data)
+        data["embed"] = stop_gradient(embed)
         post, prior = self.rssm.observe(embed, data["action"], data["is_first"], state)
         kl_loss, kl_value = self.rssm.kl_loss(post, prior, **self.cfg.kl)
         assert len(kl_loss.shape) == 0 or (
@@ -432,14 +433,14 @@ class WorldModel(Module):
                 losses[key] = -like.mean()
         
         # in case we are training a lexa model we need to update also the temporal loss
-        if self.cfg.name == "lexa" and self.full_cfg.agent.distance_mode == "temporal": 
-            states, _ = self.rssm.observe(
-                self.encoder(data),
-                data["action"],
-                data["is_first"],
-            )
-            feat = self.rssm.get_feat(states)
-            losses["dynamical_distance"] = self.get_dynamical_distance_loss(feat, corr_factor=1)
+        # if self.cfg.name == "lexa" and self.full_cfg.agent.distance_mode == "temporal": 
+        #     states, _ = self.rssm.observe(
+        #         self.encoder(data),
+        #         data["action"],
+        #         data["is_first"],
+        #     )
+        #     feat = self.rssm.get_feat(states)
+        #     losses["dynamical_distance"] = self.get_dynamical_distance_loss(feat, corr_factor=1)
             
         model_loss = sum(
             self.cfg.loss_scales.get(k, 1.0) * v for k, v in losses.items()

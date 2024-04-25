@@ -17,8 +17,6 @@ from dm_control import suite
 from dm_control.suite.wrappers import action_scale, pixels
 import env.custom_dmc_tasks as cdmc
 
-os.environ["MUJOCO_GL"] = "egl"
-# os.environ["DISPLAY"] = ":0"
 
 part_ids = {"reacher_hard": 3, "reacher_easy": 3, "manipulator_bring_ball": 10}   
 part_bodyids = {"reacher_hard": 9, "reacher_easy": 9}   
@@ -99,8 +97,8 @@ class DMCSuite(BaseEnv):
                     dtype=np.float32,
                 ),
                 "objects_pos": gym.spaces.Box(-2, 2, (len(self.segmentation_instances), 2), dtype=np.float32
-            ),
-                "dist_to_target": gym.spaces.Box(0, 1, (1,), dtype=np.float32),
+                ),
+                # "dist_to_target": gym.spaces.Box(0, 1, (1,), dtype=np.float32),
             }
         )
         return spaces

@@ -2,8 +2,8 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
-os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
-os.environ["MUJOCO_GL"] = "egl"
+# os.environ["MKL_SERVICE_FORCE_INTEL"] = "1"
+# os.environ["MUJOCO_GL"] = "egl"
 
 from pathlib import Path
 
