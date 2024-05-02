@@ -642,6 +642,10 @@ class Metaworld(ObjectsEnv):
     def get_random_goal(self):
         goals = self.set_goals_for_task()
         return goals[np.random.randint(len(goals))]
+
+    def get_goal(self, index):
+        goals = self.set_goals_for_task()
+        return goals[index]
     
     def render(self):
         return cv2.resize(self._env.mujoco_renderer.render(render_mode="rgb_array", camera_name=self.camera)[::-1].copy(), self.size, interpolation=cv2.INTER_NEAREST).transpose(2,0,1)

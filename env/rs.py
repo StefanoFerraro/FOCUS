@@ -444,7 +444,7 @@ class PandaRoboSuite(ObjectsEnv):
         # set target in env (visualization purposes)
         self._env.env.target_pos = target_pos + np.array(self.object_start_pos)   
         
-    def get_rgb_with_target(self, target):
+    def get_rgb_with_target(self, target=None):
         self._target_show()
         target_rgb = self._env.sim.render(height=self.size[0], width=self.size[1])[::-1].transpose(2, 0, 1)
         self._target_hide()
@@ -456,13 +456,13 @@ class PandaRoboSuite(ObjectsEnv):
     def set_goals_for_task(self):
         if self.task in ["CustomLift", "Lift"]: # TODO first dimension to define properly
             full_right = [[0.25, 0, 0], [0.25, 0, 0]]
-            full_left = [[0.25, 0, 0], [-0.25, 0, 0]]
-            full_down = [[0.25, 0, 0], [0, 0.25, 0]]
-            full_up = [[0.25, 0, 0], [0, -0.25, 0]]
-            right_down = [[0.25, 0, 0], [0.12, 0.12, 0]]
-            left_up = [[0.25, 0, 0], [-0.12, -0.12, 0]]
-            left_down = [[0.25, 0, 0], [-0.12, 0.12, 0]]
-            right_up = [[0.25, 0, 0], [0.12, -0.12, 0]]
+            full_left = [[-0.25, 0, 0], [-0.25, 0, 0]]
+            full_down = [[0, 0.25, 0], [0, 0.25, 0]]
+            full_up = [[0, -0.25, 0], [0, -0.25, 0]]
+            right_down = [[0.12, 0.12, 0], [0.12, 0.12, 0]]
+            left_up = [[-0.12, -0.12, 0], [-0.12, -0.12, 0]]
+            left_down = [[-0.12, 0.12, 0], [-0.12, 0.12, 0]]
+            right_up = [[0.12, -0.12, 0], [0.12, -0.12, 0]]
 
             self.goals = np.stack([full_right, full_left, full_down, full_up,
                                    right_down, left_up, left_down, right_up])
@@ -473,6 +473,10 @@ class PandaRoboSuite(ObjectsEnv):
     def get_random_goal(self):
         goals = self.set_goals_for_task()
         return goals[np.random.randint(len(goals))]
+    
+    def get_goal(self, index):
+        goals = self.set_goals_for_task()
+        return goals[index]
     
     def render(self):
         return self._env.sim.render(height=self.size[0], width=self.size[1])[::-1].transpose(2, 0, 1)

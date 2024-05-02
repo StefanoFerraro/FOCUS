@@ -337,6 +337,10 @@ class DMCSuite(BaseEnv):
         goals = self.set_goals_for_task()
         return goals[np.random.randint(len(goals))]
     
+    def get_goal(self, index):
+        goals = self.set_goals_for_task()
+        return goals[index]
+    
     def render(self):
         return self._env.physics.render(height=self.size[0], width=self.size[0], camera_id=0) #.transpose(2, 0, 1)
     
