@@ -384,14 +384,14 @@ exp_configs = {
         "agent": ["skill_focus"],
         "env": "mw",
         "task": ["bin-picking"],
-        "seed": [1],
+        "seed": [1, 2],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "agent|train_target_reach": [True],
         "agent|symlog_inputs": [True],
         "agent|world_model|objEnc_MSE_ratio": [0.99],
         "agent|world_model|object_encoder|distance_mode": ["cosine"],
         "agent|distance_mode": ["cosine"],        
-        "eval_every_frames": 100000,
+        "eval_every_frames": 10000,
     }, 
     
     # Online Reacher Benchmarking FOCUS++

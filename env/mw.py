@@ -10,7 +10,7 @@ from copy import deepcopy
 from gymnasium.envs.mujoco.mujoco_rendering import OffScreenViewer
 from metaworld.envs import reward_utils
 
-limits_exploration_area = {"bin-picking": [[-0.35, -0.1, 0], [0.3, 0.4, 0.03]],
+limits_exploration_area = {"bin-picking": [[-0.2, 0.4, 0], [0.2, 0.85, 0.15]],
                            "shelf-place": [[-0.35, -0.1, 0], [0.3, 0.4, 0.3]]}
 
 class Metaworld(ObjectsEnv):
@@ -363,8 +363,9 @@ class Metaworld(ObjectsEnv):
     def reset_with_task_id(self, task_id):
         if self.camera == "corner2":
             self._env.model.cam_pos[2][:] = [0.5, 0.3, 0.5]
-        if self.camera == "robobin_custom":
-            self._env.model.cam_pos[2][:] = [0, 0, 0.5]
+        if self.task == "bin-picking": # get the camera closer
+            self._env.model.cam_pos[self.camera_id][:] = [0, 1.1, .5]
+            self._env.model.cam_quat[self.camera_id][:] = (pq.Quaternion([-1, 0, 0, 0]) * pq.Quaternion(axis=[1.0, 0.0, 0.0], degrees=-45)).elements
 
         self.is_first = True
 
@@ -551,7 +552,7 @@ class Metaworld(ObjectsEnv):
     def bin_picking_init_pos(self):
         # self._env.model.material('obj_green').rgba = [1,1,0,1] 
         mujoco.mj_forward(self._env.model, self._env.data)
-        self._env.obj_init_pos = np.array([  -0.075,     0.725,    0.03])
+        self._env.obj_init_pos = np.array([  -0.125,     0.7,    0.03])
         random_init = np.random.uniform([-0.05, -0.05, 0], [0.05, 0.05, 0.01])
         self._env._set_obj_xyz(self._env.obj_init_pos + random_init)
 
@@ -616,14 +617,15 @@ class Metaworld(ObjectsEnv):
   
     def set_goals_for_task(self):
         if self.task in ["bin-picking"]:
-            front_left = [[-0.21, 0, 0.03], [-0.21, 0, 0.03]]
-            back_left = [[-0.325, 0.25, 0.03], [-0.325, 0.25, 0.03]]
-            front_right = [[0.21, 0, 0.03], [0.21, 0, 0.03]]
-            back_right = [[0.325, 0.25, 0.03], [0.325, 0.25, 0.03]]
-            front_center = [[0, 0, 0.03], [0, 0, 0.03]]
-            in_blue_box = [[0.13, 0.22, 0.03], [0.13, 0.22, 0.03]]
-        
-            self.goals = np.stack([front_left, back_left, front_right, back_right, front_center, in_blue_box])  
+            back_left = [[-0.2, 0.45, 0.03], [-0.2, 0.45, 0.03]]
+            back_center = [[0, 0.45, 0.03], [0, 0.45, 0.03]]
+            back_right = [[0.2, 0.45, 0.03], [0.2, 0.45, 0.03]]
+            in_between_boxes = [[0, 0.7, 0.1], [0, 0.7, 0.1]]
+            blue_box_left_center = [[0.075, 0.7, 0.03], [0.075, 0.7, 0.03]]
+            blue_box_right_back = [[0.175, 0.65, 0.03], [0.175, 0.65, 0.03]]
+            blue_box_right_front = [[0.175, 0.75, 0.03], [0.175, 0.75, 0.03]]
+
+            self.goals = np.stack([back_left, back_center, back_right, in_between_boxes, blue_box_left_center, blue_box_right_back, blue_box_right_front])  
         
         elif self.task in ["shelf-place"]:
             front_left = [[-0.15, 0, 0.03], [-0.15, 0, 0.03]]
