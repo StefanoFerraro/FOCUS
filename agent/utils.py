@@ -11,6 +11,18 @@ from torch.distributions.utils import _standard_normal
 
 Module = nn.Module
 
+def weight_init(m):
+    """Custom weight init for Conv2D and Linear layers."""
+    if isinstance(m, nn.Linear):
+        nn.init.orthogonal_(m.weight.data)
+        if hasattr(m.bias, "data"):
+            m.bias.data.fill_(0.0)
+    elif isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+        gain = nn.init.calculate_gain("relu")
+        nn.init.orthogonal_(m.weight.data, gain)
+        if hasattr(m.bias, "data"):
+            m.bias.data.fill_(0.0)
+            
 def symlog(x):
     return torch.sign(x) * torch.log(torch.abs(x) + 1.0)
 
@@ -769,4 +781,5 @@ class CoordConv2d(nn.Conv2d):
         out = self.conv(out)
 
         return out
+    
 

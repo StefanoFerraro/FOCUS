@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import cv2
 import scipy.ndimage
 from typing import Union
+import skimage
 
 import hydra 
 
@@ -63,20 +64,6 @@ def hard_update_params(net, target_net):
 
 def to_torch(xs, device):
     return tuple(torch.as_tensor(x, device=device) for x in xs)
-
-
-def weight_init(m):
-    """Custom weight init for Conv2D and Linear layers."""
-    if isinstance(m, nn.Linear):
-        nn.init.orthogonal_(m.weight.data)
-        if hasattr(m.bias, "data"):
-            m.bias.data.fill_(0.0)
-    elif isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
-        gain = nn.init.calculate_gain("relu")
-        nn.init.orthogonal_(m.weight.data, gain)
-        if hasattr(m.bias, "data"):
-            m.bias.data.fill_(0.0)
-
 
 def grad_norm(params, norm_type=2.0):
     params = [p for p in params if p.grad is not None]
@@ -441,6 +428,9 @@ def move_to_target_metrics(obj_pos, target_pos):
     # exponential max distance to target during the entire episode
     metrics["move_to_target_mean"] = np.exp(- np.linalg.norm(obj_pos - target_pos, axis=-1) / np.linalg.norm(target_pos)).mean()
     # episode average number of pixels for main object segmentation mask
+    metrics["final_distance_to_target"] = - np.linalg.norm(obj_pos[-1] - target_pos, axis=-1) 
+    metrics["min_distance_to_target"] = - np.linalg.norm(obj_pos[-1] - target_pos, axis=-1).min() 
+    
     return metrics
 
 def log_metrics_dict(metrics, log_fn):
@@ -518,3 +508,38 @@ def generate_target(exploration_limits : list,  curriculum_learning: bool, globa
     
     return target
 
+
+def custom_target_2d(obs, target_pos, diam, env):
+    if diam == 1:
+        target_pixels = [np.array(x * 100 + 32) for x in target_pos[::-1]] # single pixel target
+    else:
+        target_pixels = skimage.draw.disk((target_pos[::-1] * [-100, 100] + [32, 32]), radius=int(diam/2))
+    
+    torch_to_numpy = lambda x: x.detach().cpu().numpy() if type(x) == torch.Tensor else x
+
+    obs["rgb"][... ,0,*target_pixels] = 255
+    obs["rgb"][... ,1,*target_pixels] = 0
+    obs["rgb"][... ,2,*target_pixels] = 0
+    # adapt proprio and reward to the new target
+    coord_dist_to_target = torch_to_numpy(obs["objects_pos"][...,0,:]) - target_pos
+    dist_to_target = np.sqrt(np.sum((coord_dist_to_target)**2, axis=-1))
+    rewards = env.get_reward(dist_to_target)
+    
+    # provide directly the target position in proprio and not the distance between target and eef
+    obs["proprio"][...,2:4] = torch.tensor(target_pos, device="cuda") if type(obs["proprio"]) == torch.Tensor else target_pos
+    obs["reward"] = torch.tensor(rewards, device="cuda").unsqueeze(-1) if type(obs["reward"]) == torch.Tensor else rewards
+                    
+    return obs
+
+#colorblind color palette okabeito
+def colors():
+    lightblue = "#56B4E9"
+    yellow = "#F0E442"
+    orange = "#E69F00"
+    green = "#009E73"
+    purple = "#CC79A7"
+    red = "#D55E00"
+    blue = "#0072B2"
+    black = "#000000"
+    
+    return [orange, lightblue, green, purple, red, yellow, blue, black]

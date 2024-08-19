@@ -10,7 +10,7 @@ from copy import deepcopy
 from gymnasium.envs.mujoco.mujoco_rendering import OffScreenViewer
 from metaworld.envs import reward_utils
 
-limits_exploration_area = {"bin-picking": [[-0.2, 0.4, 0], [0.2, 0.85, 0.15]],
+limits_exploration_area = {"bin-picking": [[-0.2, -0.1, 0], [0.2, 0.3, 0.15]],
                            "shelf-place": [[-0.35, -0.1, 0], [0.3, 0.4, 0.3]]}
 
 class Metaworld(ObjectsEnv):
@@ -64,6 +64,9 @@ class Metaworld(ObjectsEnv):
         self.camera_id = self._env.model.camera(self.camera).id
         self.true_obj_pos, self.true_obj_ori = self.get_objects_pose()
         
+        # if self.task == "bin-picking":
+            # self._env.set_xyz_action = self.custom_set_xyz_action # swap the set_xyz_action function to allow for custom action space
+            # self._env._reset_hand = self.custom_reset_hand
 
     def action_spec(
         self,
@@ -85,6 +88,12 @@ class Metaworld(ObjectsEnv):
                     -5,
                     5,
                     [18 + 3],  # qpos + qvel * (7 joints + 2 fingers) + 3 states for the target
+                    dtype=np.float32,
+                ),
+                "target": gym.spaces.Box(
+                    -1,
+                    1,
+                    (3,), # 3 states for the target
                     dtype=np.float32,
                 ),
             }
@@ -273,6 +282,27 @@ class Metaworld(ObjectsEnv):
             reward = 10.0
         return [reward, tcp_to_obj, tcp_opened, obj_to_target, object_grasped, in_place]
 
+    def custom_set_xyz_action(self, action):
+        action = np.clip(action, -1, 1)
+        pos_delta = action * self._env.action_scale
+        new_mocap_pos = self._env.data.mocap_pos + pos_delta[None]
+        new_mocap_pos[0, :] = np.clip(
+            new_mocap_pos[0, :],
+            self._env.mocap_low,
+            self._env.mocap_high,
+        )
+        self._env.data.mocap_pos = new_mocap_pos        
+        self._env.data.mocap_quat = (pq.Quaternion([1, 0, 1, 0]) * pq.Quaternion(axis=[1.0, 0.0, 0.0], degrees=90)).elements
+        
+    def custom_reset_hand(self, steps=50):
+        mocap_id = self._env.model.body_mocapid[self._env.data.body("mocap").id]
+        for _ in range(steps):
+            self._env.data.mocap_pos[mocap_id][:] = self._env.hand_init_pos
+            self._env.data.mocap_quat[mocap_id][:] = (pq.Quaternion([1, 0, 1, 0]) * pq.Quaternion(axis=[1.0, 0.0, 0.0], degrees=90)).elements
+            self._env.do_simulation([-1, 1], self._env.frame_skip)
+        self._env.init_tcp = self._env.tcp_center
+        self._env.init_tcp = self._env.tcp_center
+        
     def step(self, action):
         self._duration += 1
         reward = 0.0
@@ -315,7 +345,7 @@ class Metaworld(ObjectsEnv):
         # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
         objects_pos = [self.true_obj_pos[self.target_obj[0]]]
         
-        object_to_target = objects_pos[0] - (self._env._target_pos - self.object_start_pos)
+        object_to_target = objects_pos[0] - (self._env._target_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
             
@@ -339,6 +369,7 @@ class Metaworld(ObjectsEnv):
                 cv2.resize(depth, self.size, interpolation=cv2.INTER_NEAREST), axis=0
             ),
             "proprio": np.array(proprio).astype(np.float32),
+            "target": np.array(object_to_target).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "action": action,
@@ -394,7 +425,7 @@ class Metaworld(ObjectsEnv):
         # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
         objects_pos = [self.true_obj_pos[self.target_obj[0]]]
 
-        object_to_target = objects_pos[0] - (self._env._target_pos - self.object_start_pos)
+        object_to_target = objects_pos[0] - (self._env._target_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
             
@@ -413,6 +444,7 @@ class Metaworld(ObjectsEnv):
                 cv2.resize(depth, self.size, interpolation=cv2.INTER_NEAREST), axis=0
             ),
             "proprio": np.array(proprio).astype(np.float32),
+            "target": np.array(object_to_target).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "action": np.zeros_like(self.act_space["action"].sample()),
@@ -613,17 +645,17 @@ class Metaworld(ObjectsEnv):
         return target_rgb
     
     def get_goals(self):
-        return self.goals
+        return self.set_goals_for_task()
   
     def set_goals_for_task(self):
         if self.task in ["bin-picking"]:
-            back_left = [[-0.2, 0.45, 0.03], [-0.2, 0.45, 0.03]]
-            back_center = [[0, 0.45, 0.03], [0, 0.45, 0.03]]
-            back_right = [[0.2, 0.45, 0.03], [0.2, 0.45, 0.03]]
-            in_between_boxes = [[0, 0.7, 0.1], [0, 0.7, 0.1]]
-            blue_box_left_center = [[0.075, 0.7, 0.03], [0.075, 0.7, 0.03]]
-            blue_box_right_back = [[0.175, 0.65, 0.03], [0.175, 0.65, 0.03]]
-            blue_box_right_front = [[0.175, 0.75, 0.03], [0.175, 0.75, 0.03]]
+            back_left = [[-0.2, -0.05, 0.03], [-0.2, -0.05, 0.03]]
+            back_center = [[0, -0.05, 0.03], [0, -0.05, 0.03]]
+            back_right = [[0.2, -0.05, 0.03], [0.2, -0.05, 0.03]]
+            in_between_boxes = [[0, 0.2, 0.1], [0, 0.2, 0.1]]
+            blue_box_left_center = [[0.075, 0.2, 0.03], [0.075, 0.2, 0.03]]
+            blue_box_right_back = [[0.175, 0.15, 0.03], [0.175, 0.15, 0.03]]
+            blue_box_right_front = [[0.175, 0.25, 0.03], [0.175, 0.25, 0.03]]
 
             self.goals = np.stack([back_left, back_center, back_right, in_between_boxes, blue_box_left_center, blue_box_right_back, blue_box_right_front])  
         
@@ -655,7 +687,7 @@ class Metaworld(ObjectsEnv):
     def set_goal_state(self, target_pos):
         pos = target_pos + self.object_start_pos
         self._env._set_obj_xyz(pos)
-        self._env.obj_init_pos = self._env._get_pos_objects()
+        # self._env.obj_init_pos = self._env._get_pos_objects() # remove for testing, should be reintegrated
         
         return self.step(np.zeros_like(self.act_space["action"].sample()))
             

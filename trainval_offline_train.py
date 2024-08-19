@@ -80,7 +80,7 @@ if __name__ == "__main__":
     else:
         job_config = None
 
-    hw.run_wizard(
+hw.run_wizard(
         func=trainval,
         exp_list=exp_configs.EXP_GROUPS[args.project_name+"_pretrain"],
         job_config=job_configs.JOB_CONFIG[args.user],

@@ -42,9 +42,9 @@ JOB_CONFIG = { user :
         "preemptable" : True,
         "resources": {
             "cpu": 4,
-            "mem": 64,
+            "mem": 96,
             "gpu": 1,
-            "gpu_model": "A100",
+            "gpu_model": "!P100",
             # "gpu_mem" : 15,
         },
         "interactive": False,

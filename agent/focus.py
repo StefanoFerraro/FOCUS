@@ -115,11 +115,10 @@ class FocusAgent(Module):
             self._task_behavior.actor if eval_mode else self._expl_behavior.actor
         )
 
+        actor = policy(feat)
         if eval_mode:
-            actor = policy(feat)
             action = actor.mean
         else:
-            actor = policy(feat)
             action = actor.sample()
 
         new_state = (latent, action)

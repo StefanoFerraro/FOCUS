@@ -14,6 +14,8 @@ import torch
 import wandb
 from dm_env import specs
 import random
+import skimage
+
 
 from env import RS_TASKS_OBJ, MS_TASKS_OBJ, MW_TASKS_OBJ, DMC_TASKS_OBJ, PRIMAL_TASKS 
 from env.make import make
@@ -46,7 +48,7 @@ class OfflineWorkspace(Workspace):
             length=cfg.batch_length,
             **cfg.replay,
             device=cfg.device,
-            load_first=True
+            # load_first=True
         )
 
         # create replay buffer
@@ -91,7 +93,7 @@ class OfflineWorkspace(Workspace):
                     self.eval()
 
                 # set target position for rewarding
-                if self.cfg.agent.train_target_reach:
+                if "train_target_reach" in self.cfg.agent.keys() and self.cfg.agent.train_target_reach:
                     if self.cfg.env.env_target:
                         target = target_pos = self.eval_env.get_target()
                     else:                        
@@ -108,7 +110,7 @@ class OfflineWorkspace(Workspace):
                             if self.cfg.env.mixed_target or self.cfg.env.only_obs_target:
                                 target_obs = self.eval_env.set_goal_state(target_pos[0,0])    
                                 if target_obs["is_last"] == True: self.eval_env.reset()
-                                target_obs = { k: torch.as_tensor(np.copy(v), device=self.cfg.device).unsqueeze(0) for k, v in target_obs.items()}
+                                target_obs = { k: torch.as_tensor(np.copy(v), device=self.cfg.device).unsqueeze(0).unsqueeze(0) for k, v in target_obs.items()}
                     
                     if (self.cfg.env.mixed_target and random.choice([True, False])) or self.cfg.env.only_obs_target: # 50% of the time the target is the position unless specified
                         target = target_obs
@@ -124,8 +126,12 @@ class OfflineWorkspace(Workspace):
                 if self.cfg.env.dist_as_rw: 
                     if self.cfg.task in ["reacher_easy", "reacher_hard"]:
                         obs["reward"] = - torch.sqrt(torch.sum(obs["proprio"][:,:,2:4]**2, dim=-1)).unsqueeze(-1)
+                        obs["target"] = obs["proprio"][:,:,2:4]
+                        obs["proprio"] = torch.cat((obs["proprio"][:,:,:2], obs["proprio"][:,:,4:]), dim=-1)
                     elif self.cfg.task in ["CustomLift", "shelf-place", "bin-picking"]:
                         obs["reward"] = - torch.linalg.norm(obs["proprio"][:,:,-3:], dim=-1).unsqueeze(-1)
+                        obs["target"] = obs["proprio"][:,:,-3:]
+                        obs["proprio"] = obs["proprio"][:,:,:-3]
                     else:
                         raise ValueError("Task not implemented")
                     
@@ -140,10 +146,11 @@ class OfflineWorkspace(Workspace):
                         log('fps', self.cfg.log_every_frames / elapsed_time)
                         log('step', self.global_step)
                 
-                if self.global_step > 0 and should_log_recon(self.global_step):
-                    videos, text = self.agent.report(next(self.replay_iter))
-                    self.logger.log_video(videos, self.global_frame)
-                    self.logger.log_metrics(text, self.global_frame, ty="train")
+                if hasattr(self.agent, 'report') and callable(self.agent.report):
+                    if self.global_step > 0 and should_log_recon(self.global_step):
+                        videos, text = self.agent.report(obs)
+                        self.logger.log_video(videos, self.global_frame)
+                        self.logger.log_metrics(text, self.global_frame, ty="train")
 
                 self._global_step += 1
 
@@ -152,7 +159,7 @@ class OfflineWorkspace(Workspace):
         # divide for the different ablation experimented with (expl_dataset + vis_target + coordconv) 
         snapshot_dir = self.get_snapshot_dir() / f"expl_{self.cfg.expl_dataset}"
         if self.cfg.vis_target_dataset: snapshot_dir = snapshot_dir  / f"vis_target"
-        if self.cfg.agent.world_model.encoder.coordConv: snapshot_dir = snapshot_dir  / f"coordConv" 
+        if "world_model" in self.cfg.agent.keys() and self.cfg.agent.world_model.encoder.coordConv: snapshot_dir = snapshot_dir  / f"coordConv" 
         if self.cfg.agent.name == "lexa": snapshot_dir = snapshot_dir  / f"{self.cfg.agent.distance_mode}" 
         
         snapshot_dir.mkdir(exist_ok=True, parents=True)

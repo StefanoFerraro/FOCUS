@@ -108,9 +108,11 @@ class DreamerAgent(Module):
         return rw, met
     
     def dist_reward_fn(self, seq):
-        dist_rw = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["dist_to_target"].mean
-        met = self.metric_reward_fn(dist_rw, "dist_to_target")
-        return - dist_rw, met # want to minimize the distance
+        pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)
+        dist = pred["objects_pos"].mean - pred["target"].mean.unsqueeze(-2)
+        squared_distance = torch.sum(((dist) ** 2), dim=3)
+        met = self.metric_reward_fn(squared_distance, "dist_to_target")
+        return - squared_distance, met # want to minimize the distance
     
     def pos_reward_fn(self, seq):
         pos_pred = self.wm.heads["decoder"](seq["feat"], only_mlp=True)["objects_pos"].mean

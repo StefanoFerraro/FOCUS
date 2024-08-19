@@ -15,6 +15,8 @@ from env.segmenter import Segmenter
 from env.wrappers import *
 from dm_control import suite
 from dm_control.suite.wrappers import action_scale, pixels
+from dm_control.utils import rewards
+
 import env.custom_dmc_tasks as cdmc
 
 
@@ -188,7 +190,6 @@ class DMCSuite(BaseEnv):
         if self.dist_as_rw:
             reward = - np.sqrt(np.sum(proprio[2:4]**2))
         
-        
         true_pos_displacement = self.compute_displacements(new_obj_pos)
         # in_areas = self.check_in_areas(new_true_obj_pos)
 
@@ -216,6 +217,10 @@ class DMCSuite(BaseEnv):
             "action": action,
             "discount": time_step.discount,
         }
+        
+        if self.cfg.target_ablation_diam:
+            obs = custom_target_2d(obs, self._env.physics.named.data.geom_xpos[self.target_part][0][:2], self.cfg.target_ablation_diam, self)
+        
         return obs
 
     def reset(self):
@@ -265,6 +270,10 @@ class DMCSuite(BaseEnv):
             "action": np.zeros_like(self.act_space["action"].sample()),
             "discount": time_step.discount,
         }
+        
+        if self.cfg.target_ablation_diam:
+            obs = custom_target_2d(obs, self._env.physics.named.data.geom_xpos[self.target_part][0][:2], self.cfg.target_ablation_diam, self)
+        
         return obs
     
     #### ADDED FUNCTIONS ####
@@ -299,7 +308,7 @@ class DMCSuite(BaseEnv):
         return target_rgb
     
     def get_goals(self):
-        return self.goals
+        return self.set_goals_for_task()
   
     def set_goals_for_task(self):
         if self.task in ["reacher_hard", "reacher_easy"]:
@@ -348,3 +357,7 @@ class DMCSuite(BaseEnv):
         size = self._env.physics.get_state().shape[0] - np.array(goal).shape[0]
         self._env.physics.set_state(np.concatenate((goal, np.zeros([size]))))
         return self.step(np.zeros_like(self.act_space["action"].sample()))
+
+    def get_reward(self, dist):
+        radii = 0.06
+        return rewards.tolerance(dist, (0, radii))

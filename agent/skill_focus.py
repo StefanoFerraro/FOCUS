@@ -22,11 +22,10 @@ class SkillFocusAgent(FocusAgent):
 
         self._mode = "train"
         
-        # NOTE: Only for debugging
         self._skill_strategy = 'object_context_pose'
         self._shape_skill_latent = self.wm._shape_skill_latent
-        
         self._target_skill = self.skill_target_extractor()
+        
         self.skill_dim = [self._target_skill.shape[-1]]
 
         self._skill_behavior = SkillActorCritic(cfg, self.act_spec, self.tfstep, skill_dim=self.skill_dim, 
@@ -116,6 +115,9 @@ class SkillFocusAgent(FocusAgent):
         if which_policy not in ['expl', 'task', 'both']:
             raise ValueError(f"which_policy must be one of ['expl', 'task', 'both'], got {which_policy}")
         
+        if self.cfg.agent.condition_strategy == "pcp":
+            dist =torch.exp(- torch.linalg.norm(data["objects_pos"] - self._target_pos, axis=-1) / torch.linalg.norm(self._target_pos))
+            data["reward"] = dist # substitute reward signal from the environment with the distance from the asigned target (conditioned on) and the current position
         state, outputs, metrics = self.update_wm(data, step)
 
         if step >= self.cfg.agent.start_agent_training_after:
@@ -127,7 +129,8 @@ class SkillFocusAgent(FocusAgent):
             
             self._target_skill = self.skill_target_extractor()
             if self.cfg.env.batch_sampling:
-                self._target_skill = self._target_skill.repeat(1, self.cfg.batch_size, 1, 1)
+                self._target_skill = self._target_skill.repeat(1, self.cfg.batch_length, 1, 1)
+        
             self._skill_behavior.solved_meta['skill'] = self._target_skill
             
             # agent update based on the achievement on the given skill 
@@ -189,9 +192,9 @@ class SkillFocusAgent(FocusAgent):
                 policy = self._expl_behavior.actor
                 inp = feat
             else:
-                if meta["use_skill_behaviour"]:
+                if meta["use_skill_behaviour"]: # BEHAVIour was changed in online_train, this need fix
                     policy = self._skill_behavior.actor 
-                    skill = self.skill_target_extractor()[0,0]
+                    skill = self.skill_target_extractor()[0,0] 
                     inp = torch.cat([feat, skill], dim=-1)
                 else:
                     policy = self._expl_behavior.actor

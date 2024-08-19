@@ -137,7 +137,7 @@ class EnsembleRSSM(Module):
         self._stoch = stoch
         self._deter = deter
         self._hidden = hidden
-        self._discrete = discrete
+        self._discrete = None if discrete in ["none", "None", None] else discrete
         self._act = act()
         self._norm = norm
         self._std_act = std_act

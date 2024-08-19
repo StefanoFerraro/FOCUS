@@ -47,6 +47,8 @@ class BaseEnv:
             
         self.dist_as_rw = env_config.dist_as_rw
         
+        self.cfg = env_config
+        
     def obs_specs(self):
         obs_keys = ["rgb", "depth", "proprio", "objects_pos", "segmentation"]
         obs_specs = []

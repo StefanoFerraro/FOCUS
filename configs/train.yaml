@@ -21,7 +21,7 @@ use_tb: true
 use_wandb: true
 curriculum_learning: false
 target_modulator: 500000
-expl_dataset: p2e
+expl_dataset: focus
 vis_target_dataset: False
 evaluation_target_obs: False
 
@@ -64,6 +64,15 @@ dataset_dir: none
 log_every_frames: 1000
 recon_every_frames: 25000 # edit for debug
 root_log_dir: '.'
+
+# model free params
+img_size: 64
+acting_reward_fn: batch_reward
+frame_stack: 3 # 3 for pixels
+discount: 0.99
+discount_lambda: 0.95
+train_video_model : False
+train_world_model : False
 
 hydra:
   run:

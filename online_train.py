@@ -22,6 +22,8 @@ import utils
 from logger import Logger
 from replay_buffer import ReplayBuffer, make_replay_loader
 
+model_free_models = ["iql", "td3", "td3_bc", "offline_td3"]
+
 class Workspace:
     def __init__(self, cfg, maindir=None, workdir=None):
         
@@ -36,12 +38,14 @@ class Workspace:
             cfg.task if cfg.task != "none" else PRIMAL_TASKS[domain]
         )  # -> which is the URLB default
         objets_list = globals()[domain.upper() + "_TASKS_OBJ"][task]
-        if cfg.agent.world_model.name == "focus":
-            cfg.agent.world_model.objects = objets_list
         self.device = torch.device(cfg.device)
-        cfg.agent.world_model.device = cfg.device
-        if cfg.agent.world_model.rssm.discrete == "None": cfg.agent.world_model.rssm.discrete = None 
         
+        if "world_model" in cfg.agent.keys():
+            if cfg.agent.world_model.name == "focus":
+                cfg.agent.world_model.objects = objets_list
+                cfg.agent.world_model.device = cfg.device
+                if cfg.agent.world_model.rssm.discrete == "None": cfg.agent.world_model.rssm.discrete = None 
+                
         # seed everything for reproducibility        
         utils.set_seed_everywhere(cfg.seed)
 
@@ -159,27 +163,33 @@ class Workspace:
             episode_data = []
             
             # set target before reset of env
-            if self.cfg.agent.train_target_reach:
-                # pick random goal for evaluation
-                if self.cfg.evaluation_target_obs:
-                    self.eval_env.reset()
-                    target_pose = self.eval_env.get_random_goal()[0]
-                    target = self.eval_env.set_goal_state(target_pose)    
-                    target_pos = target["objects_pos"][0]
-                    target = {k: torch.as_tensor(np.copy(v), device=self.cfg.device).unsqueeze(0).unsqueeze(0) for k, v in target.items()} # add batch size and length dimensions
-                else:
-                    target = target_pos = self.eval_env.get_random_goal()[1]
+            # pick random goal for evaluation
+            if self.cfg.evaluation_target_obs:
+                self.eval_env.reset()
+                target_pose = self.eval_env.get_random_goal()[0]
+                target = target_obs = self.eval_env.set_goal_state(target_pose)    
+                target_pos = target["objects_pos"][0]
+                target = {k: torch.as_tensor(np.copy(v), device=self.cfg.device).unsqueeze(0).unsqueeze(0) for k, v in target.items()} # add batch size and length dimensions
+            else:
+                self.eval_env.reset()
+                target = self.eval_env.get_random_goal()
+                target_obs = self.eval_env.set_goal_state(target[0])   
+                target = target_pos = target[1]
+            
+            if "train_target_reach" in self.cfg.agent.keys() and self.cfg.agent.train_target_reach:
                 self.agent.set_target(target) 
-                self.eval_env.set_target(target_pos)                    
+            self.eval_env.set_target(target_pos)                    
     
             obs = self.eval_env.reset()
             
+            if self.cfg.vis_target_dataset and self.cfg.env.name == "rs":
+                obs["rgb"] = self.eval_env.get_rgb_with_target()  
+ 
             # dmc envs adapt objects position after the res
-            if self.cfg.agent.train_target_reach:   
-                self.eval_env.set_target(target_pos)
+            self.eval_env.set_target(target_pos)
 
             # double for visualization purposes
-            obs["eval_rgb"] = obs["rgb"]
+            obs["eval_rgb"] = np.concatenate([target_obs["rgb"], obs['rgb']], axis=1)
             
             episode_data.append(obs)
             agent_state = None
@@ -194,12 +204,17 @@ class Workspace:
                         state=agent_state,
                     )
                 obs = self.eval_env.step(action)
+
+                if self.cfg.vis_target_dataset and self.cfg.env.name == "rs":
+                    obs["rgb"] = self.eval_env.get_rgb_with_target()  
                 
                 # in case of dmc manipulator environment, the target position needs to update at every step, given the internal machanics
-                if self.cfg.agent.train_target_reach:
+                if "train_target_reach" in self.cfg.agent.keys() and self.cfg.agent.train_target_reach and not self.cfg.env.target_ablation_diam:
                     obs["eval_rgb"] = self.eval_env.get_rgb_with_target(target_pos)
+                    obs["eval_rgb"] = np.concatenate([target_obs["rgb"], obs['eval_rgb']], axis=1)
                 else:
                     obs["eval_rgb"] = obs["rgb"]
+                    obs["eval_rgb"] = np.concatenate([target_obs["rgb"], obs['eval_rgb']], axis=1)
 
                 episode_data.append(obs)
                 total_reward += obs["reward"]
@@ -212,14 +227,13 @@ class Workspace:
                 obj_pos = np.concatenate((obj_pos, [obs["objects_pos"][0]]))
 
             # log moving average, move to target metrics
-            if self.cfg.agent.train_target_reach:
-                target_pos = self.agent._target_pos.cpu().numpy()
-                if episode == 0:
-                    episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
-                    move_to_target_metrics = {k: v / self.cfg.num_eval_episodes for k, v in episode_metrics.items()}
-                else:
-                    episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
-                    move_to_target_metrics = {k: v / self.cfg.num_eval_episodes + move_to_target_metrics[k] for k, v in episode_metrics.items()}
+            # target_pos = self.agent._target_pos.cpu().numpy()
+            if episode == 0:
+                episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
+                move_to_target_metrics = {k: v / self.cfg.num_eval_episodes for k, v in episode_metrics.items()}
+            else:
+                episode_metrics = utils.move_to_target_metrics(obj_pos, target_pos)
+                move_to_target_metrics = {k: v / self.cfg.num_eval_episodes + move_to_target_metrics[k] for k, v in episode_metrics.items()}
 
             # video output for visualization                 
             if episode==0:
@@ -241,18 +255,17 @@ class Workspace:
             log("avg_step_to_success", sum(step_to_success_list) / episode)
             log("episode", self.global_episode)
             log("step", self.global_step)
-            if self.cfg.agent.train_target_reach:
-                 utils.log_metrics_dict(move_to_target_metrics, log)
+            utils.log_metrics_dict(move_to_target_metrics, log)
 
         if self.global_frame % 25000 == 0: # in order to reduce space loggin space in wandb (takes 5MB each video/TSNE)
-           # B, T, C, H, W = video.shape
+            # B, T, C, H, W = video.shape
             video = np.uint8(video * 255)
             self.logger.log_video({'eval_video' : video }, self.global_frame)
 
             # Eval episodes for testing the prior
-            utils.TSNE_analysis(self)     
+            if self.agent.name not in model_free_models: utils.TSNE_analysis(self)     
             
-            self.eval_env.reset()          
+        self.eval_env.reset()          
     
     def train(self):
         # Initialization
@@ -276,12 +289,12 @@ class Workspace:
         profiler_active_for = 10
         
         # set target position for rewarding
-        if self.cfg.agent.train_target_reach:
-            if self.cfg.env.env_target:
-                target = self.train_env.get_target()
-            else:
-                target = utils.generate_target(self.train_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
-                self.train_env.set_target(target)  # visually set the target  
+        if self.cfg.env.env_target:
+            target = self.train_env.get_target()
+        else:
+            target = utils.generate_target(self.train_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
+            self.train_env.set_target(target)  # visually set the target  
+        if "train_target_reach" in self.cfg.agent.keys() and self.cfg.agent.train_target_reach:
             self.agent.set_target(target)  # visually set the target   
 
         # clean approch for having the posibility to choose if profiling or not the algorithm
@@ -315,9 +328,8 @@ class Workspace:
                             obj_metrics = utils.object_metrics(self.in_areas, self.cumm_pos_displacement, self.cumm_ang_displacement, self.cumm_vertical_displacement, episode_frame)
                             utils.log_metrics_dict(obj_metrics, log)
                         
-                            if self.cfg.agent.train_target_reach:
-                                move_to_target_metrics = utils.move_to_target_metrics(self.obj_pos, target)
-                                utils.log_metrics_dict(move_to_target_metrics, log)
+                            move_to_target_metrics = utils.move_to_target_metrics(self.obj_pos, target)
+                            utils.log_metrics_dict(move_to_target_metrics, log)
                                     
                     utils.init_metrics_counters(self)
                     
@@ -339,12 +351,12 @@ class Workspace:
                     agent_state = None
                     
                     # set target position for rewarding
-                    if self.cfg.agent.train_target_reach:
-                        if self.cfg.env.env_target:
-                            target = self.train_env.get_target()
-                        else:
-                            target = utils.generate_target(self.train_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
-                            self.train_env.set_target(target)  # visually set the target  
+                    if self.cfg.env.env_target:
+                        target = self.train_env.get_target()
+                    else:
+                        target = utils.generate_target(self.train_env.limits_exploration_area, self.cfg.curriculum_learning, self.global_step, self.cfg.env.target_modulator)
+                        self.train_env.set_target(target)  # visually set the target  
+                    if "train_target_reach" in self.cfg.agent.keys() and self.cfg.agent.train_target_reach:
                         self.agent.set_target(target)  # visually set the target                                  
                     
                 # try to evaluate
@@ -363,8 +375,7 @@ class Workspace:
                         action = self.train_env.act_space["action"].sample()
                     else:
                         if self.cfg.agent.name=="skill_focus":
-                            # In this case we want to have the skill agent acting 50% of the time, and the rest made by an exploratory agent
-                            meta = {"use_skill_behaviour": self.global_episode % 2}
+                            meta = {"use_skill_behaviour": False}
                         action, agent_state = self.agent.act(
                             obs,
                             meta,
@@ -382,11 +393,13 @@ class Workspace:
                             )[1]
                         if should_log_scalars(self.global_step):
                             self.logger.log_metrics(self.metrics, self.global_frame, ty="train")
-                        if self.global_step > 0 and should_log_recon(self.global_step):
-                            videos, report_metrics = self.agent.report(next(self.replay_iter))
+                        
+                        if hasattr(self.agent, 'report') and callable(self.agent.report):
+                            if self.global_step > 0 and should_log_recon(self.global_step):
+                                videos, report_metrics = self.agent.report(next(self.replay_iter))
 
-                            self.logger.log_video(videos, self.global_frame)
-                            self.logger.log_metrics(report_metrics, self.global_frame, ty="train")
+                                self.logger.log_video(videos, self.global_frame)
+                                self.logger.log_metrics(report_metrics, self.global_frame, ty="train")
 
                 # take env step
                 obs = self.train_env.step(action)
@@ -399,6 +412,23 @@ class Workspace:
     @utils.retry
     def save_snapshot(self):
         snapshot = self.get_snapshot_dir() / f"snapshot_{self.global_frame}.pt"
+        keys_to_save = ["agent", "_global_step", "_global_episode"]
+        payload = {k: self.__dict__[k] for k in keys_to_save}
+        with snapshot.open("wb") as f:
+            torch.save(payload, f)
+            
+    @utils.retry
+    def save_snapshot(self):
+        # divide for the different ablation experimented with (expl_dataset + vis_target + coordconv) 
+        snapshot_dir = self.get_snapshot_dir() / f"expl_{self.cfg.expl_dataset}"
+        if self.cfg.vis_target_dataset: snapshot_dir = snapshot_dir  / f"vis_target"
+        if "world_model" in self.cfg.agent.keys() and self.cfg.agent.world_model.encoder.coordConv: snapshot_dir = snapshot_dir  / f"coordConv" 
+        if self.cfg.agent.name == "lexa": snapshot_dir = snapshot_dir  / f"{self.cfg.agent.distance_mode}" 
+        if self.cfg.env.target_ablation_diam: snapshot_dir = snapshot_dir  / f"target_ablation_diam_{int(self.cfg.env.target_ablation_diam)}"
+        
+        snapshot_dir.mkdir(exist_ok=True, parents=True)
+        
+        snapshot = snapshot_dir / f"snapshot_{self.global_frame}.pt"
         keys_to_save = ["agent", "_global_step", "_global_episode"]
         payload = {k: self.__dict__[k] for k in keys_to_save}
         with snapshot.open("wb") as f:

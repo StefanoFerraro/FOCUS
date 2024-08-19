@@ -9,6 +9,7 @@ import os
 import requests
 import gdown
 import wget
+import skimage
 
 def segment_image(image, bbox):
     image_array = np.array(image)
@@ -306,3 +307,25 @@ def image_segmentation(image, seg):
         seg_image[ch] = image * seg_mask[ch]
 
     return seg_image
+
+def custom_target_2d(obs, target_pos, diam, env):
+    if diam == 1:
+        target_pixels = [np.array(int(x * 100) + 32) for x in target_pos[::-1]] # single pixel target
+    else:
+        target_pixels = skimage.draw.disk((target_pos[::-1] * [-100, 100] + [32, 32]), radius=int(diam/2))
+    
+    torch_to_numpy = lambda x: x.detach().cpu().numpy() if type(x) == torch.Tensor else x
+
+    obs["rgb"][... ,0,*target_pixels] = 255
+    obs["rgb"][... ,1,*target_pixels] = 0
+    obs["rgb"][... ,2,*target_pixels] = 0
+    # adapt proprio and reward to the new target
+    coord_dist_to_target = torch_to_numpy(obs["objects_pos"][...,0,:]) - target_pos
+    dist_to_target = np.sqrt(np.sum((coord_dist_to_target)**2, axis=-1))
+    # rewards = env.get_reward(dist_to_target)
+    
+    # provide directly the target position in proprio and not the distance between target and eef
+    obs["proprio"][...,2:4] = torch.tensor(target_pos, device="cuda") if type(obs["proprio"]) == torch.Tensor else target_pos
+    # obs["reward"] = torch.tensor(rewards, device="cuda").unsqueeze(-1) if type(obs["reward"]) == torch.Tensor else rewards
+                    
+    return obs

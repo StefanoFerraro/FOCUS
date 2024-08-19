@@ -40,3 +40,8 @@ target_sampling_generation_strategy: "uniform"
 batch_sampling: False
 
 dist_as_rw: False
+
+#ablations
+target_ablation_diam: False
+
+

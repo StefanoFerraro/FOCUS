@@ -141,7 +141,6 @@ class CustomLift(SingleArmEnv):
             reaching_reward = 1 - np.tanh(10.0 * dist_to_target)
             reward += reaching_reward
             
-            # grasping reward
             if self._check_grasp(
                 gripper=self.robots[0].gripper, object_geoms=self.cube
             ):
@@ -201,8 +200,8 @@ class CustomLift(SingleArmEnv):
         
         self.target = BallObject(
             name="target",
-            size_min=[0.025],
-            size_max=[0.025] + [0.002],
+            size_min=[0.1],
+            size_max=[0.1] + [0.002],
             rgba=(0, 1, 0, 0),
             joints=None,
             obj_type="visual"

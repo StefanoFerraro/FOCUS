@@ -119,7 +119,13 @@ class PandaRoboSuite(ObjectsEnv):
                 "proprio": gym.spaces.Box(
                     -5,
                     5,
-                    (self._env.modality_dims["robot0_proprio-state"][0] + 3, ), # 3 states for the target
+                    (self._env.modality_dims["robot0_proprio-state"][0] + 3,), # 3 states for the target
+                    dtype=np.float32,
+                ),
+                "target": gym.spaces.Box(
+                    -1,
+                    1,
+                    (3,), # 3 states for the target
                     dtype=np.float32,
                 ),
                 "state": self._env.observation_space,
@@ -307,7 +313,7 @@ class PandaRoboSuite(ObjectsEnv):
             true_ori_displacement,
             true_vertical_displacement,
         )
-
+    
     def step(self, action):
         target_obj = self.segmentation_instances[0]
 
@@ -362,6 +368,9 @@ class PandaRoboSuite(ObjectsEnv):
         action = np.delete(action, [3, 4, 5])  # remove dummy orientation values
 
         self.is_first = False
+        
+        if self.cfg.target_ablation_diam:
+            rgb = self.get_rgb_with_target()
 
         obs = {
             "reward": reward,
@@ -371,6 +380,7 @@ class PandaRoboSuite(ObjectsEnv):
             "rgb": rgb,
             "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
+            "target": np.array(object_to_target).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "state": self._env._flatten_obs(state),
@@ -409,6 +419,9 @@ class PandaRoboSuite(ObjectsEnv):
         # include target information in the proprioception
         proprio = proprio + list(object_to_target)
         
+        if self.cfg.target_ablation_diam:
+            rgb = self.get_rgb_with_target()
+        
         obs = {
             "reward": reward,
             "is_first": self.is_first,
@@ -417,6 +430,7 @@ class PandaRoboSuite(ObjectsEnv):
             "rgb": rgb,
             "depth": depth,
             "proprio": np.array(proprio).astype(np.float32),
+            "target": np.array(object_to_target).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "state": self._env._flatten_obs(state),
@@ -451,7 +465,7 @@ class PandaRoboSuite(ObjectsEnv):
         return target_rgb
     
     def get_goals(self):
-        return self.goals
+        return self.set_goals_for_task()
   
     def set_goals_for_task(self):
         if self.task in ["CustomLift", "Lift"]: # TODO first dimension to define properly
