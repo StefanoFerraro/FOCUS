@@ -1,0 +1,27 @@
+defaults:
+  - default
+
+_target_: agent.lexa.LEXA
+name: lexa
+cfg: ???
+obs_space: ???
+act_spec: ???
+reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+actor_ent: 0
+skill_reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+
+train_target_reach: True
+
+distance_mode: 'cosine'
+dd_num_positives: 256
+dd_neg_sampling_factor: 0.1
+symlog_inputs: True
+
+world_model:
+  rssm: {stoch: 50, discrete: False}
+  encoder: {mlp_keys: 'proprio', cnn_keys: 'rgb', norm: none, cnn_depth: 32, cnn_kernels: [4, 4, 4, 4], mlp_layers: 4, mlp_units: 400, coordConv: False} # act: elu
+  decoder: {mlp_keys: 'proprio', cnn_keys: 'rgb', norm: none, cnn_depth: 32, cnn_kernels: [5, 5, 6, 6], mlp_layers: 4, mlp_units: 400} # act: elu
+  grad_heads: [decoder]
+  replay.capacity: 5e5
+  device: cuda
+  name: lexa

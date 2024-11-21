@@ -1,0 +1,30 @@
+# Agent defaults
+actor: {layers: 4, units: 400, norm: none, dist: trunc_normal, min_std: 0.1 } # act: elu 
+critic: {layers: 4, units: 400, norm: none, dist: mse} # act: elu, 
+actor_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100, wd: 1e-6}
+critic_opt: {opt: adam, lr: 8e-5, eps: 1e-5, clip: 100, wd: 1e-6}
+reward_coeff: {rw_task: 0.0, rw_mov: 0.0, rw_dist_obj: -1.0, rw_intr: 1.0} 
+clip_rewards: identity
+discount: 0.99
+discount_lambda: 0.95
+actor_grad: dynamics
+slow_target: True
+slow_target_update: 100
+slow_target_fraction: 1
+slow_baseline: True
+
+# World Model defaults
+world_model:
+  pred_discount: False
+  rssm: {ensemble: 1, hidden: 200, deter: 200, stoch: 32, discrete: 32,  norm: none, std_act: sigmoid2, min_std: 0.1, full_posterior: True} # act: elu,
+  reward_head: {layers: 4, units: 400, norm: none, dist: mse}
+  kl: {free: 1, forward: False, balance: [0.5, 0.1], free_avg: True}
+  loss_scales: {kl: 1.0, reward: 1.0, discount: 1.0, proprio: 1.0, target: 1.0, objects_pos: 1} # kl coeff to 5 from 1
+  model_opt: {opt: adam, lr: 3e-4, eps: 1e-5, clip: 100, wd: 1e-6}
+  device: cuda
+
+apt: 
+  knn_rms: False 
+  knn_k: 30
+  knn_avg: True 
+  knn_clip: 0.0001

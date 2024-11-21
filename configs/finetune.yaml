@@ -1,0 +1,95 @@
+defaults:
+  - env: rs
+  - agent: dreamer
+  - override hydra/launcher: submitit_local
+
+# agent: none
+task: none
+domain: ${env.name}
+comment: ""
+
+# experiment
+experiment: pt
+project_name: RSS_benchmark
+
+# misc
+seed: 1
+device: cuda
+save_video: false
+save_train_video: true
+use_tb: false
+use_wandb: true
+
+# target conditioned policy
+curriculum_learning: false # curriculum learning for target setting
+target_modulator: 500000 # modulation parameter for curriculum learning
+env_target: False # utilize target from the env
+only_obs_target: False # set target from observation
+target_from_replay_bf: False # pick target from the replay buffer
+mixed_target: False # requires target_from_replay_bf = True for observations targets, otherwise only position targets are used
+batch_sampling: False # sample an entire batch instead of using the same target for the entire batch
+target_sampling_generation_strategy: "uniform" # for position target definition, define sampling method
+evaluation_target_obs: False # for evaluation use target observation (insted of positions) (multimodal goal definition eval)
+
+# mode
+action_repeat: 2 
+precision: 16
+finetune: true
+
+# model specs
+batch_size: 32
+batch_length: 32
+imag_horizon: 15
+eval_state_mean: False
+train_every_actions: 10
+
+# train settings
+num_train_frames: 100010
+num_seed_frames: 4000
+
+# eval settings
+eval_every_frames: 1000000
+num_eval_episodes: 10
+TSNE_analysis: false
+
+# pretrained
+snapshot_ts: 2000000
+snapshot_base_dir: /exp_sweep/models
+# snapshot
+snapshots: [100000, 500000, 1000000, 2000000] 
+snapshot_dir: ../../../models/${task}/${comment}/${agent.name}/${seed}
+# replay buffer
+replay_buffer_size: 500000
+replay_buffer_num_workers: 4
+replay:   
+  capacity: ${replay_buffer_size}
+  ongoing: False
+  minlen: 50
+  maxlen: 50 
+  prioritize_ends: False
+
+# log settings
+log_every_frames: 1000
+recon_every_frames: 5000 # edit for debug
+root_log_dir: '.'
+
+# Pretrained network reuse
+init_critic: true
+init_actor: true
+# Fine-tuning ablation
+save_ft_model: true
+
+hydra:
+  run:
+    dir: ${root_log_dir}/exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
+  sweep:
+    dir: ${root_log_dir}/exp_sweep/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}
+    subdir: ${hydra.job.num}
+  launcher:
+    timeout_min: 4300
+    cpus_per_task: 10
+    gpus_per_node: 1
+    tasks_per_node: 1
+    mem_gb: 160
+    nodes: 1
+    submitit_folder: ${root_log_dir}/exp_sweep/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_${comment}/.slurm

@@ -1,0 +1,35 @@
+defaults:
+  - segmenter
+
+name: rs
+horizon: 250
+controller: "OSC_POSE" 
+renderer:
+  fps: 30
+  size: [64, 64]
+  camera: "agentview2" # "frontview", "agentview", "eye_in_hand"
+  depths: True
+  segmentation_level: "element" # None, class, instance or element 
+  seg_size: [256, 256]
+  gt_segmentation: True
+reward_shaping: True
+task_reward: "distance"
+objects:
+  rgba: [1, 0, 0, 1]
+  minsize: 0.025
+  spawn_range: 0.01
+  random_placement: False
+  name: ""  
+goal:
+  x: None
+  y: None
+  z: None
+  point_goal: False
+
+init_exploration_area: [[-0.05, 0.05], [-0.05, 0.05], [0, 0]]
+limits_exploration_area: [[-0.25, 0.25], [-0.25, 0.25], [0, 0.1]]
+object_start_pos: [0, 0, 0.834]
+
+visualize_target: True
+dist_as_rw: False
+target_ablation_diam: False

@@ -1,0 +1,22 @@
+defaults:
+  - default
+
+_target_: agent.dreamer.DreamerAgent
+name: dreamer
+cfg: ???
+obs_space: ???
+act_spec: ???
+reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+reward_fn: "task"
+actor_ent: 1e-4 # entropy as form of exploration
+
+train_target_reach: False
+symlog_inputs: True # integration from DreamerV3
+
+world_model:
+  encoder: {mlp_keys: 'objects_pos|proprio', cnn_keys: 'rgb', norm: none, cnn_depth: 48, cnn_kernels: [4, 4, 4, 4], mlp_layers: 4, mlp_units: 400, coordConv: False} # act: elu
+  decoder: {mlp_keys: 'objects_pos|proprio', cnn_keys: 'rgb', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: 4, mlp_units: 400} # act: elu
+  grad_heads: [decoder, reward]
+  replay.capacity: 1e6
+  device: cuda
+  name: dreamer 

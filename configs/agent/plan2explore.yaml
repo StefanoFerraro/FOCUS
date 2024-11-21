@@ -1,0 +1,11 @@
+defaults:
+  - default
+  - dreamer
+  
+_target_: agent.plan2explore.Plan2Explore
+name: plan2explore
+cfg: ???
+obs_space: ???
+act_spec: ???
+reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+actor_ent: 0 

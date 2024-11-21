@@ -1,0 +1,15 @@
+segmenter:
+  fastSAM_url: https://huggingface.co/spaces/An-619/FastSAM/resolve/main/weights/FastSAM.pt
+  xmem_url: https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth
+  GroundingDino_url: https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth
+  checkpoints_folder: ./checkpoints/ # with respect to main dir
+  mode: None
+  text_prompt: None
+  box_prompt: [0, 0, 0, 0]
+  iou: 0.9 # iou threshold for filtering the annotations
+  conf: 0.4 # object confidence threshold
+  output: ./output/
+  randomcolor: True # mask random color
+  better_quality: False # better quality using morphologyEx
+  retina: True # draw high-resolution segmentation masks
+  withContours: True # draw the edges of the masks

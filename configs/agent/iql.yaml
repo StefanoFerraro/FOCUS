@@ -1,0 +1,18 @@
+_target_: agent.iql.IQLAgent
+name: iql
+obs_space: ???
+act_spec: ???
+device: ${device}
+lr: 3e-4 # 1e-4 in ExORL
+hidden_dim: 1024
+feature_dim: 50
+# actor critic
+# nstep: 3 # TODO: not used rn
+target_tau: 0.005 # 0.005 in SpinningUp # 0.01 in EXORL
+distributional: false
+temperature: 3. # hyperparam to search
+expectile: 0.8 # normally 0.9 or 0.7
+# encoder
+obs_keys: rgb|proprio
+drq_encoder: True
+drq_aug: False

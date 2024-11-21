@@ -1,0 +1,30 @@
+defaults:
+  - default
+
+_target_: agent.focus_lcp.FocusLCPAgent
+name: skill_focus
+cfg: ???
+obs_space: ???
+act_spec: ???
+reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+actor_ent: 0
+skill_reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
+
+train_target_reach: True
+symlog_inputs: True # integration from DreamerV3
+
+distance_mode: 'cosine'
+
+world_model:
+  encoder: {mlp_keys: 'proprio', cnn_keys: 'rgb', norm: none, cnn_depth: 48, cnn_kernels: [4, 4, 4, 4], mlp_layers: 4, mlp_units: 400, coordConv: False} # act: elu
+  decoder: {mlp_keys: 'proprio', cnn_keys: '$^', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: 4, mlp_units: 400} # act: elu
+  object_encoder: {mlp_keys: 'objects_pos', cnn_keys: '$^', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: 4, mlp_units: 400, distance_mode: "cosine", act: 'ReLU', dist: "mse"} 
+  object_decoder: {mlp_keys: 'objects_pos', cnn_keys: 'rgb|segmentation', norm: none, cnn_depth: 48, cnn_kernels: [5, 5, 6, 6], mlp_layers: 4, mlp_units: 400} # act: elu
+  object_extractor: {norm: none, act: 'ReLU', layers: 2, units: 512, dist: "mse"}
+  grad_heads: [decoder, object_decoder]
+  replay.capacity: 5e5
+  objEnc_MSE_ratio: 0.975
+  objlatent_ratio: 1
+  objects: [] 
+  device: cuda
+  name: focus
