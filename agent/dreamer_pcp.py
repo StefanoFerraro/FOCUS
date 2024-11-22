@@ -44,3 +44,37 @@ class DreamerPCPAgent(DreamerAgent, ConditionedAgent):
                 self.wm, start, data["is_terminal"], reward_fn))
         
         return state, metrics
+    
+    def act(self, obs, meta, step, eval_mode, state, **kwargs):
+        obs = {
+            k: torch.as_tensor(np.copy(v), device=self.device).unsqueeze(0)
+            for k, v in obs.items()
+        }
+        if state is None:
+            latent = self.wm.rssm.initial(len(obs["reward"]))
+            action = torch.zeros(
+                (len(obs["reward"]),) + self.act_spec.shape, device=self.device
+            )
+        else:
+            latent, action = state
+        embed = self.wm.encoder(self.wm.preprocess(obs))
+        should_sample = (not eval_mode) or (not self.cfg.eval_state_mean)
+        latent, _ = self.wm.rssm.obs_step(
+            latent, action, embed, obs["is_first"], should_sample
+        )
+        feat = self.wm.rssm.get_feat(latent)
+
+        # policy selection based on exploration or finetune mode
+        policy = self._skill_behavior.actor
+        skill = self._target_pos[0][0]
+        inp = torch.cat([feat, skill], dim=-1)
+
+        actor = policy(inp)
+        if eval_mode:
+            action = actor.mean
+        else:
+            action = actor.sample()
+
+        new_state = (latent, action)
+        return action.cpu().numpy()[0], new_state
+    

@@ -263,10 +263,11 @@ class Workspace:
             if self.train_target_reach:                  
                 utils.log_metrics_dict(move_to_target_metrics, log)
 
-        # B, T, C, H, W = video.shape
-        video = np.uint8(video * 255)
-        self.logger.log_video({' ' : video }, self.global_frame)
-        
+        if self.train_target_reach:
+            # B, T, C, H, W = video.shape
+            video = np.uint8(video * 255)
+            self.logger.log_video({' ' : video }, self.global_frame)
+            
         if self.global_frame % 25000 == 0: # in order to reduce space loggin space in wandb (takes 5MB each video/TSNE)
             # Eval episodes for testing the prior
             if self.agent.name not in model_free_models and self.cfg.TSNE_analysis: utils.TSNE_analysis(self)     

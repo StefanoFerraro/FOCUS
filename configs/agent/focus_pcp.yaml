@@ -6,7 +6,7 @@ name: focus_pcp
 cfg: ???
 obs_space: ???
 act_spec: ???
-reward_norm: {momentum: 1.0, scale: 1.0, eps: 1e-8}
+reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}
 reward_fn: "pos"
 actor_ent: 0
 skill_reward_norm: {momentum: 0.95, scale: 1.0, eps: 1e-8}

@@ -12,7 +12,7 @@ renderer:
   segmentation_level: "element" # None, class, instance or element 
   seg_size: [480, 480]
   gt_segmentation: True
-reward_shaping: True
+reward_shaping: False
 task_reward: "pick-place"
 objects:
   rgba: [1, 0, 0, 1]

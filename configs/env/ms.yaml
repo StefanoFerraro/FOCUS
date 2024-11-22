@@ -25,6 +25,3 @@ goal:
   y: None
   z: None
   point_goal: False
-  
-init_exploration_area: [0.05, 0.84]
-

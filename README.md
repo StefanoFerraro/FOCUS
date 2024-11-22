@@ -69,7 +69,7 @@ following this folder structure `{snapshot_base_dir} / f"snapshot_{snapshot_ts}.
 
 If you want to train offline run:
 ```sh
-python offline_train.py env=dmc task=reacher_easy agent=focus_lcp seed=0
+python offline_train.py env=dmc task=reacher_easy agent=focus seed=0
 ```
 In case of offline training, the location of the dataset needs to be provided through the argument `dataset_dir`, and must respect the following folder structure `/{dataset_dir}/{task}/{agent}/`.
 

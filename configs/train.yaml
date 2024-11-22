@@ -28,13 +28,13 @@ vis_target_dataset: False # (for offline training) utilize dataset with visual c
 # target conditioned policy
 curriculum_learning: false # curriculum learning for target setting
 target_modulator: 500000 # modulation parameter for curriculum learning
-env_target: False # utilize target from the env
-only_obs_target: False # set target from observation
-target_from_replay_bf: False # pick target from the replay buffer
-mixed_target: False # requires target_from_replay_bf = True for observations targets, otherwise only position targets are used
-batch_sampling: False # sample an entire batch instead of using the same target for the entire batch
+env_target: false # utilize target from the env
+only_obs_target: false # set target from observation
+target_from_replay_bf: false # pick target from the replay buffer
+mixed_target: false # requires target_from_replay_bf = True for observations targets, otherwise only position targets are used
+batch_sampling: false # sample an entire batch instead of using the same target for the entire batch
 target_sampling_generation_strategy: "uniform" # for position target definition, define sampling method
-evaluation_target_obs: False # for evaluation use target observation (insted of positions) (multimodal goal definition eval)
+evaluation_target_obs: false # for evaluation use target observation (insted of positions) (multimodal goal definition eval)
 
 # mode
 action_repeat: 2
