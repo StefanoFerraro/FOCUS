@@ -115,9 +115,6 @@ class SkillFocusAgent(FocusAgent):
         if which_policy not in ['expl', 'task', 'both']:
             raise ValueError(f"which_policy must be one of ['expl', 'task', 'both'], got {which_policy}")
         
-        if self.cfg.agent.condition_strategy == "pcp":
-            dist =torch.exp(- torch.linalg.norm(data["objects_pos"] - self._target_pos, axis=-1) / torch.linalg.norm(self._target_pos))
-            data["reward"] = dist # substitute reward signal from the environment with the distance from the asigned target (conditioned on) and the current position
         state, outputs, metrics = self.update_wm(data, step)
 
         if step >= self.cfg.agent.start_agent_training_after:

@@ -569,9 +569,8 @@ exp_configs = {
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
         "vis_target_dataset": [False], 
-        "expl_dataset": ["dreamer", "p2e", "focus"],
+        "expl_dataset": ["focus"],
     }, 
-    
     
     "offline_reacher_benchmark_5_MSE_ratio_pretrain" : {
         "agent": ["skill_focus"],
@@ -798,7 +797,7 @@ exp_configs = {
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
-        "expl_dataset": ["dreamer", "p2e", "focus"],
+        "expl_dataset": ["focus"],
     }, 
     
     "offline_rs_benchmark_5_MSE_ratio_pretrain" : {
@@ -1085,7 +1084,7 @@ exp_configs = {
     "offline_mw_benchmark_5_pretrain": {
         "agent": ["skill_focus"],
         "env": "mw",
-        "task": ["bin-picking"],
+        "task": ["shelf-place", "bin-picking"],
         "seed": [1,2,3],
         "env|segmenter|checkpoints_folder": "/mnt/home/focus/checkpoints",
         "agent|train_target_reach": [True],
@@ -1097,7 +1096,7 @@ exp_configs = {
         "log_every_frames": 1000,
         "recon_every_frames": 2500,
         "eval_every_frames": 2500, 
-        "expl_dataset": ["dreamer", "p2e", "focus"],
+        "expl_dataset": ["focus"],
         "env|batch_sampling": True,
         "replay_buffer_size": 2000000,
     }, 
@@ -1203,11 +1202,11 @@ exp_configs = {
     "target_metrics_eval": {
         "evaluation_script": "target_metrics",
         "num_points": 10,
-        "benchmark_id": ["8"], #["1", "4_cosine", "4_temporal", "5"],
+        "benchmark_id": ["5"], #["1", "4_cosine", "4_temporal", "5"],
         "agent": None,
-        "task": ["reacher_easy", "CustomLift", "shelf-place", "bin-picking"],
+        "task": ["bin-picking"], # "reacher_easy", "CustomLift", "shelf-place", 
         "expl_dataset": ["focus"],
-        "snapshot_num": 250000,
+        "snapshot_num": 500000,
         "vis_target": [False],
     }}
 
