@@ -473,9 +473,9 @@ def custom_target_2d(obs, target_pos, diam, env):
     
     torch_to_numpy = lambda x: x.detach().cpu().numpy() if type(x) == torch.Tensor else x
 
-    obs["rgb"][... ,0,*target_pixels] = 255
-    obs["rgb"][... ,1,*target_pixels] = 0
-    obs["rgb"][... ,2,*target_pixels] = 0
+    obs["rgb"][... ,0,slice(*target_pixels)] = 255
+    obs["rgb"][... ,1,slice(*target_pixels)] = 0
+    obs["rgb"][... ,2,slice(*target_pixels)] = 0
     # adapt proprio and reward to the new target
     coord_dist_to_target = torch_to_numpy(obs["objects_pos"][...,0,:]) - target_pos
     dist_to_target = np.sqrt(np.sum((coord_dist_to_target)**2, axis=-1))
