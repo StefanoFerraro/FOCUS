@@ -25,3 +25,11 @@ goal:
   y: None
   z: None
   point_goal: False
+
+init_exploration_area: [[-0.05, 0.05], [-0.05, 0.05], [0, 0]]
+limits_exploration_area: [[-0.35, 0.35], [-0.1, 0.4], [0, 0.03]] # removed z axis for ease of testing
+object_start_pos: [0, 0.5, 0] 
+
+visualize_target: True
+dist_as_rw: False
+target_ablation_diam: False
