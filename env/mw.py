@@ -8,7 +8,7 @@ import mujoco
 import metaworld
 from copy import deepcopy
 from gymnasium.envs.mujoco.mujoco_rendering import OffScreenViewer
-from metaworld.envs import reward_utils
+from metaworld.envs.mujoco.utils import reward_utils
 
 limits_exploration_area = {"bin-picking": [[-0.2, -0.1, 0], [0.2, 0.3, 0.15]],
                            "shelf-place": [[-0.35, -0.1, 0], [0.3, 0.4, 0.3]]}
