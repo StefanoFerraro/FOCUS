@@ -350,9 +350,6 @@ class Metaworld(ObjectsEnv):
         object_to_target = objects_pos[0] - (self._env._target_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
-            
-        # include target information in the proprioception
-        proprio = proprio + list(object_to_target)
 
         self.is_first = False
 
@@ -430,9 +427,6 @@ class Metaworld(ObjectsEnv):
         object_to_target = objects_pos[0] - (self._env._target_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
-            
-        # include target information in the proprioception
-        proprio = proprio + list(object_to_target)
         
         obs = {
             "reward": reward,

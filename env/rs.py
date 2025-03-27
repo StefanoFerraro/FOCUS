@@ -118,7 +118,7 @@ class PandaRoboSuite(ObjectsEnv):
                 "proprio": gym.spaces.Box(
                     -5,
                     5,
-                    (self._env.modality_dims["robot0_proprio-state"][0] + 3,), # 3 states for the target
+                    (self._env.modality_dims["robot0_proprio-state"][0],), 
                     dtype=np.float32,
                 ),
                 "target": gym.spaces.Box(
@@ -360,9 +360,6 @@ class PandaRoboSuite(ObjectsEnv):
         object_to_target = objects_pos[0] - (self._env.env.target_pos - self.object_start_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
-            
-        # include target information in the proprioception
-        proprio = proprio + list(object_to_target)
         
         action = np.delete(action, [3, 4, 5])  # remove dummy orientation values
 
@@ -414,9 +411,6 @@ class PandaRoboSuite(ObjectsEnv):
         object_to_target = objects_pos[0] - (self._env.env.target_pos - self.object_start_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
-            
-        # include target information in the proprioception
-        proprio = proprio + list(object_to_target)
         
         if self.cfg.target_ablation_diam:
             rgb = self.get_rgb_with_target()
