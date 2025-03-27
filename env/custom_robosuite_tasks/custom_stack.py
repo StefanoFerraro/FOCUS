@@ -81,6 +81,7 @@ class CustomStack(SingleArmEnv):
         self.reset_quat_objects["cubeB"] = np.array(
             [0.81250834, 0.0, 0.0, 0.58294957]
         )
+        self.target_pos = np.array([0, 0, 0.9])
 
         super().__init__(
             robots=robots,

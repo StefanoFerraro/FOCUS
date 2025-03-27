@@ -347,8 +347,8 @@ class Metaworld(ObjectsEnv):
         # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
         objects_pos = [self.true_obj_pos[self.target_obj[0]]]
         
-        object_to_target = objects_pos[0] - (self._env._target_pos)
         if self.dist_as_rw:
+            object_to_target = objects_pos[0] - (self._env._target_pos)
             reward = - np.linalg.norm(object_to_target)
 
         self.is_first = False
@@ -368,7 +368,7 @@ class Metaworld(ObjectsEnv):
                 cv2.resize(depth, self.size, interpolation=cv2.INTER_NEAREST), axis=0
             ),
             "proprio": np.array(proprio).astype(np.float32),
-            "target": np.array(object_to_target).astype(np.float32),
+            "target": np.array(self._env._target_pos).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "action": action,
@@ -424,8 +424,8 @@ class Metaworld(ObjectsEnv):
         # objects_pos = self.pixel_to_world(seg, np.expand_dims(depth, axis=0))
         objects_pos = [self.true_obj_pos[self.target_obj[0]]]
 
-        object_to_target = objects_pos[0] - (self._env._target_pos)
         if self.dist_as_rw:
+            object_to_target = objects_pos[0] - (self._env._target_pos)
             reward = - np.linalg.norm(object_to_target)
         
         obs = {
@@ -440,7 +440,7 @@ class Metaworld(ObjectsEnv):
                 cv2.resize(depth, self.size, interpolation=cv2.INTER_NEAREST), axis=0
             ),
             "proprio": np.array(proprio).astype(np.float32),
-            "target": np.array(object_to_target).astype(np.float32),
+            "target": np.array(self._env._target_pos).astype(np.float32),
             "objects_pos": np.array(objects_pos).astype(np.float32),
             "segmentation": seg,
             "action": np.zeros_like(self.act_space["action"].sample()),
