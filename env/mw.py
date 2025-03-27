@@ -23,7 +23,9 @@ class Metaworld(ObjectsEnv):
         action_repeat=1,
     ):
         super().__init__(env_config, task, objs, seed, action_repeat)
-        self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task]    
+        
+        if self.task in limits_exploration_area.keys(): self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task] 
+        else: self.limits_exploration_area = env_config.limits_exploration_area = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
         
         self._make()
 
@@ -87,7 +89,7 @@ class Metaworld(ObjectsEnv):
                 "proprio": gym.spaces.Box(
                     -5,
                     5,
-                    [18 + 3],  # qpos + qvel * (7 joints + 2 fingers) + 3 states for the target
+                    [18],  # qpos + qvel * (7 joints + 2 fingers)
                     dtype=np.float32,
                 ),
                 "target": gym.spaces.Box(
@@ -623,6 +625,7 @@ class Metaworld(ObjectsEnv):
         return 0 < leftpad_object_contact_force or 0 < rightpad_object_contact_force
 
     #### ADDED FUNCTIONS ####
+    
     def _target_hide(self):
         if self.task != "bin-picking":
             self._env.model.site("goal").rgba[-1] = 0 # hide the goal in the scene

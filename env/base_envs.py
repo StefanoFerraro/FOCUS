@@ -44,8 +44,6 @@ class BaseEnv:
                 img_size=self.seg_size,
                 device="cuda:0",
             )
-            
-        self.dist_as_rw = env_config.dist_as_rw
         
         self.cfg = env_config
         
@@ -123,7 +121,7 @@ class BaseEnv:
     
     
 class ObjectsEnv(BaseEnv):
-    def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1):
+    def __init__(self, env_config, task="", objs=["obj"], seed=None, action_repeat=1,):
         super().__init__(env_config, task, objs, seed, action_repeat)
 
         # object specs
@@ -144,6 +142,8 @@ class ObjectsEnv(BaseEnv):
         self.objects_pixels = [0] * len(objs)
         self.target_obj = self.segmentation_instances[0]
         self.object_start_pos = env_config.object_start_pos 
+        
+        self.dist_as_rw = env_config.dist_as_rw
 
     def pixel_to_world(self, seg, depth):
         depth = depth.transpose(1, 2, 0)
