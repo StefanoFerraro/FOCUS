@@ -38,6 +38,8 @@ For the **explorative agents** we support the following environments:
 | ManiSkill | `ms`| `TurnFaucet`, `CustomLiftYCB` (tested with `banana` and `master_chef_can` objects)|
 | MetaWorld | `mw` | `drawer-close`, `drawer-open`, `disassemble`, `handle-pull`, `peg-insert-side`| 
 
+Maniskill assets can be downloaded with `python -m mani_skill2.utils.download_asset`
+
 For the **conditioned agents** we support the following environments:
 
 | Env | Domain | Tasks |

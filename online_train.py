@@ -395,7 +395,7 @@ class Workspace:
                         self.metrics = self.agent.update(
                             next(self.replay_iter), self.global_step, which_policy="both"
                         )[1]
-                    if should_log_scalars(self.global_step):
+                    if self.metrics and should_log_scalars(self.global_step):
                         self.logger.log_metrics(self.metrics, self.global_frame, ty="train")
                     
                     if hasattr(self.agent, 'report') and callable(self.agent.report):
