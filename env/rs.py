@@ -356,7 +356,7 @@ class PandaRoboSuite(ObjectsEnv):
         seg = self.segmentation_channel_split(seg, self.include_background)
 
         # objects_pos = self.pixel_to_world(seg, depth)
-        objects_pos = [self.true_obj_pos[self.target_obj]]
+        objects_pos = list(self.true_obj_pos.values())
         object_to_target = objects_pos[0] - (self._env.env.target_pos - self.object_start_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
@@ -407,7 +407,7 @@ class PandaRoboSuite(ObjectsEnv):
         self.true_obj_pos, self.true_obj_ori = self.get_object_pose()
 
         # objects_pos = self.pixel_to_world(seg, depth)
-        objects_pos = [self.true_obj_pos[self.target_obj]]
+        objects_pos = list(self.true_obj_pos.values())
         object_to_target = objects_pos[0] - (self._env.env.target_pos - self.object_start_pos)
         if self.dist_as_rw:
             reward = - np.linalg.norm(object_to_target)
