@@ -23,6 +23,7 @@ class Metaworld(ObjectsEnv):
         seed=None,
         action_repeat=1,
     ):
+        os.environ["DISPLAY"] = ":0"
         super().__init__(env_config, task, objs, seed, action_repeat)
         
         if self.task in limits_exploration_area.keys(): self.limits_exploration_area = env_config.limits_exploration_area = limits_exploration_area[self.task] 
